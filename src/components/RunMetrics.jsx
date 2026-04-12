@@ -93,7 +93,10 @@ function grade(rate, rejected) {
 }
 
 export default function RunMetrics() {
-  const { loadMetrics, etlProgress, executiveSummary, visualizations, etlStatus, pipelineStatus, sessionId, userPrefix } = usePipelineStore();
+  const { 
+    loadMetrics, etlProgress, executiveSummary, visualizations, 
+    etlStatus, pipelineStatus, sessionId, userPrefix, nodeDurations 
+  } = usePipelineStore();
 
   const factMetrics = loadMetrics?.fact || {};
   const dimMetrics  = loadMetrics?.dimensions || {};

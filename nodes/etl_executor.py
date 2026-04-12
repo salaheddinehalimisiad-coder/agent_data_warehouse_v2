@@ -56,7 +56,7 @@ def etl_executor_node(state: AgentState) -> dict:
     # ── Mode dégradé si pas de config DW ───────────────────────────────────
     if not dw_config or not dw_config.get("host"):
         exec_log = exec_log + ["[ETL] Mode dégradé — pas de config DW, export DDL uniquement"]
-        return _export_ddl_only(sql_ddl, user_prefix, exec_log, retry_count)
+        return _export_ddl_only(sql_ddl, user_prefix, exec_log, retry_count, state.get("etl_code", ""))
 
     # ── Connexion DW ─────────────────────────────────────────────────────────
     try:
@@ -65,7 +65,12 @@ def etl_executor_node(state: AgentState) -> dict:
         exec_log = exec_log + ["[ETL] ✅ Connexion DW établie"]
     except Exception as e:
         logger.warning(f"[ETL] DW non accessible : {e} — export DDL uniquement")
-        return _export_ddl_only(sql_ddl, user_prefix, exec_log + [f"[ETL] DW inaccessible : {e}"], retry_count)
+        return _export_ddl_only(
+            sql_ddl, user_prefix, 
+            exec_log + [f"[ETL] DW inaccessible : {e}"], 
+            retry_count, 
+            state.get("etl_code", "")
+        )
 
     # ── Étape 1 : Créer le schéma DDL ───────────────────────────────────────
     ddl_err = _execute_ddl(dw_engine, sql_ddl)
@@ -132,8 +137,12 @@ def etl_executor_node(state: AgentState) -> dict:
     if fact:
         fact_name  = fact.get("name", "")
         table_name = f"{user_prefix}_{fact_name}"
+        clean_action = state.get("clean_action", "NONE")
         try:
-            fact_metrics = _load_fact(dw_engine, table_name, fact, source_df, sk_maps, user_prefix, session_id)
+            fact_metrics = _load_fact(
+                dw_engine, table_name, fact, source_df, 
+                sk_maps, user_prefix, session_id, clean_action
+            )
             exec_log = exec_log + [
                 f"[ETL] ✅ {table_name} — {fact_metrics.get('inserted', 0)} faits insérés, "
                 f"{fact_metrics.get('rejected', 0)} rejetés"
@@ -318,7 +327,8 @@ def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
 
 
 def _load_fact(engine, table_name: str, fact_model: dict, source_df,
-               sk_maps: dict, prefix: str, session_id: str = "unknown") -> dict:
+               sk_maps: dict, prefix: str, session_id: str = "unknown", 
+               clean_action: str = "NONE") -> dict:
     """
     Charge la table de faits :
     - Résolution des SKs via sk_maps
@@ -331,7 +341,6 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
     import pandas as pd
     from api.services.sse import broadcast
 
-    clean_action = state.get("clean_action", "NONE")
     use_ignore  = clean_action in ("IGNORE_REJECTS", "DEDUPLICATE")
 
     columns  = fact_model.get("columns", [])
@@ -581,7 +590,7 @@ def _is_date_column(series) -> bool:
         return False
 
 
-def _export_ddl_only(sql_ddl: str, user_prefix: str, exec_log: list, retry_count: int) -> dict:
+def _export_ddl_only(sql_ddl: str, user_prefix: str, exec_log: list, retry_count: int, ktr_xml: str = "") -> dict:
     """Mode dégradé : exporte uniquement le DDL SQL."""
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     ddl_path = OUTPUTS_DIR / f"{user_prefix}_schema.sql"
@@ -589,7 +598,6 @@ def _export_ddl_only(sql_ddl: str, user_prefix: str, exec_log: list, retry_count
 
     ddl_path.write_text(sql_ddl, encoding="utf-8")
     # Conserver le KTR généré précédemment s'il existe
-    ktr_xml = state.get("etl_code", "")
     if ktr_xml:
         ktr_path.write_text(ktr_xml, encoding="utf-8")
     else:

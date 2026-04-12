@@ -133,6 +133,10 @@ export default function App() {
     document.documentElement.classList.toggle('dark', isDarkMode);
   }, [isDarkMode]);
 
+  const isRunning        = ['starting', 'running'].includes(pipelineStatus);
+  const isAwaitingReview = pipelineStatus === 'awaiting_review' || pipelineStatus === 'awaiting_dq_review';
+  const isComplete       = pipelineStatus === 'complete';
+
   // Ctrl+K shortcut → New Pipeline
   useEffect(() => {
     const handleKey = (e) => {
@@ -182,10 +186,7 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handler);
   }, [showExport]);
 
-  const isRunning        = ['starting', 'running'].includes(pipelineStatus);
-  const isAwaitingReview = pipelineStatus === 'awaiting_review' || pipelineStatus === 'awaiting_dq_review';
-  const isComplete       = pipelineStatus === 'complete';
-  
+
   useEffect(() => {
     if (isComplete) {
       const duration = 3 * 1000;
