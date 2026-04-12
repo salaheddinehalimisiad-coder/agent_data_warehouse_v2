@@ -1,0 +1,85 @@
+# docker-compose.yml — Déploiement complet production
+# Usage : docker-compose up -d
+version: '3.9'
+
+# ── Réseau explicite pour l'isolation inter-services ──────────────────────────
+networks:
+  agent_dw_net:
+    driver: bridge
+
+services:
+
+  # ── MySQL — Base de métadonnées ───────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: agent_dw_mysql
+    restart: unless-stopped
+    networks:
+      - agent_dw_net
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-agent_dw_meta}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      # AUDIT FIX : limité à localhost uniquement, MySQL n'est pas exposé publiquement
+      - "127.0.0.1:3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend FastAPI ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: agent_dw_backend
+    restart: unless-stopped
+    networks:
+      - agent_dw_net
+    env_file: .env
+    environment:
+      DB_HOST: mysql
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    # Limite mémoire pour éviter la saturation par les agents LLM
+    mem_limit: 2g
+
+  # ── Frontend React (build statique servi par Nginx) ────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: agent_dw_frontend
+    restart: unless-stopped
+    networks:
+      - agent_dw_net
+    environment:
+      # AUDIT FIX CRITIQUE : utiliser le nom du service backend, pas localhost
+      # localhost dans un container pointe vers le container lui-même
+      VITE_API_URL: http://backend:8000
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    mem_limit: 256m
+
+volumes:
+  mysql_data:
+    driver: local

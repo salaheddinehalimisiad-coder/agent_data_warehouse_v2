@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Background -->
+  <rect width="32" height="32" rx="8" fill="#6366f1"/>
+  <!-- Database icon -->
+  <ellipse cx="16" cy="10" rx="8" ry="3" fill="#a5b4fc"/>
+  <path d="M8 10v4c0 1.657 3.582 3 8 3s8-1.343 8-3v-4" fill="#818cf8"/>
+  <path d="M8 14v4c0 1.657 3.582 3 8 3s8-1.343 8-3v-4" fill="#6366f1" stroke="#a5b4fc" stroke-width="0.5"/>
+  <path d="M8 18v4c0 1.657 3.582 3 8 3s8-1.343 8-3v-4" fill="#4f46e5" stroke="#a5b4fc" stroke-width="0.5"/>
+  <!-- Spark / AI indicator -->
+  <circle cx="24" cy="8" r="4" fill="#f59e0b"/>
+  <path d="M24 5.5v1.5h-1.5l1.5 1.5-1.5 1.5H24V11.5l1.5-1.5 1.5 1.5V10h1.5l-1.5-1.5 1.5-1.5H25.5V5.5Z" fill="white"/>
+</svg>

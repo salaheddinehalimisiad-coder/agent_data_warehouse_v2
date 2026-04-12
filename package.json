@@ -1,0 +1,37 @@
+{
+  "name": "agent-data-warehouse",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "format": "prettier --write \"src/**/*.{js,jsx,css,html}\""
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.0.0",
+    "canvas-confetti": "^1.9.4",
+    "d3": "^7.9.0",
+    "d3-force": "^3.0.0",
+    "framer-motion": "^11.18.2",
+    "lucide-react": "^0.383.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-syntax-highlighter": "^15.5.0",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.34.1",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.6",
+    "postcss": "^8.4.0",
+    "prettier": "^3.2.5",
+    "tailwindcss": "^3.4.0",
+    "vite": "^5.4.0"
+  }
+}
