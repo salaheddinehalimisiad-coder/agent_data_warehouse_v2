@@ -5,7 +5,7 @@ import {
   Download, FileText, Mail, Check,
   Loader2, X, ChevronRight, AlertTriangle,
   Database, Code2, ShieldCheck, Box, Zap,
-  Send, Sparkles, Hash
+  Send, Sparkles, Hash, Wind, Package, DatabaseZap
 } from 'lucide-react';
 import { usePipelineStore } from '../store/pipelineStore';
 import { apiClient } from '../api/client';
@@ -53,7 +53,7 @@ function ExportCard({ label, sublabel, icon: Icon, onClick, disabled, loading, s
 }
 
 export default function ExportPanel({ onClose }) {
-  const { sessionId, pipelineStatus, etlStatus, userPrefix, sqlDDL } = usePipelineStore();
+  const { sessionId, pipelineStatus, etlStatus, userPrefix, sqlDDL, airflowDag, dbtProject, mockDataSql } = usePipelineStore();
   const [email, setEmail]           = useState('');
   const [includePdf, setIncludePdf] = useState(true);
   const [loading, setLoading]       = useState(null); 
@@ -147,6 +147,58 @@ export default function ExportPanel({ onClose }) {
     }
   };
 
+  const handleDownloadAirflow = async () => {
+    if (!sessionId) return;
+    setLoading('airflow'); setError('');
+    try {
+      const base = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const resp = await fetch(`${base}/api/export-airflow?session_id=${sessionId}`, {
+        headers: apiClient.getHeaders()
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Status ${resp.status}: ${text}`);
+      }
+      const blob = await resp.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${userPrefix}_etl_dag.py`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      flashSuccess('airflow');
+    } catch (e) {
+      setError(`Airflow Export Fault: ${e.message}`);
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleDownloadDbt = async () => {
+    if (!sessionId) return;
+    setLoading('dbt'); setError('');
+    try {
+      const base = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const resp = await fetch(`${base}/api/export-dbt?session_id=${sessionId}`, {
+        headers: apiClient.getHeaders()
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Status ${resp.status}: ${text}`);
+      }
+      const blob = await resp.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${userPrefix}_dbt_project.zip`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      flashSuccess('dbt');
+    } catch (e) {
+      setError(`DBT Export Fault: ${e.message}`);
+    } finally {
+      setLoading(null);
+    }
+  };
+
   const handleDownloadSql = () => {
     if (!sqlDDL) return;
     const blob = new Blob([sqlDDL], { type: 'text/sql' });
@@ -157,6 +209,18 @@ export default function ExportPanel({ onClose }) {
     a.click();
     URL.revokeObjectURL(url);
     flashSuccess('sql');
+  };
+
+  const handleDownloadMockData = () => {
+    if (!mockDataSql) return;
+    const blob = new Blob([mockDataSql], { type: 'text/sql' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `seed_${userPrefix}_${sessionId.substring(0,8)}.sql`;
+    a.click();
+    URL.revokeObjectURL(url);
+    flashSuccess('mock');
   };
 
   const handleSendEmail = async () => {
@@ -239,6 +303,24 @@ export default function ExportPanel({ onClose }) {
             label="Logical Schema" sublabel="Raw SQL DDL Structure"
             icon={Database} colorCls="indigo"
             onClick={handleDownloadSql} disabled={!canExport || !sqlDDL} loading={loading === 'sql'} success={success === 'sql'}
+          />
+
+          <ExportCard 
+            label="Airflow Orchestrator DAG" sublabel="Native Python Scheduling"
+            icon={Wind} colorCls="cyan"
+            onClick={handleDownloadAirflow} disabled={!canExport || !airflowDag} loading={loading === 'airflow'} success={success === 'airflow'}
+          />
+
+          <ExportCard 
+            label="dbt Analytics Models" sublabel="SQL Transformation Project"
+            icon={Package} colorCls="orange"
+            onClick={handleDownloadDbt} disabled={!canExport || !dbtProject} loading={loading === 'dbt'} success={success === 'dbt'}
+          />
+
+          <ExportCard 
+            label="Mock Data Generator" sublabel="Seed SQL Scripts"
+            icon={DatabaseZap} colorCls="pink"
+            onClick={handleDownloadMockData} disabled={!canExport || !mockDataSql} loading={loading === 'mock'} success={success === 'mock'}
           />
 
           <ExportCard 

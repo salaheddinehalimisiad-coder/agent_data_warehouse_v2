@@ -1,4 +1,4 @@
-# 🌌 Agent Data Warehouse v4.0 PRO
+# 🌌 Agent Data Warehouse v4.1 PRO
 > **L'ingénierie de données réinventée par l'Intelligence Artificielle Agentique.**
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com)
@@ -6,116 +6,101 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-2D3748?style=for-the-badge&logo=langchain&logoColor=white)](https://langchain-ai.github.io/langgraph/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
-**Agent Data Warehouse** est une plateforme ETL autonome de nouvelle génération. Elle utilise une orchestration multi-agents (via LangGraph) pour transformer des sources de données brutes en un Data Warehouse structuré selon la méthodologie Kimball, sans intervention humaine manuelle.
+**Agent Data Warehouse** est la première plateforme d'ingénierie de données totalement autonome. Propulsée par 15 agents neuronaux indépendants, elle convertit vos gisements de données bruts en un environnement décisionnel d'entreprise (Data Warehouse structuré, Modèles dbt, Orchestration Airflow, Audit de sécurité RGPD) sans écrire la moindre ligne de code manuellement.
 
 ---
 
-## ✨ Fonctionnalités d'Élite
+## ✨ Les 15 Agents Intelligents (v4.1 PRO)
 
-### 🧠 Cerveau Orchestrateur (LangGraph)
-Un graphe de décision complexe gère le flux de données, de l'exploration à la maintenance, avec une capacité d'auto-correction unique.
+Notre architecture LangGraph orchestre des agents spécialisés qui interagissent et corrigent leurs erreurs en temps réel :
 
-### 🏥 Système Immunitaire (Neural Healer)
-Lorsqu'une erreur survient dans le pipeline ETL, l'agent **Healer** analyse les logs système et applique des remédiations stratégiques (dédoublonnage, forçage de types, insertion permissive) pour garantir un chargement réussi.
+### 1️⃣ Exploration et Qualité (Source)
+- **🔍 Explorer** : Analyse la topologie et le format du système source par inférence.
+- **🛡️ Data Quality** : Évalue la propreté (valeurs nulles, unicité) et émet un Score de Santé.
+- **🌊 Drift Detector** : Protège le pipeline contre les changements surprises du backend de production.
 
-### 💓 Pulse Metrics & Real-time Monitoring
-Suivez la progression de vos données en direct avec des compteurs de lignes ultra-rapides et une visualisation dynamique du débit de traitement.
+### 2️⃣ Architecture et Gouvernance (Conception)
+- **🧠 Modeler** : Construit le schéma en étoile (Star Schema) via Méta-heuristique.
+- **🔒 Governance** *(Nouveau)* : Agit comme un véritable DPO (Data Protection Officer) pour détecter les PII et générer des règles de Masquage SQL Dynamique (CCPA/RGPD).
+- **⚖️ Critic** : Le garant de l'intégrité architecturale, capable de bloquer et demander des révisions au Modeler.
 
-### 🏛️ Architecture & Dictionnaire Neural
-Génération automatique d'un schéma en étoile (Star Schema) avec documentation sémantique intégrée pour chaque entité métier.
+### 3️⃣ Interaction et Correction (Humain + IA)
+- **👤 Human Review** : L'Humain garde le dernier mot via l'interface du Dashboard (HITL).
+- **💬 Chat Modifier** : Prends vos requêtes en langage naturel ("Ajoute une dimension métier") et refactorise l'architecture sur le tas.
 
-### 📊 Neural Insights & SQL Suggestions
-Analyse post-chargement par IA pour extraire la valeur métier et suggérer des requêtes SQL analytiques prêtes à l'emploi.
+### 4️⃣ Génération, Exécution et Guérison (ETL)
+- **⚙️ ETL Generator** : Encode les règles de mapping complexes en scripts XML ou Python réels.
+- **🚀 ETL Executor** : Propulse les données de bout en bout via des connecteurs haute-performance.
+- **🩹 Healer** : *Auto-Guérison*. Intercepte les pannes de processus ou exceptions SQL, comprend l'erreur de base de données et auto-corrige le pipeline.
+
+### 5️⃣ Observabilité, Analyse & Modern Data Stack (Export)
+- **📚 Cataloger** *(Nouveau)* : Autogénère un Dictionnaire de Données d'entreprise ultra-complet reprenant la sémantique de vos activités.
+- **🌬️ Airflow Generator** *(Nouveau)* : Génère le DAG Python Apache Airflow pour planifier vos re-traitements en production.
+- **🏗️ dbt Generator** *(Nouveau)* : Structure vos transformations dbt (`models/staging`, `models/marts`) directement au format .zip pré-prêt.
+- **🧪 Synthesizer (Mock Data)** *(Nouveau)* : Génère massivement des instructions SQL \`INSERT\` de données sémantiquement plausibles pour tester vos dashboards sans environnement de production.
+- **📊 Forecaster / Insight Generator** : Intelligence Artificielle temporelle projetant des régressions sur vos faits analytiques (Revenus, Ventes, Trafic).
+- **🔗 Lineage Tracker** : Reconstruit la lignée (Data Lineage) visuelle de vos flux avec ReactFlow.
 
 ---
 
-## 🏗️ Architecture du Système
+## 🏗️ The Neural Flow (LangGraph Architecture)
 
 ```mermaid
 graph TD
-    A[Source Data] --> B[🔍 Explorer Agent]
+    A[Data Source] --> B[🔍 Explorer]
     B --> C[🛡️ DQ Auditor]
     C --> D[🌊 Drift Detector]
-    D --> E[🧠 Neural Modeler]
-    E --> F{⚖️ Critic Agent}
-    F -- Revision --> G[💬 Chat Modifier]
+    D --> E[🧠 Modeler]
+    E --> V[🔒 Governance Agent]
+    V --> F{⚖️ Critic Agent}
+    
+    F -- Revision Required --> G[💬 Chat Modifier]
     G --> E
-    F -- Approved --> H[⚙️ ETL Generator]
-    H --> I[🚀 ETL Executor]
-    I -- Failure --> J[🔧 Strategic Healer]
-    J --> I
-    I -- Success --> K[🔗 Lineage Tracker]
-    K --> L[📊 Insight Generator]
-    L --> M[🏁 Ready for BI]
+    
+    F -- Architect Approved --> H[👤 Human Decision]
+    H --> I[⚙️ ETL Generator]
+    
+    I --> J[🚀 ETL Executor]
+    J -- Exception / DB Error --> K[🩹 Healer Agent]
+    K --> J
+    
+    J -- Success --> L[📚 Cataloger]
+    L --> M[🌬️ Airflow Generator]
+    M --> N[🏗️ dbt Generator]
+    N --> P[🧪 Mock/Synthesizer]
+    P --> Q[🔗 Lineage Tracker]
+    Q --> R[📊 Insights & Forecast]
 ```
-
----
-
-## 🛠️ Stack Technologique
-
-| Couche | Technologies |
-|--------|--------------|
-| **Intelligence** | LangGraph, Gemini 1.5 Pro / Flash, Ollama |
-| **Logic** | Python 3.10+, FastAPI, SQLAlchemy |
-| **Frontend** | React 18, Tailwind CSS, Framer Motion, Zustand |
-| **Data Engine** | Pandas, OpenPyXL, SQL Connector |
-| **Operations** | Docker, JWT Auth, Rate Limiting |
 
 ---
 
 ## 🚀 Démarrage Rapide
 
-### 1. Configuration de l'environnement
-Clonez le dépôt et configurez votre fichier `.env` :
+### Déploiement Simplifié (Vite + FastAPI + Docker)
+Clonez et créez votre fichier d'environnement :
 ```bash
-git clone https://github.com/votre-repo/agent-data-warehouse.git
-cd agent-data-warehouse
+git clone https://github.com/salaheddinehalimisiad-coder/agent_data_warehouse_v2.git
+cd agent_data_warehouse_v2
 cp .env.example .env
 ```
-
-### 2. Lancement via Docker (Recommandé)
-Le moyen le plus simple de déployer la stack complète (Frontend, Backend, Database) :
-```bash
-docker-compose up --build -d
+Lancez l'intégralité du produit en `mode développement` depuis le script PowerShell (si Windows) :
+```powershell
+.\start.ps1
 ```
-Accès :
-- **Frontend** : `http://localhost:80`
-- **Backend API** : `http://localhost:8000/docs`
-
-### 3. Installation manuelle
-**Backend :**
+Ou manuellement :
 ```bash
+# Terminal 1 - The AI Backend (Port 8000)
 pip install -r requirements.txt
-uvicorn api.server:app --reload --port 8000
-```
-**Frontend :**
-```bash
+uvicorn api.server:app --reload
+
+# Terminal 2 - The Neural React Dashboard (Port 5173)
 npm install
 npm run dev
 ```
 
 ---
 
-## 📖 Méthodologie Data Engineering
+## 🤝 Contribution & License
+Cette version intègre les bests practices de Data Engineering de pointe (*Kimball Data Warehousing, SCD Type 2, PII Hashing...*). Distribué sous licence MIT. Code propriétaire initial créé dans l'ère de l'Intelligence Multi-Agents.
 
-Le système applique rigoureusement les principes de modélisation de Kimball :
-- **Surrogate Keys** : Clés artificielles pour l'indépendance des données.
-- **SCD Type 2** : Gestion de l'historique des changements (Slowly Changing Dimensions).
-- **Integrité Dimensionnelle** : Résolution automatique des clés étrangères lors du chargement des faits.
-- **dim_date** : Génération systématique d'une dimension temporelle enrichie.
-
----
-
-## 🤝 Contribution
-Les contributions sont les bienvenues ! Pour les changements majeurs, veuillez d'abord ouvrir une issue pour discuter de ce que vous aimeriez changer.
-
----
-
-## 📄 Licence
-Distribué sous la licence MIT. Voir `LICENSE` pour plus d'informations.
-
----
-
-<p align="center">
-  Propulsé par <b>Agent Architect</b> · Créé pour l'ère de l'IA.
-</p>
+> *"We don't code data pipelines anymore, we govern the AI that does."*

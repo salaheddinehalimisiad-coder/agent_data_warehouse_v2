@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Play, Terminal, LogOut, Database, ChevronLeft, ChevronRight,
   Settings, Activity, Sparkles, ShieldCheck, Star, GitMerge,
-  BrainCircuit, Zap, Sun, Moon, Book
+  BrainCircuit, Zap, Sun, Moon, Book, Lock
 } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import ToastNotifications from './components/ToastNotifications';
@@ -27,6 +27,7 @@ const ExportPanel       = React.lazy(() => import('./components/ExportPanel'));
 const SettingsPage      = React.lazy(() => import('./components/SettingsPage'));
 const StarSchemaViewer  = React.lazy(() => import('./components/StarSchemaViewer'));
 const DataQualityPanel  = React.lazy(() => import('./components/DataQualityPanel'));
+const GovernancePanel   = React.lazy(() => import('./components/GovernancePanel'));
 const DocumentationPage = React.lazy(() => import('./components/DocumentationPage'));
 const ArchitectureInspector = React.lazy(() => import('./components/ArchitectureInspector'));
 const LineageGraph          = React.lazy(() => import('./components/LineageGraph'));
@@ -62,9 +63,13 @@ function ActiveAgentPill({ agent }) {
   if (!agent) return null;
   const labels = {
     explorer: 'Explorer', data_quality: 'Data Quality', drift_detector: 'Drift Detector',
-    modeler: 'Modeler', critic: 'Critic', human_review: 'Review',
+    modeler: 'Modeler', governance: 'Governance', critic: 'Critic', human_review: 'Review',
     chat_modifier: 'Chat Modifier', etl_generator: 'ETL Generator',
-    etl_executor: 'ETL Executor', healer: 'Healer', lineage_tracker: 'Lineage',
+    etl_executor: 'ETL Executor', healer: 'Healer', 
+    insight_generator: 'Insight', forecaster: 'Forecaster', 
+    cataloger: 'Cataloger', airflow_generator: 'Airflow Generator',
+    dbt_generator: 'dbt Generator', mock_generator: 'Synthesizer', 
+    lineage_tracker: 'Lineage',
   };
   return (
     <motion.div
@@ -88,6 +93,7 @@ const LEFT_PANEL_TABS = [
   { id: 'architect',icon: BrainCircuit, label: 'Inspector'    },
   { id: 'explorer', icon: Database,     label: 'Source'       },
   { id: 'schema',   icon: Star,         label: 'OLAP Schema'  },
+  { id: 'governance',icon: Lock,        label: 'Security'     },
   { id: 'catalog',  label: 'Catalog',   icon: Book            },
   { id: 'quality',  icon: ShieldCheck,  label: 'Validation'   },
   { id: 'lineage',  icon: GitMerge,     label: 'Lineage'      },
@@ -476,6 +482,7 @@ export default function App() {
                     {activeMainView === 'architect' && <ArchitectureInspector />}
                     {activeMainView === 'lineage'   && <LineageGraph />}
                     {activeMainView === 'metrics'   && <RunMetrics />}
+                    {activeMainView === 'governance' && <GovernancePanel />}
                  </Suspense>
                </ErrorBoundary>
             </main>

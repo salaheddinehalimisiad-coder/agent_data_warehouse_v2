@@ -27,6 +27,10 @@ from nodes.lineage_tracker       import lineage_tracker_node        # ← NOUVEA
 from nodes.insight_generator     import insight_generator_node
 from nodes.forecaster            import forecaster_node             # ← NOUVEAU v4.1
 from nodes.cataloger             import cataloger_node              # ← NOUVEAU v4.1
+from nodes.airflow_generator     import airflow_generator_node      # ← NOUVEAU AIRFLOW
+from nodes.dbt_generator         import dbt_generator_node          # ← NOUVEAU dbt
+from nodes.governance_agent      import governance_agent_node       # ← NOUVEAU GOVERNANCE
+from nodes.mock_generator        import mock_generator_node         # ← NOUVEAU SYNTHESIZER
 
 logger           = logging.getLogger(__name__)
 MAX_RETRIES      = 3
@@ -171,6 +175,7 @@ def create_agent_workflow():
     workflow.add_node("human_review_dq",      human_review_dq_alert_node)
     workflow.add_node("drift_detector",       profile_node(schema_drift_detector_node, "drift_detector"))
     workflow.add_node("modeler",              profile_node(modeler_node, "modeler"))
+    workflow.add_node("governance",           profile_node(governance_agent_node, "governance"))
     workflow.add_node("critic",               profile_node(critic_node, "critic"))
     workflow.add_node("human_review",         human_review_node)
     workflow.add_node("chat_modifier",        profile_node(chat_modifier_node, "chat_modifier"))
@@ -181,6 +186,9 @@ def create_agent_workflow():
     workflow.add_node("insight_generator",    profile_node(insight_generator_node, "insight_generator"))
     workflow.add_node("forecaster",           profile_node(forecaster_node, "forecaster"))
     workflow.add_node("cataloger",            profile_node(cataloger_node, "cataloger"))
+    workflow.add_node("airflow_generator",    profile_node(airflow_generator_node, "airflow_generator"))
+    workflow.add_node("dbt_generator",        profile_node(dbt_generator_node, "dbt_generator"))
+    workflow.add_node("mock_generator",       profile_node(mock_generator_node, "mock_generator"))
 
     # ── Flux ─────────────────────────────────────────────────────────────────
     workflow.add_edge(START, "explorer")
@@ -199,7 +207,8 @@ def create_agent_workflow():
     })
 
     workflow.add_edge("drift_detector", "modeler")
-    workflow.add_edge("modeler",        "critic")
+    workflow.add_edge("modeler",        "governance")
+    workflow.add_edge("governance",     "critic")
 
     # Boucle 1 : Critic → HITL ou Chat Modifier
     workflow.add_conditional_edges("critic", route_after_critic, {
@@ -230,7 +239,10 @@ def create_agent_workflow():
     workflow.add_edge("lineage_tracker", END)
     workflow.add_edge("insight_generator", "forecaster")
     workflow.add_edge("forecaster", "cataloger")
-    workflow.add_edge("cataloger", "lineage_tracker")
+    workflow.add_edge("cataloger", "airflow_generator")
+    workflow.add_edge("airflow_generator", "dbt_generator")
+    workflow.add_edge("dbt_generator", "mock_generator")
+    workflow.add_edge("mock_generator", "lineage_tracker")
 
     memory = MemorySaver()
     return workflow.compile(

@@ -33,9 +33,10 @@ export const AGENT_STATUS_COLORS = {
 };
 
 export const AGENT_ORDER = [
-  'explorer', 'data_quality', 'drift_detector', 'modeler', 'critic',
+  'explorer', 'data_quality', 'drift_detector', 'modeler', 'governance', 'critic',
   'human_review', 'chat_modifier', 'etl_generator', 'etl_executor',
-  'healer', 'lineage_tracker',
+  'healer', 'insight_generator', 'forecaster', 'cataloger',
+  'airflow_generator', 'dbt_generator', 'mock_generator', 'lineage_tracker'
 ];
 
 const AGENT_EMOJIS = {
@@ -43,12 +44,19 @@ const AGENT_EMOJIS = {
   data_quality:     '🛡️',
   drift_detector:   '🌊',
   modeler:          '🧠',
-  critic:           '🛡️',
+  governance:       '🛡️',
+  critic:           '⚖️',
   human_review:     '👤',
   chat_modifier:    '💬',
   etl_generator:    '⚙️',
   etl_executor:     '🚀',
   healer:           '🔧',
+  insight_generator:'💡',
+  forecaster:       '📈',
+  cataloger:        '📚',
+  airflow_generator:'🌬️',
+  dbt_generator:    '🏗️',
+  mock_generator:   '🧪',
   lineage_tracker:  '🔗',
 };
 
@@ -86,6 +94,10 @@ const INITIAL_PIPELINE_STATE = {
   visualizations:       [],
   nodeDurations:        {},
   dataCatalog:          null,
+  airflowDag:           null,
+  dbtProject:           null,
+  governanceReport:     null,
+  mockDataSql:          null,
 };
 
 export const usePipelineStore = create((set, get) => ({
@@ -296,6 +308,10 @@ function _handleSSEEvent(type, data, set, get) {
         visualizations:       data.visualizations        || [],
         nodeDurations:        data.node_durations        || {},
         dataCatalog:          data.data_catalog          || null,
+        airflowDag:           data.airflow_dag           || null,
+        dbtProject:           data.dbt_project           || null,
+        governanceReport:     data.governance_report     || null,
+        mockDataSql:          data.mock_data_sql         || null,
       });
       break;
 
@@ -324,6 +340,10 @@ function _handleSSEEvent(type, data, set, get) {
       if (u.visualizations          !== undefined) patch.visualizations        = u.visualizations;
       if (u.node_durations         !== undefined) patch.nodeDurations         = u.node_durations;
       if (u.data_catalog           !== undefined) patch.dataCatalog           = u.data_catalog;
+      if (u.airflow_dag            !== undefined) patch.airflowDag            = u.airflow_dag;
+      if (u.dbt_project            !== undefined) patch.dbtProject            = u.dbt_project;
+      if (u.governance_report      !== undefined) patch.governanceReport      = u.governance_report;
+      if (u.mock_data_sql          !== undefined) patch.mockDataSql           = u.mock_data_sql;
 
       if (data.agent) patch.currentAgent = data.agent;
       set(patch);

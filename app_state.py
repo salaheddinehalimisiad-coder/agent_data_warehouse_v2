@@ -67,6 +67,12 @@ class AgentState(TypedDict, total=False):
     node_durations:    Dict[str, float]
     data_catalog:      Dict[str, Any]
     clean_action:      str
+    airflow_dag:       str
+    dbt_project:       Dict[str, str]
+    governance_report: Dict[str, Any]
+    masking_sql:       str
+    mock_data_sql:     str
+
 
     # ─── Journal ──────────────────────────────────────────────────────────
     execution_log: List[str]

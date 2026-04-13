@@ -42,6 +42,18 @@
 
 ---
 
+## v4.1 PRO — Enterprise Automation & Neural Assets (Current)
+
+### Nouvelles fonctionnalités d'Automatisation
+- **Airflow Generator Agent** : Génération native et automatisée du code Python orchestrant les pipelines ETL (DAG Apache Airflow).
+- **dbt Generator Agent** : Conception d'un projet dbt complet (data build tool) zippé avec modèles SQL et yaml pour les transformations analytiques modernes.
+- **Governance & Security Agent** : Audit RGPD du schéma logique et détection automatique des PII (Personnally Identifiable Information) avec génération de règles de masquage SQL.
+- **Forecaster Agent** : Analyse des séries temporelles passées pour générer des prévisions projectives d'indicateurs de vente/trafic directement dans le Dashboard (Neural Insights).
+- **Cataloger Agent** : IA assignée à la documentation automatique du DW (génération de métadonnées sémantiques contextuelles pour l'ensemble du log).
+- **Dashboard Neural** : Mise à niveau de l'App UI, ExportPanel permettant de récupérer l'Airflow DAG généré et le projet dbt.
+
+---
+
 ## v3.0 — Initial release
 - 11 nœuds LangGraph, Data Quality Agent, Lineage Tracker
 - Frontend premium avec SSE temps-réel

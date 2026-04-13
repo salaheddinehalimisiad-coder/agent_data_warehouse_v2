@@ -101,6 +101,47 @@ async def export_json_report(session_id: str, user: dict = Depends(get_optional_
     return export_service.generate_json_report(state, session_id)
 
 
+@app.get("/api/export-airflow")
+async def export_airflow(session_id: str, user: dict = Depends(get_optional_user)):
+    """Export Python Airflow DAG."""
+    state = etl_service.get_pipeline_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    dag_code = state.get("airflow_dag")
+    if not dag_code:
+        raise HTTPException(status_code=404, detail="DAG Airflow non généré")
+    
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(content=dag_code, media_type="text/x-python", headers={
+        "Content-Disposition": f"attachment; filename=airflow_dag_{session_id}.py"
+    })
+
+@app.get("/api/export-dbt")
+async def export_dbt_project(session_id: str, user: dict = Depends(get_optional_user)):
+    """Export dbt project as a ZIP archive."""
+    import io
+    import zipfile
+    from fastapi.responses import Response
+    
+    state = etl_service.get_pipeline_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    
+    dbt_project = state.get("dbt_project")
+    if not dbt_project or not isinstance(dbt_project, dict):
+        raise HTTPException(status_code=404, detail="Projet dbt non généré")
+        
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+        for file_path, file_content in dbt_project.items():
+            zip_file.writestr(file_path, str(file_content))
+            
+    return Response(
+        content=zip_buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=dbt_project_{session_id}.zip"}
+    )
+
 class EmailNotifyRequest(BaseModel):
     session_id: str
     email: str
