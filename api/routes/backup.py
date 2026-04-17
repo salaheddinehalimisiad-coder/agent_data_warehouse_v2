@@ -65,12 +65,12 @@ async def upload_backup(
     return {
         "filename":        file.filename,
         "size_mb":         round(size_mb, 2),
-        "bak_path":        str(bak_path),
+        "file_path":       str(bak_path),
         "restore_success": result["success"],
         "restored_db":     target_db if result["success"] else None,
         "tables":          result.get("tables", []),
         "message":         result.get("message", ""),
-        "error":           result.get("error", ""),
+        "restore_error":   result.get("error", ""),
     }
 
 

@@ -88,7 +88,8 @@ export default function ConnectionModal({ isOpen, onClose }) {
           setDwConfig(prev => ({ ...prev, database: res.restored_db }));
         }
         if (!res.restore_success) {
-          setError(`Backup uploadé mais restauration échouée : ${res.restore_error}`);
+          const reason = res.restore_error || res.detail || res.message || 'Erreur SQL Server inconnue — vérifiez les logs';
+          setError(`Backup uploadé mais restauration échouée : ${reason}`);
         }
       } else {
         // Route CSV standard

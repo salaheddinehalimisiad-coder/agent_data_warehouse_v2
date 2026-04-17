@@ -85,11 +85,11 @@ export const apiClient = {
       headers: this.getHeaders(true),
       body: formData,
     });
+    const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      const errData = await resp.json().catch(() => ({}));
-      throw new Error(errData.detail || `Erreur upload backup : ${resp.status}`);
+      throw new Error(data.detail || data.message || data.restore_error || `Erreur upload backup : ${resp.status}`);
     }
-    return resp.json();
+    return data;
   },
 
   getPdfUrl(sessionId) { return `${API_BASE}/api/export-pdf?session_id=${sessionId}`; },
