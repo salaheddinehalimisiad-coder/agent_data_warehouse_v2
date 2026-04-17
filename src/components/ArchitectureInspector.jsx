@@ -248,8 +248,9 @@ export default function ArchitectureInspector() {
     { id: 'drift', label: 'Drift Detection', subtitle: 'Schema evolution monitoring', agents: ['drift_detector'] },
     { id: 'modeling', label: 'Schema Modeling', subtitle: 'Star schema architecture', agents: ['modeler', 'critic'] },
     { id: 'validation', label: 'Human Review', subtitle: 'HITL approval checkpoint', agents: ['human_review', 'chat_modifier'] },
-    { id: 'etl', label: 'ETL Execution', subtitle: 'Pipeline orchestration', agents: ['etl_generator', 'etl_executor', 'healer'] },
-    { id: 'lineage', label: 'Lineage Tracking', subtitle: 'Data provenance trail', agents: ['lineage_tracker'] },
+    { id: 'etl_gen', label: 'ETL Blueprint', subtitle: 'Code generation', agents: ['etl_generator'] },
+    { id: 'etl_exec', label: 'Data Processing', subtitle: 'Extract → Transform → Load', agents: ['etl_extractor', 'etl_transformer', 'etl_loader', 'healer'] },
+    { id: 'post_process', label: 'Finalization', subtitle: 'Insight & Lineage', agents: ['lineage_tracker', 'cataloger'] },
   ];
 
   const handleValidate = (ok) => {

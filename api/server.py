@@ -9,8 +9,8 @@ from pydantic import BaseModel
 from typing import Optional
 from dotenv import load_dotenv
 
-from api.routes import pipeline, auth, sessions
-from api.db.mysql import init_metadata_db
+from api.routes import pipeline, auth, sessions, backup
+from api.db.sqlserver import init_metadata_db
 from api.middleware.security import RateLimitMiddleware, SecurityHeadersMiddleware
 from api.middleware.jwt_auth import get_current_user, get_optional_user
 from api.services import etl_service, export_service
@@ -69,6 +69,7 @@ app.add_middleware(RateLimitMiddleware)
 app.include_router(pipeline.router)
 app.include_router(auth.router)
 app.include_router(sessions.router)
+app.include_router(backup.router)
 
 
 # ─── Routes supplémentaires ───────────────────────────────────────────────────

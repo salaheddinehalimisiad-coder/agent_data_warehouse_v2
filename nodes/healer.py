@@ -120,6 +120,7 @@ def healer_node(state: AgentState) -> dict:
         "sql_ddl": sql_part,
         "etl_error": "",
         "etl_status": "pending",
+        "retry_count": retry_count + 1,
         "clean_action": clean_action,
         "heal_history": updated_heal_history,
         "execution_log": state.get("execution_log", []) + [

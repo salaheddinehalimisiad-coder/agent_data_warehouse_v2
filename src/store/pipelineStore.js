@@ -34,7 +34,7 @@ export const AGENT_STATUS_COLORS = {
 
 export const AGENT_ORDER = [
   'explorer', 'data_quality', 'drift_detector', 'modeler', 'governance', 'critic',
-  'human_review', 'chat_modifier', 'etl_generator', 'etl_executor',
+  'human_review', 'chat_modifier', 'etl_generator', 'etl_extractor', 'etl_transformer', 'etl_loader',
   'healer', 'insight_generator', 'forecaster', 'cataloger',
   'airflow_generator', 'dbt_generator', 'mock_generator', 'lineage_tracker'
 ];
@@ -49,7 +49,9 @@ const AGENT_EMOJIS = {
   human_review:     '👤',
   chat_modifier:    '💬',
   etl_generator:    '⚙️',
-  etl_executor:     '🚀',
+  etl_extractor:    '📥',
+  etl_transformer:  '🔄',
+  etl_loader:       '📤',
   healer:           '🔧',
   insight_generator:'💡',
   forecaster:       '📈',
@@ -98,6 +100,7 @@ const INITIAL_PIPELINE_STATE = {
   dbtProject:           null,
   governanceReport:     null,
   mockDataSql:          null,
+  sourceMetadata:       null,
 };
 
 export const usePipelineStore = create((set, get) => ({
@@ -187,13 +190,36 @@ export const usePipelineStore = create((set, get) => ({
       pipelineStatus: 'running',
       messages: [...get().messages, { role: 'user', content: message, id: Date.now() }]
     });
+    
     try {
       const resp = await apiClient.sendChat({ session_id: sessionId, message, context }, authToken);
-      set({
-        messages: [...get().messages, { role: 'assistant', content: resp.reply, id: Date.now() + 1 }],
-      });
-      if (resp.sql_ddl)       set({ sqlDDL: resp.sql_ddl });
-      if (resp.critic_review) set({ criticReview: resp.critic_review });
+      
+      const assistantWaitId = Date.now() + 1;
+      set(state => ({
+        messages: [...state.messages, { role: 'assistant', content: '', id: assistantWaitId }],
+      }));
+
+      // Implémentation du comportement SSE (Streaming) pour le rendu fluide
+      // Évite de bloquer l'UI lors de la réception de gros blocs Markdown
+      const chunks = resp.reply.match(/[\s\S]{1,12}/g) || [];
+      let currentIdx = 0;
+      
+      const streamInterval = setInterval(() => {
+          if (currentIdx < chunks.length) {
+              const chunk = chunks[currentIdx];
+              set(state => ({
+                  messages: state.messages.map(m => m.id === assistantWaitId ? {
+                      ...m, content: m.content + chunk
+                  } : m)
+              }));
+              currentIdx++;
+          } else {
+              clearInterval(streamInterval);
+              if (resp.sql_ddl)       set({ sqlDDL: resp.sql_ddl });
+              if (resp.critic_review) set({ criticReview: resp.critic_review });
+          }
+      }, 15);
+      
     } catch (err) {
       console.error('[Store] sendMessage error:', err);
     }
@@ -252,7 +278,7 @@ export const usePipelineStore = create((set, get) => ({
 // ─── Connexion SSE ────────────────────────────────────────────────────────────
 
 function _connectSSE(sessionId, authToken, set, get) {
-  const url = `/api/pipeline-stream?session_id=${sessionId}&token=${authToken || ''}`;
+  const url = `/api/pipeline-stream?session_id=${encodeURIComponent(sessionId)}`;
   let es    = null;
   let retryTimer = null;
 
@@ -312,6 +338,7 @@ function _handleSSEEvent(type, data, set, get) {
         dbtProject:           data.dbt_project           || null,
         governanceReport:     data.governance_report     || null,
         mockDataSql:          data.mock_data_sql         || null,
+        sourceMetadata:       data.source_metadata       || null,
       });
       break;
 
@@ -344,6 +371,7 @@ function _handleSSEEvent(type, data, set, get) {
       if (u.dbt_project            !== undefined) patch.dbtProject            = u.dbt_project;
       if (u.governance_report      !== undefined) patch.governanceReport      = u.governance_report;
       if (u.mock_data_sql          !== undefined) patch.mockDataSql           = u.mock_data_sql;
+      if (u.source_metadata        !== undefined) patch.sourceMetadata        = u.source_metadata;
 
       if (data.agent) patch.currentAgent = data.agent;
       set(patch);
@@ -392,6 +420,7 @@ function _handleSSEEvent(type, data, set, get) {
       break;
 
     case 'stage':
+    case 'stage_change':
       if (data.stage === 'awaiting_human_review') {
         set({ pipelineStatus: 'awaiting_review' });
       } else if (['etl_generation', 'model_revision'].includes(data.stage)) {

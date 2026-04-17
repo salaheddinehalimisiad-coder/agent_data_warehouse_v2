@@ -18,13 +18,14 @@ logger = logging.getLogger(__name__)
 _rate_store: dict = defaultdict(list)  # ip → [timestamps]
 
 RATE_LIMITS = {
-    "/api/start":          (5,  60),   # 5 req / 60s
-    "/api/chat":           (30, 60),   # 30 req / 60s
-    "/api/auth/login":     (10, 60),   # 10 req / 60s
-    "/api/auth/register":  (3,  60),   # 3 req / 60s
-    "/api/upload":         (10, 60),  # 10 req / 60s
-    "/api/upload-csv":     (10, 60),   # Legacy
-    "default":             (100, 60),  # 100 req / 60s
+    "/api/start":          (5,  60),    # 5 req / 60s
+    "/api/chat":           (30, 60),    # 30 req / 60s
+    "/api/auth/login":     (10, 60),    # 10 req / 60s
+    "/api/auth/register":  (3,  60),    # 3 req / 60s
+    "/api/upload":         (10, 60),    # 10 req / 60s
+    "/api/upload-csv":     (10, 60),    # Legacy CSV
+    "/api/upload-backup":  (100, 60),   # Dev mode: 100 req / min
+    "default":             (100, 60),   # 100 req / 60s
 }
 
 
@@ -121,14 +122,14 @@ def hash_password(pwd: str) -> str:
 
 # ─── Validation des entrées ───────────────────────────────────────────────────
 
-MAX_UPLOAD_SIZE_MB = 100
+MAX_UPLOAD_SIZE_MB = 2000
 
 def validate_file(filename: str, size_bytes: int) -> None:
-    """Valide un fichier uploadé (CSV ou Excel)."""
-    allowed_exts = (".csv", ".txt", ".xlsx", ".xls")
+    """Valide un fichier uploadé (CSV ou SQL Server Backup)."""
+    allowed_exts = (".csv", ".txt", ".bak")
     if not any(filename.lower().endswith(ext) for ext in allowed_exts):
         logger.warning(f"[Security] Fichier rejeté (extension) : {filename}")
-        raise HTTPException(status_code=400, detail="Format non supporté. Utiliser CSV (.csv, .txt) ou Excel (.xlsx, .xls)")
+        raise HTTPException(status_code=400, detail="Format non supporté. Utiliser CSV (.csv, .txt) ou SQL Backup (.bak)")
     
     if size_bytes > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
         logger.warning(f"[Security] Fichier rejeté (taille) : {size_bytes} bytes")
@@ -136,6 +137,17 @@ def validate_file(filename: str, size_bytes: int) -> None:
             status_code=413,
             detail=f"Fichier trop grand. Maximum : {MAX_UPLOAD_SIZE_MB}MB"
         )
+
+def validate_csv_file(filename: str, size_bytes: int) -> None:
+    """
+    Compat legacy: validation stricte des uploads CSV historiques.
+    Garde une limite dédiée plus basse pour éviter de casser les anciens flux.
+    """
+    allowed_exts = (".csv", ".txt")
+    if not any(filename.lower().endswith(ext) for ext in allowed_exts):
+        raise HTTPException(status_code=400, detail="Format CSV invalide")
+    if size_bytes > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Fichier CSV trop volumineux (max 50MB)")
 
 
 def sanitize_prefix(prefix: str) -> str:

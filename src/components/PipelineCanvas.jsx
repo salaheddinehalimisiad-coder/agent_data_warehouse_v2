@@ -6,7 +6,7 @@ import {
   Search, Waves, BrainCircuit, ShieldCheck,
   UserCheck, MessageSquare, Settings2, Rocket,
   Wrench, CheckCircle2, Clock, AlertCircle, Sparkles,
-  Activity, Database, Zap
+  Activity, Database, Zap, DownloadCloud, RefreshCw, UploadCloud
 } from 'lucide-react';
 
 // ── Pipeline stages (grouped agents → logical steps) ────────────────────────
@@ -44,12 +44,36 @@ const PIPELINE_STAGES = [
     agents: ['human_review', 'chat_modifier'],
   },
   {
-    id: 'etl',
-    label: 'ETL Execution',
-    subtitle: 'Pipeline generation & deployment',
-    icon: Rocket,
+    id: 'etl_gen',
+    label: 'ETL Blueprint',
+    subtitle: 'Code generation & logic mapping',
+    icon: Settings2,
     color: 'emerald',
-    agents: ['etl_generator', 'etl_executor', 'healer'],
+    agents: ['etl_generator'],
+  },
+  {
+    id: 'etl_extract',
+    label: 'Extract',
+    subtitle: 'Data ingestion from source',
+    icon: DownloadCloud,
+    color: 'cyan',
+    agents: ['etl_extractor'],
+  },
+  {
+    id: 'etl_transform',
+    label: 'Transform',
+    subtitle: 'SK Resolution & cleaning',
+    icon: RefreshCw,
+    color: 'purple',
+    agents: ['etl_transformer'],
+  },
+  {
+    id: 'etl_load',
+    label: 'Load',
+    subtitle: 'Fact table population',
+    icon: UploadCloud,
+    color: 'emerald',
+    agents: ['etl_loader', 'healer'],
   },
   {
     id: 'lineage',
@@ -57,7 +81,7 @@ const PIPELINE_STAGES = [
     subtitle: 'Data provenance & audit trail',
     icon: Activity,
     color: 'indigo',
-    agents: ['lineage_tracker'],
+    agents: ['lineage_tracker', 'cataloger'],
   },
 ];
 
@@ -81,7 +105,7 @@ function getStageStatus(stage, agentStatuses, currentAgent) {
   return 'idle';
 }
 
-function StageCard({ stage, status, idx, isLast }) {
+function StageCard({ stage, status, idx, isLast, executionLog }) {
   const c = COLOR_MAP[stage.color];
   const Icon = stage.icon;
 
@@ -99,10 +123,16 @@ function StageCard({ stage, status, idx, isLast }) {
     error:   'bg-rose-500 text-white',
   }[status];
 
-  const StatusIcon = status === 'done' ? CheckCircle2
-    : status === 'error' ? AlertCircle
-    : status === 'running' ? Clock
-    : null;
+  // Extraction des logs spécifiques à cette étape
+  const relevantLogs = useMemo(() => {
+    if (!executionLog) return [];
+    return executionLog.filter(log => 
+       stage.agents.some(agent => {
+          const agentClean = agent.replace(/_/g, ' ').toLowerCase();
+          return log.toLowerCase().includes(agentClean) || log.toLowerCase().includes(agent.toLowerCase());
+       })
+    ).slice(-4); // Garder les 4 derniers messages pertinents
+  }, [executionLog, stage.agents]);
 
   return (
     <div className="flex items-stretch gap-0">
@@ -139,7 +169,7 @@ function StageCard({ stage, status, idx, isLast }) {
         initial={{ opacity: 0, x: -8 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.4, delay: idx * 0.06 }}
-        className={`flex-1 mb-3 p-5 rounded-2xl border transition-all duration-500 ${card}`}
+        className={`flex-1 mb-3 p-5 rounded-3xl border transition-all duration-500 ${card}`}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -149,56 +179,89 @@ function StageCard({ stage, status, idx, isLast }) {
               <Icon size={18} />
             </div>
             <div>
-              <div className={`text-sm font-bold transition-colors ${
+              <div className={`text-sm font-black italic tracking-tighter transition-colors ${
                 status === 'idle' ? 'text-slate-500' : 'text-white'
               }`}>
-                {stage.label}
+                {stage.label.toUpperCase()}
               </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">{stage.subtitle}</div>
+              <div className="text-[10px] font-medium text-slate-500 mt-0.5 tracking-tight">{stage.subtitle}</div>
             </div>
           </div>
 
           <div className="shrink-0">
             {status === 'done' && (
-              <span className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                <CheckCircle2 size={11} /> Done
+              <span className="flex items-center gap-1.5 text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 uppercase tracking-widest">
+                <CheckCircle2 size={10} /> Done
               </span>
             )}
             {status === 'running' && (
-              <span className={`flex items-center gap-1.5 text-[10px] font-semibold ${c.text} ${c.bg} px-2.5 py-1 rounded-full ${c.border} border`}>
+              <span className={`flex items-center gap-1.5 text-[10px] font-black ${c.text} ${c.bg} px-3 py-1 rounded-full ${c.border} border uppercase tracking-widest`}>
                 <motion.div
                   className={`w-1.5 h-1.5 rounded-full ${c.dot}`}
                   animate={{ opacity: [1, 0.3, 1] }}
                   transition={{ duration: 1, repeat: Infinity }}
                 />
-                Running
+                Live
               </span>
             )}
             {status === 'error' && (
-              <span className="flex items-center gap-1.5 text-[10px] font-semibold text-rose-400 bg-rose-500/10 px-2.5 py-1 rounded-full border border-rose-500/20">
-                <AlertCircle size={11} /> Error
+              <span className="flex items-center gap-1.5 text-[10px] font-black text-rose-400 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/20 uppercase tracking-widest">
+                <AlertCircle size={10} /> Fail
               </span>
             )}
           </div>
         </div>
 
-        {/* Agent pills inside running stage */}
-        {status === 'running' && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="mt-4 flex flex-wrap gap-2"
-          >
-            {stage.agents.map(a => (
-              <span
-                key={a}
-                className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-lg border ${c.bg} ${c.border} ${c.text}`}
-              >
-                {a.replace(/_/g, ' ')}
-              </span>
-            ))}
-          </motion.div>
-        )}
+        {/* Detailed logs & sub-steps when running or error */}
+        <AnimatePresence>
+          {(status === 'running' || status === 'error') && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-5 pt-4 border-t border-white/5 space-y-4"
+            >
+              {/* Agent Indicators */}
+              <div className="flex flex-wrap gap-2">
+                {stage.agents.map(a => (
+                  <div key={a} className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border text-[9px] font-black uppercase tracking-wider ${
+                    status === 'error' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400' : `${c.bg} ${c.border} ${c.text}`
+                  }`}>
+                    <Zap size={10} className={status === 'running' ? 'animate-pulse' : ''} />
+                    {a.replace(/_/g, ' ')}
+                  </div>
+                ))}
+              </div>
+
+              {/* Dynamic Log Stream */}
+              {relevantLogs.length > 0 && (
+                <div className="bg-black/40 rounded-xl p-3 border border-white/5 font-mono text-[10px] space-y-1.5">
+                  {relevantLogs.map((log, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, x: -4 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className={`flex gap-3 ${log.includes('❌') || log.includes('ERROR') ? 'text-rose-400' : 'text-slate-400'}`}
+                    >
+                      <span className="text-slate-700 select-none">{'>'}</span>
+                      <span className="flex-1 leading-relaxed">{log}</span>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+
+              {status === 'running' && (
+                <div className="flex items-center justify-between px-1">
+                   <div className="flex items-center gap-2">
+                      <div className="w-1 h-1 rounded-full bg-indigo-500 animate-ping" />
+                      <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Neuronal Processing...</span>
+                   </div>
+                   <Activity size={12} className="text-slate-700 animate-spin-slow" />
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );
@@ -333,6 +396,7 @@ export default function PipelineCanvas() {
                   status={stage.status}
                   idx={idx}
                   isLast={idx === stageStatuses.length - 1}
+                  executionLog={executionLog}
                 />
               ))}
             </div>

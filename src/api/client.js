@@ -67,7 +67,27 @@ export const apiClient = {
     });
     if (!resp.ok) {
       const errData = await resp.json().catch(() => ({}));
-      throw new Error(errData.detail || `Erreur upload : ${resp.status}`);
+      throw new Error(errData.detail || `Erreur upload CSV : ${resp.status}`);
+    }
+    return resp.json();
+  },
+
+  async uploadBackup(file, restoreDbName = null, dbHost = null, dbUser = null, dbPassword = null) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (restoreDbName) formData.append('restore_db_name', restoreDbName);
+    if (dbHost)        formData.append('db_host', dbHost);
+    if (dbUser)        formData.append('db_user', dbUser);
+    if (dbPassword)    formData.append('db_password', dbPassword);
+
+    const resp = await fetch(`${API_BASE}/api/upload-backup`, {
+      method: 'POST',
+      headers: this.getHeaders(true),
+      body: formData,
+    });
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.detail || `Erreur upload backup : ${resp.status}`);
     }
     return resp.json();
   },

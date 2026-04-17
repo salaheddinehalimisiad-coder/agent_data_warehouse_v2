@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from api.db import mysql as db
+from api.db import sqlserver as db
 from api.services import etl_service
 
 logger = logging.getLogger(__name__)

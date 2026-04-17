@@ -1,29 +1,28 @@
-# api/db/mysql.py — Couche d'accès aux données MySQL (métadonnées sessions)
-import os
+# api/db/mysql.py — DEPRECATED : redirig\u00e9 vers sqlserver.py
+# Ce module est conserv\u00e9 uniquement pour la compatibilit\u00e9 avec
+# d'\u00e9ventuels imports r\u00e9siduels. Toute la logique r\u00e9elle est dans sqlserver.py.
 import logging
-import mysql.connector
-from mysql.connector import Error as MySQLError
-from typing import Optional
+from api.db.sqlserver import (
+    get_meta_connection,
+    init_metadata_db,
+    save_session_state,
+    get_session_state,
+    list_user_sessions,
+)
 
 logger = logging.getLogger(__name__)
+logger.warning(
+    "[DB] api.db.mysql est d\u00e9pr\u00e9ci\u00e9. Utilisez api.db.sqlserver directement."
+)
 
+__all__ = [
+    "get_meta_connection",
+    "init_metadata_db",
+    "save_session_state",
+    "get_session_state",
+    "list_user_sessions",
+]
 
-def get_meta_connection():
-    """Connexion à la base MySQL de métadonnées (sessions, users)."""
-    password = os.getenv("DB_PASSWORD")
-    if not password:
-        raise RuntimeError(
-            "Variable d'environnement DB_PASSWORD manquante. "
-            "Ajoutez DB_PASSWORD=votre_mot_de_passe dans votre fichier .env"
-        )
-    return mysql.connector.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        port=int(os.getenv("DB_PORT", "3306")),
-        user=os.getenv("DB_USER", "root"),
-        password=password,
-        database=os.getenv("DB_NAME", "agent_dw_meta"),
-        connection_timeout=10,
-    )
 
 
 def init_metadata_db() -> None:

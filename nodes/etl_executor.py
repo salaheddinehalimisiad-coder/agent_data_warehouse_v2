@@ -85,7 +85,7 @@ def etl_executor_node(state: AgentState) -> dict:
 
     # ── Étape 2 : Lire les données source ────────────────────────────────────
     try:
-        source_df = _read_source(source_config)
+        source_df = _read_source(source_config, dw_config)
         
         # Application des directives du Healer (Strategic Remediation)
         clean_action = state.get("clean_action", "NONE")
@@ -235,7 +235,7 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                 check_col = attr_cols[0]["name"]
                 try:
                     row = conn.execute(
-                        text(f"SELECT `{pk_name}` FROM `{table_name}` WHERE `{check_col}` = :v LIMIT 1"),
+                        text(f"SELECT TOP 1 [{pk_name}] FROM [{table_name}] WHERE [{check_col}] = :v"),
                         {"v": clean_val}
                     ).fetchone()
                 except Exception:
@@ -247,24 +247,30 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                 else:
                     # Construire le dict d'insertion
                     insert_vals = {a["name"]: clean_val for a in attr_cols[:1]}
-                    cols_str  = ", ".join(f"`{k}`" for k in insert_vals)
+                    # Construction SQL Server
+                    cols_str  = ", ".join(f"[{k}]" for k in insert_vals)
                     vals_str  = ", ".join(f":{k}" for k in insert_vals)
                     try:
-                        result = conn.execute(
-                            text(f"INSERT IGNORE INTO `{table_name}` ({cols_str}) VALUES ({vals_str})"),
-                            insert_vals
-                        )
-                        if result.lastrowid:
-                            sk_map[clean_val] = result.lastrowid
+                        # INJECTION DIRECTIVE : Stratégie T-SQL MERGE (SCD Upsert) au lieu de INSERT IGNORE
+                        merge_sql = f"""
+                        MERGE [{table_name}] AS Target
+                        USING (SELECT :v AS [{check_col}]) AS Source
+                        ON Target.[{check_col}] = Source.[{check_col}]
+                        WHEN NOT MATCHED THEN
+                            INSERT ({cols_str}) VALUES ({vals_str});
+                        """
+                        insert_vals["v"] = clean_val
+                        conn.execute(text(merge_sql), insert_vals)
+                        
+                        # Re-lecture du SK généré
+                        row2 = conn.execute(
+                            text(f"SELECT TOP 1 [{pk_name}] FROM [{table_name}] WHERE [{check_col}] = :v"),
+                            {"v": clean_val}
+                        ).fetchone()
+                        
+                        if row2:
+                            sk_map[clean_val] = row2[0]
                             inserted += 1
-                        else:
-                            # Re-lire le SK
-                            row2 = conn.execute(
-                                text(f"SELECT `{pk_name}` FROM `{table_name}` WHERE `{check_col}` = :v LIMIT 1"),
-                                {"v": clean_val}
-                            ).fetchone()
-                            if row2:
-                                sk_map[clean_val] = row2[0]
                     except Exception as e:
                         logger.debug(f"[ETL] Dim {table_name} insert val '{clean_val}' : {e}")
 
@@ -277,19 +283,24 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
 
 
 def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
-    """Charge dim_date depuis les colonnes dates détectées dans la source."""
+    """Charge dim_date depuis les colonnes dates détectées dans la source (T-SQL / SQL Server)."""
     import pandas as pd
+    import datetime
     from sqlalchemy import text
 
-    date_cols = [c for c in source_df.columns
-                 if "date" in c.lower() or source_df[c].dtype in ("datetime64[ns]", "object")
-                 and _is_date_column(source_df[c])]
+    date_cols = [
+        c for c in source_df.columns
+        if "date" in c.lower() or (
+            source_df[c].dtype in ("datetime64[ns]", "object")
+            and _is_date_column(source_df[c])
+        )
+    ]
 
     if not date_cols:
         return {}
 
     sk_map = {}
-    dates_seen = set()
+    dates_seen: set = set()
 
     for dcol in date_cols[:1]:
         try:
@@ -300,26 +311,38 @@ def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
                         continue
                     dates_seen.add(d)
                     key = str(d)
+
+                    # Lire le SK s'il existe déjà
                     row = conn.execute(
-                        text(f"SELECT `date_sk` FROM `{table_name}` WHERE `date_full` = :d LIMIT 1"),
+                        text(f"SELECT TOP 1 [date_sk] FROM [{table_name}] WHERE [date_full] = :d"),
                         {"d": d}
                     ).fetchone()
+
                     if row:
                         sk_map[key] = row[0]
                     else:
-                        import datetime
                         dt = datetime.date.fromisoformat(key)
-                        result = conn.execute(text(f"""
-                            INSERT IGNORE INTO `{table_name}`
-                            (date_full, annee, trimestre, mois, semaine, jour, jour_semaine)
-                            VALUES (:df, :y, :q, :m, :w, :d, :wd)
+                        # T-SQL MERGE pour éviter les doublons (remplace INSERT IGNORE MySQL)
+                        conn.execute(text(f"""
+                            MERGE [{table_name}] AS Target
+                            USING (SELECT :df AS date_full) AS Source
+                            ON Target.[date_full] = Source.[date_full]
+                            WHEN NOT MATCHED THEN
+                                INSERT ([date_full],[annee],[trimestre],[mois],[semaine],[jour],[jour_semaine])
+                                VALUES (:df, :y, :q, :m, :w, :d2, :wd);
                         """), {
-                            "df": d, "y": dt.year, "q": (dt.month-1)//3+1,
+                            "df": d, "y": dt.year, "q": (dt.month - 1) // 3 + 1,
                             "m": dt.month, "w": dt.isocalendar()[1],
-                            "d": dt.day, "wd": dt.strftime("%A"),
+                            "d2": dt.day, "wd": dt.strftime("%A"),
                         })
-                        if result.lastrowid:
-                            sk_map[key] = result.lastrowid
+
+                        # Relire le SK nouvellement créé
+                        row2 = conn.execute(
+                            text(f"SELECT TOP 1 [date_sk] FROM [{table_name}] WHERE [date_full] = :d"),
+                            {"d": d}
+                        ).fetchone()
+                        if row2:
+                            sk_map[key] = row2[0]
         except Exception as e:
             logger.debug(f"[ETL] dim_date load : {e}")
 
@@ -435,9 +458,8 @@ def _batch_insert(engine, table_name: str, rows: list, use_ignore: bool = False)
     if not rows:
         return 0, 0
 
-    verb = "INSERT IGNORE" if use_ignore else "INSERT"
     cols    = list(rows[0].keys())
-    cols_str = ", ".join(f"`{c}`" for c in cols)
+    cols_str = ", ".join(f"[{c}]" for c in cols)
     vals_str = ", ".join(f":{c}" for c in cols)
 
     inserted = 0
@@ -446,15 +468,27 @@ def _batch_insert(engine, table_name: str, rows: list, use_ignore: bool = False)
         with engine.begin() as conn:
             for row in rows:
                 try:
-                    conn.execute(
-                        text(f"{verb} INTO `{table_name}` ({cols_str}) VALUES ({vals_str})"),
-                        row
-                    )
+                    if use_ignore:
+                        # Simulation de INSERT IGNORE en T-SQL avec MERGE
+                        merge_stmt = f"""
+                        MERGE [{table_name}] AS Target
+                        USING (SELECT {vals_str}) AS Source ({cols_str})
+                        ON 1=0 -- Condition factice, remplacez par PK pour Upsert réel
+                        WHEN NOT MATCHED THEN
+                            INSERT ({cols_str}) VALUES ({vals_str});
+                        """
+                        conn.execute(text(merge_stmt), row)
+                    else:
+                        conn.execute(
+                            text(f"INSERT INTO [{table_name}] ({cols_str}) VALUES ({vals_str})"),
+                            row
+                        )
                     inserted += 1
                 except Exception:
                     rejected += 1
     except Exception as e:
-        logger.warning(f"[ETL] Batch insert {table_name} : {e}")
+        error_msg = str(e)
+        logger.warning(f"[ETL] Batch insert {table_name} : {error_msg}")
         rejected += len(rows)
 
     return inserted, rejected
@@ -476,11 +510,21 @@ def _build_engine(config: dict):
         "mysql": "mysqlconnector",
         "postgresql": "psycopg2",
         "sqlite": "pysqlite",
+        "sqlserver": "pyodbc",
+        "mssql": "pyodbc",
     }
-    driver = driver_map.get(db_type, "mysqlconnector")
+    driver = driver_map.get(db_type, "pyodbc")
 
     if db_type == "sqlite":
         return create_engine(f"sqlite:///{database}")
+        
+    if driver == "pyodbc":
+        # Injection Chaîne de connexion SQL Server
+        return create_engine(
+            f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes",
+            pool_pre_ping=True, pool_recycle=3600, fast_executemany=True
+        )
+        
     return create_engine(
         f"{db_type}+{driver}://{user}:{password}@{host}:{port}/{database}",
         pool_pre_ping=True, pool_recycle=3600,
@@ -494,29 +538,36 @@ def _test_connection(engine) -> None:
 
 
 def _execute_ddl(engine, sql_ddl: str) -> str:
-    """Exécute le DDL. Retourne '' si OK, message d'erreur sinon."""
+    """Exécute le DDL T-SQL (SQL Server). Retourne '' si OK, message d'erreur sinon."""
     from sqlalchemy import text
+    import re
     try:
-        try:
-            import sqlparse
-            statements = [str(s).strip() for s in sqlparse.parse(sql_ddl)
-                         if str(s).strip() and not str(s).strip().startswith("--")]
-        except ImportError:
-            statements = [s.strip() for s in sql_ddl.split(";")
-                         if s.strip() and len(s.strip()) > 5]
+        # Nettoyage : suppression des commentaires mono-ligne et multi-lignes
+        sql_clean = re.sub(r'--.*$', '', sql_ddl, flags=re.MULTILINE)
+        sql_clean = re.sub(r'/\*.*?\*/', '', sql_clean, flags=re.DOTALL)
+
+        # Split sur les points-virgules
+        statements = [s.strip() for s in sql_clean.split(";") if s.strip()]
 
         with engine.begin() as conn:
             for stmt in statements:
-                if stmt:
+                if len(stmt) < 5:
+                    continue
+                try:
                     conn.execute(text(stmt))
+                except Exception as stmt_err:
+                    logger.error(f"[ExecuteDDL] Erreur statement: {stmt[:100]}... -> {stmt_err}")
+                    return f"Erreur SQL: {str(stmt_err)} (Statement: {stmt[:50]}...)"
         return ""
     except Exception as e:
-        return str(e)
+        logger.error(f"[ExecuteDDL] Erreur globale: {e}")
+        return f"DDL Critical Error: {str(e)}"
 
 
-def _read_source(config: dict):
+def _read_source(config: dict, dw_config: dict = None):
     """Lit les données source et retourne un DataFrame pandas."""
     import pandas as pd
+    from pathlib import Path
     source_type = config.get("type", "csv").lower()
 
     if source_type == "csv":
@@ -531,12 +582,34 @@ def _read_source(config: dict):
         engine_name = "xlrd" if ext == ".xls" else "openpyxl"
         return pd.read_excel(path, engine=engine_name)
 
-    elif source_type in ("mysql", "postgresql", "postgres", "sqlite"):
-        src_engine = _build_engine(config)
+    elif source_type in ("mysql", "postgresql", "postgres", "sqlite", "sqlserver", "mssql", "bak"):
+        # Handle 'bak' source type
+        if source_type == "bak":
+            if not dw_config:
+                raise ValueError("DW config missing for 'bak' source type")
+            # Use credentials from DW but point to restored source DB
+            source_cfg = dw_config.copy()
+            source_cfg["database"] = config.get("restored_db", dw_config.get("database"))
+            source_cfg["type"] = "sqlserver"
+            src_engine = _build_engine(source_cfg)
+        else:
+            src_engine = _build_engine(config)
+
         table = config.get("table", "")
         if table:
+            # SQL Server specific escaping
+            if "sqlserver" in str(src_engine.url) or "mssql" in str(src_engine.url):
+                return pd.read_sql(f"SELECT * FROM [{table}]", src_engine)
             return pd.read_sql_table(table, src_engine)
-        query = config.get("query", "SELECT * FROM information_schema.tables LIMIT 100")
+        
+        # Default query refinement
+        query = config.get("query", "")
+        if not query:
+            if "sqlserver" in str(src_engine.url) or "mssql" in str(src_engine.url):
+                query = "SELECT TOP 100 * FROM INFORMATION_SCHEMA.TABLES"
+            else:
+                query = "SELECT * FROM information_schema.tables LIMIT 100"
+        
         return pd.read_sql(query, src_engine)
 
     elif source_type == "rest_api":

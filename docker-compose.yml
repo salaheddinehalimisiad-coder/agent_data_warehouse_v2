@@ -1,37 +1,44 @@
-# docker-compose.yml — Déploiement complet production
-# Usage : docker-compose up -d
+# docker-compose.yml — Mission 1 : Infrastructure SQL Server + Backend FastAPI
+# Volume partagé ./uploads : backend écrit le .bak → SQL Server lit et restaure
 version: '3.9'
 
-# ── Réseau explicite pour l'isolation inter-services ──────────────────────────
 networks:
   agent_dw_net:
     driver: bridge
 
 services:
 
-  # ── MySQL — Base de métadonnées ───────────────────────────────────────────
-  mysql:
-    image: mysql:8.0
-    container_name: agent_dw_mysql
+  # ── SQL Server 2022 ─────────────────────────────────────────────────────────
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: agent_dw_sqlserver
     restart: unless-stopped
     networks:
       - agent_dw_net
+    user: root
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME:-agent_dw_meta}
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${DB_PASSWORD}"
+      MSSQL_PID: "Developer"
     ports:
-      # AUDIT FIX : limité à localhost uniquement, MySQL n'est pas exposé publiquement
-      - "127.0.0.1:3306:3306"
+      - "1433:1433"
+    volumes:
+      - sql_data:/var/opt/mssql/data
+      - sql_log:/var/opt/mssql/log
+      # Volume partagé : le backend dépose les .bak ici, SQL Server les lit
+      - bak_transit:/var/opt/mssql/backup
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      # CORRECTION : mssql-tools18 (pas mssql-tools) dans les images 2022 récentes
+      test: [
+        "CMD-SHELL",
+        "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -No -C || exit 1"
+      ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s   # SQL Server met ~20s à démarrer
 
-  # ── Backend FastAPI ────────────────────────────────────────────────────────
+  # ── Backend FastAPI ──────────────────────────────────────────────────────────
   backend:
     build:
       context: .
@@ -42,44 +49,44 @@ services:
       - agent_dw_net
     env_file: .env
     environment:
-      DB_HOST: mysql
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      DB_HOST: "sqlserver"
+      DB_USER: "sa"
+      DB_PASSWORD: "${DB_PASSWORD:-StrongP@ssw0rd!}"
+      # CORRECTION : chemin Linux dans le conteneur SQL Server
+      SQLSERVER_BACKUP_MOUNT_DIR: "/var/opt/mssql/backup"
+      # CORRECTION : chemin Linux des fichiers de données SQL Server
+      SQLSERVER_DATA_DIR: "/var/opt/mssql/data"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
     volumes:
-      - ./uploads:/app/uploads
+      # Volume partagé : le backend écrit ici, SQL Server lit depuis ce même volume
+      - bak_transit:/app/uploads/bak
       - ./outputs:/app/outputs
+      - .:/app  # Hot reload
     ports:
       - "8000:8000"
     depends_on:
-      mysql:
+      sqlserver:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
       timeout: 5s
       retries: 3
-    # Limite mémoire pour éviter la saturation par les agents LLM
+      start_period: 10s
     mem_limit: 2g
 
-  # ── Frontend React (build statique servi par Nginx) ────────────────────────
-  frontend:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.frontend
-    container_name: agent_dw_frontend
-    restart: unless-stopped
-    networks:
-      - agent_dw_net
-    environment:
-      # AUDIT FIX CRITIQUE : utiliser le nom du service backend, pas localhost
-      # localhost dans un container pointe vers le container lui-même
-      VITE_API_URL: http://backend:8000
-    ports:
-      - "80:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-    mem_limit: 256m
+  # ── Frontend (désactivé pour Mission 1 — décommenter plus tard) ─────────────
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: docker/Dockerfile.frontend
+  #   ...
 
 volumes:
-  mysql_data:
+  sql_data:
+    driver: local
+  sql_log:
+    driver: local
+  # Volume nommé partagé entre sqlserver et backend
+  bak_transit:
     driver: local

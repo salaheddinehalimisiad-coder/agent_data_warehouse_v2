@@ -150,34 +150,12 @@ function downloadFile(content, filename) {
 }
 
 function TypewriterMessage({ content, role, isLast, queryResult }) {
-  const [displayed, setDisplayed] = useState(role === 'user' || !isLast ? content : '');
-  const [isTyping, setIsTyping] = useState(role === 'assistant' && isLast);
-
-  useEffect(() => {
-    if (role === 'user' || !isLast) {
-      setDisplayed(content);
-      return;
-    }
-    setDisplayed('');
-    setIsTyping(true);
-    let i = 0;
-    const interval = setInterval(() => {
-      i += 3;
-      if (i >= content.length) {
-        setDisplayed(content);
-        setIsTyping(false);
-        clearInterval(interval);
-      } else {
-        setDisplayed(content.slice(0, i));
-      }
-    }, 10);
-    return () => clearInterval(interval);
-  }, [content, role, isLast]);
-
+  // Le contenu est maintenant streamé directement par le Zustand Store (pipelineStore)
+  // Cela garantit que le Markdown est parsé de manière stable à chaque tick global.
   return (
     <>
-      <FormattedMessage content={displayed} role={role} />
-      {isTyping && <span className="inline-block w-1.5 h-4 ml-1 bg-indigo-400 animate-pulse align-middle" />}
+      <FormattedMessage content={content} role={role} />
+      {role === 'assistant' && isLast && <span className="inline-block w-1.5 h-4 ml-1 bg-indigo-400 animate-pulse align-middle" />}
       {queryResult && <QueryResultTable data={queryResult} />}
     </>
   );

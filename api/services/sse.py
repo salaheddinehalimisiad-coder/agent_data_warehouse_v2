@@ -68,7 +68,10 @@ def set_agent_status(session_id: str, agent: str, status: str) -> None:
 
 def set_stage(session_id: str, stage: str, details: dict = None) -> None:
     """Notifie le frontend de la phase courante du pipeline."""
-    broadcast(session_id, "stage_change", {"stage": stage, "details": details or {}})
+    payload = {"stage": stage, "details": details or {}}
+    # Compat: certains clients ecoutent "stage", d'autres "stage_change".
+    broadcast(session_id, "stage_change", payload)
+    broadcast(session_id, "stage", payload)
 
 
 def pipeline_complete(session_id: str, success: bool, summary: dict = None) -> None:

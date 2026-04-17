@@ -7,8 +7,7 @@ import os
 import logging
 import time
 from typing import Optional
-from fastapi import HTTPException, Security
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import HTTPException, Request
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +18,6 @@ except ImportError:
     JWT_AVAILABLE = False
     logger.warning("[JWT] PyJWT non installé — authentification désactivée (mode dev)")
 
-_bearer = HTTPBearer(auto_error=False)
 
 JWT_SECRET    = os.getenv("JWT_SECRET", "CHANGE_ME_in_production_please")
 JWT_ALGORITHM = "HS256"
@@ -57,26 +55,27 @@ def decode_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail=f"Token invalide : {e}")
 
 
-def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Security(_bearer),
-) -> dict:
+def get_current_user(request: Request) -> dict:
     """
-    Dépendance FastAPI : extrait et valide le JWT du header Authorization.
+    Dépendance FastAPI : extrait et valide le JWT depuis le cookie 'auth_token'.
     Usage : user = Depends(get_current_user)
     """
-    if credentials is None:
-        raise HTTPException(status_code=401, detail="Token d'authentification requis")
-    return decode_token(credentials.credentials)
+    token = request.cookies.get("auth_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Cookie d'authentification requis")
+    return decode_token(token)
 
 
-def get_optional_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Security(_bearer),
-) -> dict:
+def get_optional_user(request: Request) -> dict:
     """
-    Dépendance FastAPI optionnelle : accepte les requêtes sans token.
-    Si un token est présent il est validé; sinon on retourne un utilisateur invité.
+    Dépendance FastAPI optionnelle : accepte les requêtes sans cookie.
+    Si un cookie est présent il est validé; sinon on retourne un utilisateur invité.
     Usage : user = Depends(get_optional_user)
     """
-    if credentials is None:
+    token = request.cookies.get("auth_token")
+    if not token:
         return {"sub": "1", "email": "guest@local", "prefix": "dw"}
-    return decode_token(credentials.credentials)
+    try:
+        return decode_token(token)
+    except HTTPException:
+        return {"sub": "1", "email": "guest@local", "prefix": "dw"}

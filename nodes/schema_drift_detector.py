@@ -48,11 +48,12 @@ def schema_drift_detector_node(state: AgentState) -> dict:
     drift_detected = False
     drift_details  = ""
 
-    SCHEMA_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    cache_file = Path(SCHEMA_CACHE_FILE)
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
 
-    if SCHEMA_CACHE_FILE.exists():
+    if cache_file.exists():
         try:
-            with open(SCHEMA_CACHE_FILE, "r") as f:
+            with open(cache_file, "r", encoding="utf-8") as f:
                 cached = json.load(f)
 
             if cached.get("fingerprint") != current_fingerprint:
@@ -92,7 +93,7 @@ def schema_drift_detector_node(state: AgentState) -> dict:
                 current_cols_with_types.append(f"{table}.{col.get('name', '')}:{dtype}")
                 current_cols_names_only.append(f"{table}.{col.get('name', '')}")
 
-    with open(SCHEMA_CACHE_FILE, "w") as f:
+    with open(cache_file, "w", encoding="utf-8") as f:
         json.dump({
             "fingerprint":         current_fingerprint,
             "columns":             current_cols_names_only,

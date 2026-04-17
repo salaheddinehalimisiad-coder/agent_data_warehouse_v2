@@ -7,9 +7,10 @@ FIXES v3.1 :
 import asyncio
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Depends, Query, Request
+from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Depends, Query, Request, Form
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["pipeline"])
 
 _HERE = Path(__file__).parent.parent.parent
-UPLOADS_DIR = _HERE / "uploads"
+UPLOADS_DIR = _HERE / "uploads" / "bak"
 OUTPUTS_DIR = _HERE / "outputs"
 
 
@@ -122,15 +123,17 @@ async def chat_with_agent(
 @router.get("/pipeline-stream")
 async def pipeline_stream(
     session_id: str,
-    token: Optional[str] = Query(default=None),
+    request: Request,
 ):
-    """SSE temps réel — validation JWT via query param."""
-    # BUG #2 FIX : valider le token passé en query param
-    if token:
-        try:
-            decode_token(token)
-        except Exception:
-            raise HTTPException(status_code=401, detail="Token invalide ou expiré")
+    """SSE temps réel — validation JWT via cookie (mode strict)."""
+    effective_token = request.cookies.get("auth_token")
+    if not effective_token:
+        raise HTTPException(status_code=401, detail="Cookie d'authentification manquant")
+
+    try:
+        decode_token(effective_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token invalide ou expiré")
 
     queue = sse_service.get_or_create_queue(session_id)
 
@@ -175,11 +178,17 @@ async def upload_file(
     file: UploadFile = File(...),
     user: dict = Depends(get_optional_user),
 ):
-    logger.info(f"[API] Upload début : {file.filename}")
+    """Upload CSV uniquement (.csv / .txt)."""
+    logger.info(f"[API] Upload CSV début : {file.filename}")
     from api.middleware.security import validate_file
     content = await file.read()
     try:
+        # Forcer uniquement CSV / txt pour cette route
+        if not any(file.filename.lower().endswith(ext) for ext in (".csv", ".txt")):
+            raise HTTPException(status_code=400, detail="Cette route accepte uniquement les fichiers CSV (.csv, .txt). Pour un backup SQL Server, utilisez /api/upload-backup.")
         validate_file(file.filename or "file.dat", len(content))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning(f"[API] Validation upload échouée pour {file.filename} : {e}")
         raise
@@ -189,8 +198,11 @@ async def upload_file(
     file_path = UPLOADS_DIR / safe_name
     with open(file_path, "wb") as f:
         f.write(content)
-    logger.info(f"[API] Upload réussi : {file_path}")
+    logger.info(f"[API] Upload CSV réussi : {file_path}")
     return {"file_path": str(file_path), "filename": file.filename, "size": len(content)}
+
+
+# Route /api/upload-backup déplacée vers api/routes/backup.py pour une meilleure maintenance.
 
 
 @router.get("/export")
@@ -360,6 +372,16 @@ QUESTION UTILISATEUR:
         generated_sql = sql_match.group(1).strip() if sql_match else raw_text.strip()
         generated_sql = generated_sql.replace('```sql', '').replace('```', '').strip()
 
+        # Guardrails minimums: requete lecture seule uniquement.
+        blocked = ("insert", "update", "delete", "drop", "alter", "truncate", "create", "merge", "exec", "execute")
+        lowered = generated_sql.lower().strip()
+        if not lowered.startswith("select"):
+            raise HTTPException(status_code=400, detail="Seules les requêtes SELECT sont autorisées.")
+        if any(re.search(rf"\b{kw}\b", lowered) for kw in blocked):
+            raise HTTPException(status_code=400, detail="La requête contient des opérations interdites.")
+        if ";" in lowered:
+            raise HTTPException(status_code=400, detail="Les requêtes multiples ne sont pas autorisées.")
+
         # 2. Exécuter le SQL
         from nodes.etl_executor import _build_engine
         engine = _build_engine(dw_config)
@@ -367,6 +389,7 @@ QUESTION UTILISATEUR:
         
         with engine.connect() as conn:
             df = pd.read_sql(generated_sql, conn)
+            df = df.head(500)
             
         # Conversion des dates/objets pour le JSON
         for col in df.columns:
@@ -404,7 +427,7 @@ QUESTION UTILISATEUR:
 
         return {
             "success": True,
-            "sql": sql_query,
+            "sql": generated_sql,
             "columns": columns,
             "rows": rows,
             "total_rows": len(rows),

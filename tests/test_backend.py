@@ -359,9 +359,8 @@ class TestWorkflowRouting:
 
     def test_route_etl_success(self):
         from main import route_etl_execution
-        from langgraph.graph import END
         state = {"etl_status": "success", "retry_count": 0}
-        assert route_etl_execution(state) == END
+        assert route_etl_execution(state) == "lineage_tracker"
 
     def test_route_etl_failed_retry(self):
         from main import route_etl_execution

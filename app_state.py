@@ -72,6 +72,13 @@ class AgentState(TypedDict, total=False):
     governance_report: Dict[str, Any]
     masking_sql:       str
     mock_data_sql:     str
+    source_df:         Any     # DataFrame pandas (étapes ETL)
+    sk_maps:           Dict[str, Dict[str, int]] # Mapping Surrogate Keys
+    
+    # ─── Backup Flow (NOUVEAU v4.1) ────────────────────────────────────────
+    restored_db:       str     # Nom de la base SQL Server restaurée
+    is_backup_flow:    bool    # True si on part d'un .bak restauré
+
 
 
     # ─── Journal ──────────────────────────────────────────────────────────

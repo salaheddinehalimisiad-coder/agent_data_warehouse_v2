@@ -32,7 +32,7 @@ def forecaster_node(state: AgentState) -> dict:
     try:
         engine = _build_engine(dw_config)
         date_tbl = f"{user_prefix}_dim_date"
-        query = f"SELECT d.year, d.month, SUM(f.{metric_col}) as val FROM {full_fact_name} f JOIN {date_tbl} d ON f.date_key = d.date_key GROUP BY d.year, d.month ORDER BY d.year, d.month"
+        query = f"SELECT d.annee, d.mois, SUM(f.{metric_col}) as val FROM {full_fact_name} f JOIN {date_tbl} d ON f.date_sk = d.date_sk GROUP BY d.annee, d.mois ORDER BY d.annee, d.mois"
         
         with engine.connect() as conn:
             df = pd.read_sql(query, conn)

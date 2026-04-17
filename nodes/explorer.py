@@ -37,8 +37,8 @@ def explorer_node(state: AgentState) -> dict:
             metadata = _explore_csv(config)
         elif source_type in ("excel", "xlsx", "xls"):
             metadata = _explore_excel(config)
-        elif source_type in ("mysql", "postgresql", "postgres", "sqlite"):
-            metadata = _explore_sql(config)
+        elif source_type in ("mysql", "postgresql", "postgres", "sqlite", "sqlserver", "mssql", "bak"):
+            metadata = _explore_sql(config, state.get("dw_connection_config"))
         elif source_type == "rest_api":
             metadata = _explore_rest_api(config)
         else:
@@ -109,45 +109,73 @@ def _explore_csv(config: dict) -> Dict[str, Any]:
     }
 
 
-def _explore_sql(config: dict) -> Dict[str, Any]:
+def _explore_sql(config: dict, dw_config: dict = None) -> Dict[str, Any]:
     import pandas as pd
     from sqlalchemy import create_engine, inspect, text
 
-    db_type  = config.get("type", "mysql")
-    host     = config.get("host", "localhost")
-    port     = config.get("port", 3306)
-    database = config.get("database", "")
-    user     = config.get("user", "")
-    password = config.get("password", "")
+    db_type  = config.get("type", "mysql").lower()
+    
+    # Handle 'bak' source type: use DW config but with restored db
+    if db_type == "bak":
+        host     = dw_config.get("host", "localhost")
+        port     = dw_config.get("port", 1433)
+        database = config.get("restored_db", dw_config.get("database", ""))
+        user     = dw_config.get("user", "sa")
+        password = dw_config.get("password", "")
+        db_type  = "sqlserver"
+    else:
+        host     = config.get("host", "localhost")
+        port     = config.get("port", 3306)
+        database = config.get("database", "")
+        user     = config.get("user", "")
+        password = config.get("password", "")
 
     driver_map = {
         "mysql":      "mysqlconnector",
         "postgresql": "psycopg2",
         "postgres":   "psycopg2",
         "sqlite":     "pysqlite",
+        "sqlserver":  "pyodbc",
+        "mssql":      "pyodbc",
     }
-    driver = driver_map.get(db_type, "mysqlconnector")
+    driver = driver_map.get(db_type, "pyodbc")
+    
     if db_type == "sqlite":
         url = f"sqlite:///{database}"
+    elif driver == "pyodbc":
+        url = f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
     else:
         url = f"{db_type}+{driver}://{user}:{password}@{host}:{port}/{database}"
+    
     engine    = create_engine(url, pool_pre_ping=True)
     inspector = inspect(engine)
 
     metadata = {}
     for table_name in inspector.get_table_names():
+        # Skip system tables
+        if table_name.startswith("sys") or table_name.startswith("_"):
+            continue
+            
         cols_info = inspector.get_columns(table_name)
         with engine.connect() as conn:
-            count = conn.execute(text(f"SELECT COUNT(*) FROM `{table_name}`")).scalar() or 0
+            # Use [] for SQL Server/cross-compatible escaping
             try:
-                sample_df = pd.read_sql(f"SELECT * FROM `{table_name}` LIMIT 200", conn)
+                count = conn.execute(text(f"SELECT COUNT(*) FROM [{table_name}]")).scalar() or 0
+                sample_limit = "TOP 200" if driver == "pyodbc" else ""
+                limit_suffix = "" if driver == "pyodbc" else "LIMIT 200"
+                
+                query = f"SELECT {sample_limit} * FROM [{table_name}] {limit_suffix}"
+                sample_df = pd.read_sql(query, conn)
                 columns = [_build_column_meta(sample_df, c) for c in sample_df.columns]
-            except Exception:
+            except Exception as e:
+                logger.warning(f"[Explorer] Error table {table_name}: {e}")
                 columns = [
                     {"name": c["name"], "dtype": str(c["type"]),
                      "nullable": c.get("nullable", True), "null_count": 0, "nunique": 0, "sample_values": []}
                     for c in cols_info
                 ]
+                count = 0
+                
         metadata[table_name] = {
             "row_count": int(count),
             "col_count": len(columns),

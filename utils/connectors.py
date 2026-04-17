@@ -11,7 +11,7 @@ Sources existantes maintenues :
 """
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Union
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def get_connection(config: dict) -> "BaseConnector":
         "excel":      ExcelConnector,
         "xlsx":       ExcelConnector,
         "xls":        ExcelConnector,
-        "mysql":      MySQLConnector,
+        "mysql":      SQLConnector,
         "postgresql": PostgreSQLConnector,
         "postgres":   PostgreSQLConnector,
         "sqlite":     SQLiteConnector,
@@ -44,6 +44,11 @@ def get_connection(config: dict) -> "BaseConnector":
     return cls(config)
 
 
+def get_connector(config: dict) -> "BaseConnector":
+    """Compatibilité ascendante: ancien nom de fabrique."""
+    return get_connection(config)
+
+
 def test_connection(config: dict) -> Dict[str, Any]:
     """Teste la connexion et retourne un rapport de diagnostic."""
     try:
@@ -57,7 +62,10 @@ def test_connection(config: dict) -> Dict[str, Any]:
 # ─── Classe de base ───────────────────────────────────────────────────────────
 
 class BaseConnector:
-    def __init__(self, config: dict):
+    def __init__(self, config: Union[dict, str]):
+        # Compatibilité: certains appels legacy passent directement un file_path.
+        if isinstance(config, str):
+            config = {"type": "csv", "file_path": config}
         self.config = config
 
     def test(self) -> dict:
@@ -65,6 +73,14 @@ class BaseConnector:
 
     def get_metadata(self) -> dict:
         raise NotImplementedError
+
+    def test_connection(self):
+        """Compatibilité legacy: retourne (ok, message)."""
+        try:
+            self.test()
+            return True, "Connexion réussie"
+        except Exception as e:
+            return False, str(e)
 
 
 # ─── CSV ──────────────────────────────────────────────────────────────────────
@@ -135,7 +151,7 @@ class ExcelConnector(BaseConnector):
 
 # ─── MySQL ────────────────────────────────────────────────────────────────────
 
-class MySQLConnector(BaseConnector):
+class SQLConnector(BaseConnector):
     def _engine(self):
         from sqlalchemy import create_engine
         c = self.config
@@ -154,6 +170,10 @@ class MySQLConnector(BaseConnector):
 
     def get_metadata(self) -> dict:
         return _sql_metadata(self._engine())
+
+
+class MySQLConnector(SQLConnector):
+    """Alias explicite pour compatibilité de nommage."""
 
 
 # ─── PostgreSQL ───────────────────────────────────────────────────────────────

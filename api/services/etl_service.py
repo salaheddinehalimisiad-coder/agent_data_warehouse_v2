@@ -28,13 +28,23 @@ AGENT_LABELS = {
     "human_review":     "👤 Human Review",
     "chat_modifier":    "💬 Chat Modifier",
     "etl_generator":    "⚙️ ETL Generator",
+    "etl_initializer":  "🏗️ ETL Initializer",
+    "etl_extractor":    "📥 Extract Step",
+    "etl_transformer":  "🔄 Transform Step",
+    "etl_loader":       "📤 Load Step",
     "etl_executor":     "🚀 ETL Executor",
     "healer":           "🔧 Healer",
     "lineage_tracker":  "🗺️ Lineage Tracker",
+    "insight_generator":"📊 Insight Gen",
+    "forecaster":       "📈 Forecaster",
+    "cataloger":        "📚 Cataloger",
+    "airflow_generator":"🌪️ Airflow DAG",
+    "dbt_generator":    "💎 dbt Project",
+    "mock_generator":   "🧪 Synthesizer",
 }
 
 # Nœuds après lesquels on persiste en DB
-_PERSIST_AFTER = {"modeler", "etl_executor", "lineage_tracker", "human_review", "human_review_dq"}
+_PERSIST_AFTER = {"modeler", "etl_loader", "lineage_tracker", "human_review", "human_review_dq"}
 
 
 def get_pipeline_state(session_id: str) -> dict:
@@ -77,7 +87,7 @@ def _safe(data: dict) -> dict:
 def _persist(session_id: str) -> None:
     """Persiste l'état courant en DB de manière non-bloquante."""
     try:
-        from api.db.mysql import save_session_state
+        from api.db.sqlserver import save_session_state
         state = _pipeline_states.get(session_id, {})
         user_id = state.get("user_id", 1)
         save_session_state(session_id, user_id, state)
@@ -111,9 +121,12 @@ async def _run_inner_impl(session_id: str, config: dict) -> None:
     sse = _get_sse()
     tc  = {"configurable": {"thread_id": session_id}}
 
+    c_config = config.get("connection_config", {})
+    is_bak   = c_config.get("type", "").lower() == "bak"
+
     initial = {
         "messages": [],
-        "connection_config":    config.get("connection_config", {}),
+        "connection_config":    c_config,
         "dw_connection_config": config.get("dw_connection_config", {}),
         "user_id":     config.get("user_id", 1),
         "user_prefix": config.get("user_prefix", "dw"),
@@ -127,10 +140,14 @@ async def _run_inner_impl(session_id: str, config: dict) -> None:
         "sql_ddl": "", "logical_model": {}, "source_metadata": {},
         "schema_fingerprint": "", "critic_review": "", "etl_code": "",
         "hitl_comment": "",
-        # Champs v3
+        # Champs v3 / v4
         "dq_report": {}, "dq_score": 100, "dq_alerts": [],
         "lineage": {},
         "load_metrics": {},
+        "insights": [], "predictions": [],
+        # Backup Flow fields (v4.1 PRO)
+        "is_backup_flow": is_bak,
+        "restored_db":    c_config.get("restored_db", ""),
     }
 
     _pipeline_states[session_id] = initial.copy()
@@ -148,7 +165,7 @@ async def _run_inner_impl(session_id: str, config: dict) -> None:
                     _merge(session_id, safe_out)
                     sse.broadcast(session_id, "state_update", {
                         "agent": node,
-                        "updates": {k: v for k, v in safe_out.items() if k != "messages"},
+                        "updates": {k: v for k, v in safe_out.items() if k not in ("messages", "source_df")},
                     })
 
                 sse.set_agent_status(session_id, node, "done")
@@ -267,7 +284,7 @@ async def _stream_continue(session_id: str, tc: dict) -> None:
                     _merge(session_id, safe_out)
                     sse.broadcast(session_id, "state_update", {
                         "agent": node,
-                        "updates": {k: v for k, v in safe_out.items() if k != "messages"},
+                        "updates": {k: v for k, v in safe_out.items() if k not in ("messages", "source_df")},
                     })
 
                 sse.set_agent_status(session_id, node, "done")

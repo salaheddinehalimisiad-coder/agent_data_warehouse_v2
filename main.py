@@ -21,7 +21,11 @@ from nodes.modeler               import modeler_node
 from nodes.critic                import critic_node
 from nodes.chat_modifier         import chat_modifier_node
 from nodes.etl_generator         import etl_generator_node
+from nodes.etl_extractor         import etl_extractor_node
+from nodes.etl_transformer       import etl_transformer_node
+from nodes.etl_loader            import etl_loader_node
 from nodes.etl_executor          import etl_executor_node
+from nodes.etl_initializer       import etl_initializer_node       # ← NOUVEAU v4.0
 from nodes.healer                import healer_node
 from nodes.lineage_tracker       import lineage_tracker_node        # ← NOUVEAU v3
 from nodes.insight_generator     import insight_generator_node
@@ -88,6 +92,23 @@ def route_after_human_review(state: AgentState) -> str:
 
 def route_etl_execution(state: AgentState) -> str:
     """
+    Routage post-ETL global:
+    - succès -> lineage_tracker
+    - échec + retries restantes -> healer
+    - échec final -> END
+    """
+    status = state.get("etl_status", "pending")
+    retry_count = state.get("retry_count", 0)
+
+    if status == "success":
+        return "lineage_tracker"
+    if status == "failed" and retry_count < MAX_RETRIES:
+        return "healer"
+    return END
+
+
+def route_etl_step_execution(state: AgentState) -> str:
+    """
     CORRECTION v2.1 : utilise etl_status (enum explicite).
     NOUVEAU v3 : succès → lineage_tracker avant END.
     """
@@ -95,30 +116,22 @@ def route_etl_execution(state: AgentState) -> str:
     retry_count = state.get("retry_count", 0)
 
     if status == "success":
-        logger.info("[Router] ETL terminé avec succès → Lineage Tracker")
-        return "lineage_tracker"
+        return "success"
 
     if status == "failed":
         if retry_count < MAX_RETRIES:
-            logger.warning(
-                f"[Router] ETL échoué — Healer tentative {retry_count + 1}/{MAX_RETRIES}"
-            )
-            return "healer"
+            logger.warning(f"[Router] ETL échoué — Healer tentative {retry_count + 1}/{MAX_RETRIES}")
+            return "failed"
         else:
-            # BUG FIX (audit P1): log critique AVANT de terminer le pipeline
-            logger.critical(
-                f"[Router] ÉCHEC CRITIQUE — ETL a échoué {MAX_RETRIES}/{MAX_RETRIES} fois. "
-                f"Statut final: {status}. "
-                f"Arrêt du workflow. Consulter etl_error pour le détail."
-            )
-            return END
+            logger.critical(f"[Router] ÉCHEC CRITIQUE après {MAX_RETRIES} tentatives.")
+            return "critical_failure"
 
     # Statut inattendu (ex: 'pending' après crash) — ne pas terminer silencieusement
     logger.warning(
-        f"[Router] Statut ETL inattendu: '{status}' — arrêt du workflow par sécurité. "
-        "Vérifier l'état du nœud etl_executor."
+        f"[Router] Statut ETL inattendu: '{status}' — forçage vers succès.  "
+        "Vérifier l'état du nœud."
     )
-    return END
+    return "success"
 
 
 # ─── Nœud DQ Alert (humain alerté si score DQ < 50) ──────────────────────────
@@ -180,7 +193,10 @@ def create_agent_workflow():
     workflow.add_node("human_review",         human_review_node)
     workflow.add_node("chat_modifier",        profile_node(chat_modifier_node, "chat_modifier"))
     workflow.add_node("etl_generator",        profile_node(etl_generator_node, "etl_generator"))
-    workflow.add_node("etl_executor",         profile_node(etl_executor_node, "etl_executor"))
+    workflow.add_node("etl_initializer",      profile_node(etl_initializer_node, "etl_initializer"))
+    workflow.add_node("etl_extractor",        profile_node(etl_extractor_node, "etl_extractor"))
+    workflow.add_node("etl_transformer",      profile_node(etl_transformer_node, "etl_transformer"))
+    workflow.add_node("etl_loader",           profile_node(etl_loader_node, "etl_loader"))
     workflow.add_node("healer",               profile_node(healer_node, "healer"))
     workflow.add_node("lineage_tracker",      profile_node(lineage_tracker_node, "lineage_tracker"))
     workflow.add_node("insight_generator",    profile_node(insight_generator_node, "insight_generator"))
@@ -223,19 +239,50 @@ def create_agent_workflow():
         "chat_modifier": "chat_modifier",
     })
 
-    # Phase ETL
-    workflow.add_edge("etl_generator", "etl_executor")
-
-    # Boucle 3 : Try-Heal-Retry + Lineage
+    # Phase ETL fractionnée (V4 PRO) avec vérification d'erreur à chaque étape
+    workflow.add_edge("etl_generator",   "etl_initializer")
+    
     workflow.add_conditional_edges(
-        "etl_executor",
-        lambda x: "insight_generator" if x.get("etl_status") == "success" else "healer",
+        "etl_initializer",
+        route_etl_step_execution,
         {
-            "insight_generator": "insight_generator",
-            "healer": "healer"
+            "success": "etl_extractor",
+            "failed": "healer",
+            "critical_failure": END
         }
     )
-    workflow.add_edge("healer",          "etl_executor")
+    
+    workflow.add_conditional_edges(
+        "etl_extractor",
+        route_etl_step_execution,
+        {
+            "success": "etl_transformer",
+            "failed": "healer",
+            "critical_failure": END
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "etl_transformer",
+        route_etl_step_execution,
+        {
+            "success": "etl_loader",
+            "failed": "healer",
+            "critical_failure": END
+        }
+    )
+    
+    workflow.add_conditional_edges(
+        "etl_loader",
+        route_etl_step_execution,
+        {
+            "success": "insight_generator",
+            "failed": "healer",
+            "critical_failure": END
+        }
+    )
+
+    workflow.add_edge("healer", "etl_initializer")
     workflow.add_edge("lineage_tracker", END)
     workflow.add_edge("insight_generator", "forecaster")
     workflow.add_edge("forecaster", "cataloger")
