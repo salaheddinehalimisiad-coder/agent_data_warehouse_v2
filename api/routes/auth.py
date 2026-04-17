@@ -7,29 +7,29 @@ from typing import Optional
 from api.db import sqlserver as db
 from api.middleware.jwt_auth import create_token, get_current_user
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+import bcrypt
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-
 
 class RegisterRequest(BaseModel):
     email: str
     password: str
     prefix: Optional[str] = ""
 
-
 class LoginRequest(BaseModel):
     email: str
     password: str
 
-
 def get_password_hash(password: str) -> str:
-    # BCrypt a une limite de 72 octets. On tronque pour éviter l'erreur.
-    return pwd_context.hash(password[:72])
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode('utf-8')[:72], salt).decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password[:72], hashed_password)
+    # Les vieux hash peuvent être gérés si on force l'encodage
+    if hashed_password == "null":
+        return False
+    return bcrypt.checkpw(plain_password.encode('utf-8')[:72], hashed_password.encode('utf-8'))
 
 
 def _generate_prefix(email: str) -> str:
