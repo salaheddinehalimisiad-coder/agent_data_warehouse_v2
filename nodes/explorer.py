@@ -176,10 +176,31 @@ def _explore_sql(config: dict, dw_config: dict = None) -> Dict[str, Any]:
                 ]
                 count = 0
                 
+        # ── Extraction FK / PK (relations réelles depuis la DB) ─────────────
+        try:
+            raw_fks = inspector.get_foreign_keys(table_name)
+            fk_list = [
+                {
+                    "constrained_columns": fk.get("constrained_columns", []),
+                    "referred_table":      fk.get("referred_table", ""),
+                    "referred_columns":    fk.get("referred_columns", []),
+                }
+                for fk in raw_fks
+                if fk.get("referred_table")
+            ]
+            raw_pk  = inspector.get_pk_constraint(table_name)
+            pk_cols = raw_pk.get("constrained_columns", []) if raw_pk else []
+        except Exception as fk_err:
+            logger.debug(f"[Explorer] FK/PK extraction skipped for {table_name}: {fk_err}")
+            fk_list = []
+            pk_cols = []
+
         metadata[table_name] = {
-            "row_count": int(count),
-            "col_count": len(columns),
-            "columns":   columns,
+            "row_count":    int(count),
+            "col_count":    len(columns),
+            "columns":      columns,
+            "foreign_keys": fk_list,
+            "primary_key":  pk_cols,
         }
     return metadata
 

@@ -25,8 +25,8 @@ services:
     volumes:
       - sql_data:/var/opt/mssql/data
       - sql_log:/var/opt/mssql/log
-      # Volume partagé : le backend dépose les .bak ici, SQL Server les lit
-      - bak_transit:/var/opt/mssql/backup
+      # Volume partagé : le backend local Windows écrit ici, SQL Server lit d'ici
+      - ./uploads/bak:/var/opt/mssql/backup
     healthcheck:
       # CORRECTION : mssql-tools18 (pas mssql-tools) dans les images 2022 récentes
       test: [
@@ -59,7 +59,7 @@ services:
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
     volumes:
       # Volume partagé : le backend écrit ici, SQL Server lit depuis ce même volume
-      - bak_transit:/app/uploads/bak
+      - ./uploads/bak:/app/uploads/bak
       - ./outputs:/app/outputs
       - .:/app  # Hot reload
     ports:
@@ -86,7 +86,4 @@ volumes:
   sql_data:
     driver: local
   sql_log:
-    driver: local
-  # Volume nommé partagé entre sqlserver et backend
-  bak_transit:
     driver: local

@@ -278,7 +278,7 @@ export const usePipelineStore = create((set, get) => ({
 // ─── Connexion SSE ────────────────────────────────────────────────────────────
 
 function _connectSSE(sessionId, authToken, set, get) {
-  const url = `/api/pipeline-stream?session_id=${encodeURIComponent(sessionId)}`;
+  const url = `/api/pipeline-stream?session_id=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(authToken || '')}`;
   let es    = null;
   let retryTimer = null;
 
