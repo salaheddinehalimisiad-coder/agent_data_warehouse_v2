@@ -147,10 +147,19 @@ def restore_sqlserver_backup(bak_path: str, target_db: str) -> dict:
         # Escape SQL
         def esc(s): return s.replace("'", "''")
 
-        # ── Étape 3 : Si la DB existe déjà, passer en SINGLE_USER pour REPLACE ─
+        # ── Étape 3 : Si la DB existe déjà, gérer selon son état ─────────────
+        #   - État "Restoring" (restauration précédente échouée) → DROP
+        #   - État normal → SINGLE_USER pour permettre le REPLACE
         cursor.execute(f"""
             IF EXISTS (SELECT name FROM master.sys.databases WHERE name = N'{esc(safe_db)}')
-                ALTER DATABASE [{safe_db}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+            BEGIN
+                DECLARE @state NVARCHAR(60)
+                SELECT @state = state_desc FROM master.sys.databases WHERE name = N'{esc(safe_db)}'
+                IF @state = 'RESTORING'
+                    DROP DATABASE [{safe_db}]
+                ELSE
+                    ALTER DATABASE [{safe_db}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+            END
         """)
 
         # ── Étape 4 : RESTORE DATABASE ────────────────────────────────────────

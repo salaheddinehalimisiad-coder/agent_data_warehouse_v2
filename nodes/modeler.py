@@ -156,7 +156,7 @@ def _smart_mock_model(metadata: dict) -> dict:
 
     # ── Fact Table ────────────────────────────────────────────────────────────
     fact_name = f"fact_{table_name}"
-    fact_cols = [{"name": f"{table_name}_sk", "type": "BIGINT AUTO_INCREMENT", "role": "pk"}]
+    fact_cols = [{"name": f"{table_name}_sk", "type": "BIGINT IDENTITY(1,1)", "role": "pk"}]
 
     # FK vers dim_date si des dates existent
     if date_cols:
@@ -174,12 +174,12 @@ def _smart_mock_model(metadata: dict) -> dict:
             "natural_key": dim_col_name,
             "scd_type": 2,
             "columns": [
-                {"name": f"{dim_col_name}_sk", "type": "BIGINT AUTO_INCREMENT", "role": "pk"},
-                {"name": dim_col_name, "type": "VARCHAR(255)", "role": "attribute", "natural_key": True},
-                {"name": "description", "type": "VARCHAR(500)", "role": "attribute"},
+                {"name": f"{dim_col_name}_sk", "type": "BIGINT IDENTITY(1,1)", "role": "pk"},
+                {"name": dim_col_name, "type": "NVARCHAR(255)", "role": "attribute", "natural_key": True},
+                {"name": "description", "type": "NVARCHAR(500)", "role": "attribute"},
                 {"name": "valid_from", "type": "DATE", "role": "attribute"},
                 {"name": "valid_to", "type": "DATE", "role": "attribute"},
-                {"name": "is_current", "type": "TINYINT(1) DEFAULT 1", "role": "attribute"},
+                {"name": "is_current", "type": "BIT DEFAULT 1", "role": "attribute"},
             ]
         })
 
@@ -198,7 +198,7 @@ def _smart_mock_model(metadata: dict) -> dict:
         "name": "dim_date",
         "description": "Dimension temporelle",
         "columns": [
-            {"name": "date_sk",    "type": "BIGINT AUTO_INCREMENT", "role": "pk"},
+            {"name": "date_sk",    "type": "BIGINT IDENTITY(1,1)", "role": "pk"},
             {"name": "date_full",  "type": "DATE",      "role": "attribute"},
             {"name": "annee",      "type": "INT",        "role": "attribute"},
             {"name": "trimestre",  "type": "TINYINT",   "role": "attribute"},
@@ -233,7 +233,7 @@ def _default_skeleton_model() -> dict:
             "name": "fact_ventes",
             "description": "Table de faits centrale",
             "columns": [
-                {"name": "vente_sk",      "type": "BIGINT AUTO_INCREMENT", "role": "pk"},
+                {"name": "vente_sk",      "type": "BIGINT IDENTITY(1,1)", "role": "pk"},
                 {"name": "date_sk",       "type": "BIGINT",      "role": "fk", "references": "dim_date"},
                 {"name": "produit_sk",    "type": "BIGINT",      "role": "fk", "references": "dim_produit"},
                 {"name": "montant_total", "type": "DECIMAL(15,4)","role": "metric"},
@@ -245,7 +245,7 @@ def _default_skeleton_model() -> dict:
                 "name": "dim_date",
                 "description": "Dimension temporelle",
                 "columns": [
-                    {"name": "date_sk",   "type": "BIGINT AUTO_INCREMENT", "role": "pk"},
+                    {"name": "date_sk",   "type": "BIGINT IDENTITY(1,1)", "role": "pk"},
                     {"name": "date_full", "type": "DATE",    "role": "attribute"},
                     {"name": "annee",     "type": "INT",     "role": "attribute"},
                     {"name": "trimestre", "type": "TINYINT", "role": "attribute"},
@@ -256,9 +256,9 @@ def _default_skeleton_model() -> dict:
                 "name": "dim_produit",
                 "description": "Dimension produit",
                 "columns": [
-                    {"name": "produit_sk",  "type": "BIGINT AUTO_INCREMENT", "role": "pk"},
-                    {"name": "nom_produit", "type": "VARCHAR(255)", "role": "attribute"},
-                    {"name": "categorie",   "type": "VARCHAR(100)", "role": "attribute"},
+                    {"name": "produit_sk",  "type": "BIGINT IDENTITY(1,1)", "role": "pk"},
+                    {"name": "nom_produit", "type": "NVARCHAR(255)", "role": "attribute"},
+                    {"name": "categorie",   "type": "NVARCHAR(100)", "role": "attribute"},
                 ]
             }
         ]
@@ -283,17 +283,21 @@ def _parse_model_json(raw: str) -> dict:
 
 
 def _generate_ddl(model: dict, prefix: str = "dw") -> str:
-    """Génère le SQL DDL à partir du modèle logique."""
+    """Génère le SQL DDL T-SQL (SQL Server) à partir du modèle logique."""
     lines = ["-- ============================================",
-             "-- Data Warehouse DDL — Star Schema",
+             "-- Data Warehouse DDL — Star Schema (T-SQL)",
              f"-- Préfixe schéma : {prefix}",
              "-- ============================================\n"]
 
     def _col_def(col: dict) -> str:
         name = col.get("name", "col")
-        ctype = col.get("type", "VARCHAR(255)")
+        ctype = col.get("type", "NVARCHAR(255)")
         role = col.get("role", "attribute")
-        parts = [f"`{name}` {ctype}"]
+        # Conversion des types MySQL vers T-SQL
+        ctype = ctype.replace("AUTO_INCREMENT", "").strip()
+        if "TINYINT(1)" in ctype:
+            ctype = ctype.replace("TINYINT(1)", "BIT")
+        parts = [f"[{name}] {ctype}"]
         if role == "pk":
             parts.append("PRIMARY KEY")
         return " ".join(parts)
@@ -302,9 +306,11 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
     for dim in model.get("dimension_tables", []):
         tname = f"{prefix}_{dim['name']}"
         cols = [_col_def(c) for c in dim.get("columns", [])]
-        lines.append(f"CREATE TABLE IF NOT EXISTS `{tname}` (")
+        desc = dim.get('description', '').replace("'", "''")
+        lines.append(f"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = '{tname}')")
+        lines.append(f"CREATE TABLE [{tname}] (")
         lines.append(",\n".join(f"  {c}" for c in cols))
-        lines.append(f") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Dimension : {dim.get('description', '')}';\n")
+        lines.append(f");\n")
 
     # Table de faits
     fact = model.get("fact_table", {})
@@ -314,11 +320,16 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
 
         # Ajouter les INDEX sur les FK (pas de FK physiques pour les perfs)
         fk_cols = [c["name"] for c in fact.get("columns", []) if c.get("role") == "fk"]
-        index_lines = [f"  INDEX `idx_{col}` (`{col}`)" for col in fk_cols]
 
-        all_cols = [f"  {c}" for c in cols] + index_lines
-        lines.append(f"CREATE TABLE IF NOT EXISTS `{tname}` (")
+        all_cols = [f"  {c}" for c in cols]
+        lines.append(f"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = '{tname}')")
+        lines.append(f"CREATE TABLE [{tname}] (")
         lines.append(",\n".join(all_cols))
-        lines.append(f") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Faits : {fact.get('description', '')}';\n")
+        lines.append(f");\n")
+
+        # Index séparés (T-SQL ne supporte pas INDEX inline dans CREATE TABLE)
+        for fk_col in fk_cols:
+            lines.append(f"IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_{fk_col}' AND object_id = OBJECT_ID('{tname}'))")
+            lines.append(f"CREATE NONCLUSTERED INDEX [idx_{fk_col}] ON [{tname}] ([{fk_col}]);\n")
 
     return "\n".join(lines)

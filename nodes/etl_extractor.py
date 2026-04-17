@@ -19,7 +19,7 @@ def etl_extractor_node(state: AgentState) -> dict:
     exec_log = state.get("execution_log", [])
     
     try:
-        source_df = _read_source(source_config)
+        source_df = _read_source(source_config, state.get("dw_connection_config"))
         exec_log.append(f"[Extract] ✅ Data extracted successfully: {len(source_df)} rows captured.")
         
         # We store the dataframe in the state for the next nodes

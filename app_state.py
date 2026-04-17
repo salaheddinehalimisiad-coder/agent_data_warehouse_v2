@@ -67,11 +67,8 @@ class AgentState(TypedDict, total=False):
     node_durations:    Dict[str, float]
     data_catalog:      Dict[str, Any]
     clean_action:      str
-    airflow_dag:       str
-    dbt_project:       Dict[str, str]
     governance_report: Dict[str, Any]
     masking_sql:       str
-    mock_data_sql:     str
     source_df:         Any     # DataFrame pandas (étapes ETL)
     sk_maps:           Dict[str, Dict[str, int]] # Mapping Surrogate Keys
     

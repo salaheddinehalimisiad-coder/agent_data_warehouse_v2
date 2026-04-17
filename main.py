@@ -15,26 +15,21 @@ from langgraph.checkpoint.memory import MemorySaver
 from app_state import AgentState
 
 from nodes.explorer              import explorer_node
-from nodes.data_quality_agent    import data_quality_agent_node     # ← NOUVEAU v3
+from nodes.data_quality_agent    import data_quality_agent_node
 from nodes.schema_drift_detector import schema_drift_detector_node
 from nodes.modeler               import modeler_node
 from nodes.critic                import critic_node
 from nodes.chat_modifier         import chat_modifier_node
-from nodes.etl_generator         import etl_generator_node
+from nodes.etl_tsql_generator    import etl_tsql_generator_node     # ← REMPLACE etl_generator (Pentaho)
 from nodes.etl_extractor         import etl_extractor_node
 from nodes.etl_transformer       import etl_transformer_node
 from nodes.etl_loader            import etl_loader_node
-from nodes.etl_executor          import etl_executor_node
-from nodes.etl_initializer       import etl_initializer_node       # ← NOUVEAU v4.0
+from nodes.etl_initializer       import etl_initializer_node
 from nodes.healer                import healer_node
-from nodes.lineage_tracker       import lineage_tracker_node        # ← NOUVEAU v3
+from nodes.lineage_tracker       import lineage_tracker_node
 from nodes.insight_generator     import insight_generator_node
-from nodes.forecaster            import forecaster_node             # ← NOUVEAU v4.1
-from nodes.cataloger             import cataloger_node              # ← NOUVEAU v4.1
-from nodes.airflow_generator     import airflow_generator_node      # ← NOUVEAU AIRFLOW
-from nodes.dbt_generator         import dbt_generator_node          # ← NOUVEAU dbt
-from nodes.governance_agent      import governance_agent_node       # ← NOUVEAU GOVERNANCE
-from nodes.mock_generator        import mock_generator_node         # ← NOUVEAU SYNTHESIZER
+from nodes.cataloger             import cataloger_node
+from nodes.governance_agent      import governance_agent_node
 
 logger           = logging.getLogger(__name__)
 MAX_RETRIES      = 3
@@ -192,7 +187,7 @@ def create_agent_workflow():
     workflow.add_node("critic",               profile_node(critic_node, "critic"))
     workflow.add_node("human_review",         human_review_node)
     workflow.add_node("chat_modifier",        profile_node(chat_modifier_node, "chat_modifier"))
-    workflow.add_node("etl_generator",        profile_node(etl_generator_node, "etl_generator"))
+    workflow.add_node("etl_tsql_generator",   profile_node(etl_tsql_generator_node, "etl_tsql_generator"))
     workflow.add_node("etl_initializer",      profile_node(etl_initializer_node, "etl_initializer"))
     workflow.add_node("etl_extractor",        profile_node(etl_extractor_node, "etl_extractor"))
     workflow.add_node("etl_transformer",      profile_node(etl_transformer_node, "etl_transformer"))
@@ -200,11 +195,7 @@ def create_agent_workflow():
     workflow.add_node("healer",               profile_node(healer_node, "healer"))
     workflow.add_node("lineage_tracker",      profile_node(lineage_tracker_node, "lineage_tracker"))
     workflow.add_node("insight_generator",    profile_node(insight_generator_node, "insight_generator"))
-    workflow.add_node("forecaster",           profile_node(forecaster_node, "forecaster"))
     workflow.add_node("cataloger",            profile_node(cataloger_node, "cataloger"))
-    workflow.add_node("airflow_generator",    profile_node(airflow_generator_node, "airflow_generator"))
-    workflow.add_node("dbt_generator",        profile_node(dbt_generator_node, "dbt_generator"))
-    workflow.add_node("mock_generator",       profile_node(mock_generator_node, "mock_generator"))
 
     # ── Flux ─────────────────────────────────────────────────────────────────
     workflow.add_edge(START, "explorer")
@@ -235,12 +226,12 @@ def create_agent_workflow():
 
     # Boucle 2 : Human Review → ETL ou Chat Modifier
     workflow.add_conditional_edges("human_review", route_after_human_review, {
-        "etl_generator": "etl_generator",
+        "etl_generator": "etl_tsql_generator",
         "chat_modifier": "chat_modifier",
     })
 
-    # Phase ETL fractionnée (V4 PRO) avec vérification d'erreur à chaque étape
-    workflow.add_edge("etl_generator",   "etl_initializer")
+    # Phase ETL fractionnée avec vérification d'erreur à chaque étape
+    workflow.add_edge("etl_tsql_generator", "etl_initializer")
     
     workflow.add_conditional_edges(
         "etl_initializer",
@@ -283,13 +274,9 @@ def create_agent_workflow():
     )
 
     workflow.add_edge("healer", "etl_initializer")
+    workflow.add_edge("insight_generator", "cataloger")
+    workflow.add_edge("cataloger", "lineage_tracker")
     workflow.add_edge("lineage_tracker", END)
-    workflow.add_edge("insight_generator", "forecaster")
-    workflow.add_edge("forecaster", "cataloger")
-    workflow.add_edge("cataloger", "airflow_generator")
-    workflow.add_edge("airflow_generator", "dbt_generator")
-    workflow.add_edge("dbt_generator", "mock_generator")
-    workflow.add_edge("mock_generator", "lineage_tracker")
 
     memory = MemorySaver()
     return workflow.compile(
