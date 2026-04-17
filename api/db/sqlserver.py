@@ -35,13 +35,24 @@ def init_metadata_db() -> None:
         cursor = conn.cursor()
         cursor.execute("""
             IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='users' AND xtype='U')
-            CREATE TABLE users (
-                id INT IDENTITY(1,1) PRIMARY KEY,
-                email VARCHAR(255) UNIQUE NOT NULL,
-                password_hash VARCHAR(255) NOT NULL,
-                prefix VARCHAR(50) NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
+            BEGIN
+                CREATE TABLE users (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    prefix VARCHAR(50) NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            END
+        """)
+        # Ensure default user 1 exists to avoid FK constraints for unauthenticated sessions
+        cursor.execute("""
+            IF NOT EXISTS (SELECT 1 FROM users WHERE id = 1)
+            BEGIN
+                SET IDENTITY_INSERT users ON;
+                INSERT INTO users (id, email, password_hash, prefix) VALUES (1, 'guest@local', 'null', 'dw');
+                SET IDENTITY_INSERT users OFF;
+            END
         """)
         cursor.execute("""
             IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='sessions' AND xtype='U')

@@ -126,9 +126,9 @@ async def pipeline_stream(
     request: Request,
 ):
     """SSE temps réel — validation JWT via cookie (mode strict)."""
-    effective_token = request.cookies.get("auth_token")
+    effective_token = request.cookies.get("auth_token") or request.query_params.get("token")
     if not effective_token:
-        raise HTTPException(status_code=401, detail="Cookie d'authentification manquant")
+        raise HTTPException(status_code=401, detail="Jeton d'authentification manquant (Cookie ou Query Param)")
 
     try:
         decode_token(effective_token)
