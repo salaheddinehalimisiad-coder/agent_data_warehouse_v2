@@ -113,7 +113,7 @@ export const apiClient = {
   },
 
   streamPipeline(sessionId, onEvent, onError) {
-    const es = new EventSource(`${API_BASE}/api/pipeline-stream?session_id=${sessionId}`);
+    const es = new EventSource(`${API_BASE}/api/pipeline-stream?session_id=${sessionId}`, { withCredentials: true });
     es.onmessage = (e) => { try { onEvent(JSON.parse(e.data)); } catch { } };
     es.onerror = (err) => { if (onError) onError(err); };
     return () => es.close();

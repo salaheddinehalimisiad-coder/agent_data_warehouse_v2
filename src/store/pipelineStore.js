@@ -283,7 +283,7 @@ function _connectSSE(sessionId, authToken, set, get) {
   let retryTimer = null;
 
   function connect() {
-    es = new EventSource(url);
+    es = new EventSource(url, { withCredentials: true });
 
     es.onmessage = (e) => {
       try {
