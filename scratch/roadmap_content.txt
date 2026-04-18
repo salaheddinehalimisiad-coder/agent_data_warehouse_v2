@@ -1,0 +1,275 @@
+
+
+
+ANTIGRAVITY BI
+Agent-Assisted Data Warehouse Design & ETL Automation
+
+
+
+1. Vision & Problème à Résoudre
+1.1 Le Problème Central
+Construire un Data Warehouse depuis une base OLTP existante est un processus coûteux en temps et expertise. Il implique : analyse du schéma source, conception du modèle dimensionnel (Kimball), écriture du DDL, ETL complet avec gestion des Slowly Changing Dimensions, et génération de requêtes analytiques (SQL OLAP, MDX, DAX). Ce processus prend des heures ou des jours selon la complexité de la base source.
+Ce projet automatise l'INTÉGRALITÉ de ce pipeline grâce à des agents IA orchestrés par LangGraph.
+
+
+1.2 Ce que veut l'utilisateur
+L'utilisateur — un data engineer, un étudiant, ou un analyste — doit pouvoir :
+Uploader son fichier source (.bak SQL Server, .csv, ou connexion SQL directe)
+Lancer l'agent et observer le pipeline s'exécuter en temps réel via SSE
+Valider ou modifier le modèle dimensionnel proposé via une interface de chat
+Obtenir un Data Warehouse opérationnel sur SQL Server avec Star Schema ou Constellation
+Recevoir automatiquement les requêtes analytiques adaptées à SON schéma généré
+Télécharger un rapport PDF professionnel documentant tout le processus
+
+
+2. État Actuel — Ce qui est Fait (Phase 1 & 2)
+2.1 Architecture Confirmée
+
+2.2 Le Graph LangGraph — 9 Nœuds Actifs
+Flux principal dans main.py avec 3 boucles de contrôle :
+
+2.3 Points d'Attention Critiques
+
+3. Genericité — Le Principe Central du Framework
+3.1 Pourquoi la Genericité est Non-Négociable
+Le projet s'appelle 'Agent-Assisted Data Warehouse Design and ETL Automation'. Le mot clé est 'Agent-Assisted' — l'agent doit raisonner sur la structure de la base source pour inférer le modèle dimensionnel, pas appliquer des règles prédéfinies pour une base connue.
+L'utilisateur peut charger n'importe laquelle de ces bases :
+
+3.2 Ce qui DOIT être Générique vs Ce qui peut être Spécifique
+
+3.3 Comment le Modeler Fonctionne (Algorithme Générique)
+Le nœud modeler.py doit appliquer cet algorithme sur N'IMPORTE quel schéma source :
+Étape 1 : Scoring des Tables
+Pour chaque table T dans source_metadata, calculer un score de 'fact-ness' :
+score(T) = 0
+score += 3  si T a >= 2 FK vers d'autres tables
+score += 2  si T a des colonnes numériques continues (amounts, quantities, prices)
+score += 2  si cardinalité(T) > moyenne des cardinalités
+score += 1  si T a des colonnes de date
+score -= 2  si T a peu de colonnes (< 5) → probablement une table de référence
+score -= 1  si T a une FK qui pointe VERS elle-même (self-join → dimension hiérarchique)
+La/les tables avec le score le plus élevé deviennent les tables de faits candidates.
+
+Étape 2 : Détection des Dimensions
+Pour chaque table D référencée par une FK depuis une table de faits F :
+D devient une dimension candidate
+Vérifier si D est également une table de faits (constellation) → si oui, créer 2 measure groups
+Vérifier la profondeur de la chaîne FK : D1 → D2 → D3 → snowflake → dénormaliser en étoile
+Détecter les self-joins dans D → dimension récursive (hiérarchie employé/manager)
+
+Étape 3 : Génération de DimDate
+DimDate est TOUJOURS générée algorithmiquement (elle n'existe pas dans la source OLTP). L'algorithme :
+Scanner toutes les colonnes de type DATE/DATETIME dans toutes les tables
+Regrouper par contexte sémantique (même table → rôles multiples possibles)
+Générer une DimDate unique avec attributs standard : DateKey, FullDate, Day, DayName, Week, Month, MonthName, Quarter, Semester, Year
+Si plusieurs colonnes date sur la même table de faits → role-playing dimensions (DateKey, DueDateKey, ShippedDateKey...)
+
+Étape 4 : Génération des Mesures
+Pour la table de faits F, détecter les mesures candidates :
+Colonnes numériques NON-clé → mesures additives (SUM)
+Colonnes de type MONEY/DECIMAL → mesures financières (SUM + AVG)
+Colonnes de type INT petites valeurs → mesures semi-additives (AVG par certaines dimensions)
+Mesures calculées automatiques : si colonnes 'price' et 'quantity' détectées → proposer une mesure Amount = price × quantity
+
+3.4 Règle d'Or pour Claude Opus
+
+4. Architecture Cible — Phase 3
+4.1 Vue d'Ensemble du Pipeline Complet
+
+4.2 Nouveaux Nœuds à Créer en Phase 3
+
+4.3 Nouveaux Champs app_state.py
+RÈGLE : Tout nouveau champ d'un nœud doit être déclaré dans app_state.py AVANT d'être utilisé dans le nœud.
+# ─── Query Generator ────────────────────────────────────────────────────────
+generated_queries: Dict[str, List[str]]  # {'sql_olap': [...], 'mdx': [...], 'dax': [...]}
+query_results: Dict[str, Any]            # Résultats d'exécution des requêtes SQL
+queries_schema_context: str              # Contexte du schéma DW injecté dans les prompts
+
+# ─── Report Generator ───────────────────────────────────────────────────────
+report_sections: List[Dict[str, Any]]    # Sections composées du rapport
+report_pdf_path: str                     # Chemin vers le PDF final
+report_language: str                     # 'fr' | 'en' (défaut: 'fr')
+
+# ─── CDC / Incremental ETL ──────────────────────────────────────────────────
+etl_mode: str                            # 'full_load' | 'incremental'
+etl_watermarks: Dict[str, str]           # {table_name: last_loaded_iso_timestamp}
+cdc_delta_counts: Dict[str, int]         # {table_name: nb_rows_changed}
+
+5. Roadmap Phase 3 — Tâches Détaillées
+
+P3-01 : Fix Tests — URGENT, faire en premier
+Dans tests/test_backend.py :
+Remplacer TOUTES les occurrences de nodes.etl_generator par nodes.etl_tsql_generator
+Ajouter tests pour _detect_constellation_clusters() dans nodes/modeler.py — vérifier sur un schéma fictif avec 2 tables de faits
+Ajouter tests pour SCD Type 2 dans _load_dimension() — vérifier ValidFrom/ValidTo/IsCurrent
+Ajouter tests pour _batch_insert() avec quarantaine — vérifier que les lignes invalides vont dans rejets_<table>
+Créer un schéma source FICTIF générique (pas Northwind) pour les tests : ex. une base 'Library' avec Books, Members, Loans — tester que le Modeler génère un DW correct
+
+
+P3-02 : Query Generator — Générique sur Tout Schéma
+Fichier : nodes/query_generator.py (NOUVEAU)
+Ce nœud est le plus représentatif de la genericité. Il doit générer des requêtes analytiques ADAPTÉES au schéma DW que le Modeler a produit, sans aucune connaissance préalable de ce schéma.
+
+Algorithme de génération générique :
+Lire state['logical_model'] pour extraire : nom de la table de faits, liste des dimensions, liste des mesures avec leurs types
+Pour chaque mesure numérique détectée → générer une requête SUM / AVG par dimension
+Pour chaque dimension avec des colonnes de date → générer des requêtes temporelles (YTD, par année, par mois)
+Pour chaque dimension avec une hiérarchie détectée → générer un ROLLUP sur cette hiérarchie
+Pour toutes les mesures → générer ROW_NUMBER / RANK / DENSE_RANK partitionnés par chaque dimension
+Pour les mesures financières → générer LAG/LEAD pour comparaison période précédente
+
+Structure du prompt LLM pour la génération :
+Le prompt injecte le schéma DW généré, pas un schéma fixe. Exemple de structure :
+SYSTEM PROMPT :
+Tu es un expert SQL Server / OLAP. Génère des requêtes analytiques adaptées à CE schéma spécifique.
+
+CONTEXTE SCHÉMA (dynamique, injecté depuis state['logical_model']) :
+- Table de faits : {fact_table_name}
+- Mesures : {measures_list}  (ex: [TotalAmount, Quantity, UnitPrice])
+- Dimensions : {dimensions_list}  (ex: [DimDate, DimProduct, DimCustomer])
+- Hiérarchies détectées : {hierarchies}
+- Colonnes date : {date_columns}
+
+INSTRUCTIONS :
+1. Génère 3 requêtes SQL analytiques avec Window Functions
+2. Génère 1 requête ROLLUP sur la première dimension hiérarchique trouvée
+3. Génère 1 requête CUBE sur les 2 premières dimensions
+4. Si SSAS est disponible, génère 3 requêtes MDX adaptées
+5. Si modèle tabulaire disponible, génère 5 mesures DAX adaptées
+RETOURNE : JSON avec clés 'sql_olap', 'mdx', 'dax'
+
+
+Exécution et collecte des résultats :
+Après génération, le nœud exécute les requêtes SQL analytiques directement sur le DW via SQLAlchemy et stocke les résultats dans state['query_results']. Les requêtes MDX/DAX sont incluses dans le rapport mais non exécutées (elles nécessitent SSAS).
+
+P3-03 : Report Generator — PDF Professionnel
+Fichier : nodes/report_generator.py (NOUVEAU)
+Ce nœud génère le rapport PDF final. Il est lui aussi générique : il documente CE que le framework a produit pour CETTE base source, pas un rapport pré-écrit.
+
+Sections du rapport (toutes dynamiques) :
+Page de titre — nom du projet, base source, date, utilisateur
+Résumé exécutif — nb de tables source, nb de dimensions générées, nb de faits, score DQ, durée du pipeline
+Schéma OLTP Source — représentation textuelle du schéma source (tables, colonnes clés, FK)
+Modèle Dimensionnel Généré — schéma en étoile ou constellation avec toutes les dimensions et mesures identifiées
+DDL SQL Server — CREATE TABLE statements complets pour toutes les tables du DW
+Pipeline ETL — résumé des transformations appliquées (mapping source→DW, SCD Types, rejets)
+Requêtes Analytiques — les requêtes générées avec leurs résultats d'exécution (tableaux de données)
+Métriques de Qualité — score DQ, nb rejets, watermarks, statistiques d'exécution
+
+Dépendances PDF :
+# requirements.txt — ajouter :
+fpdf2>=2.7.0      # Pour layouts complexes avec tables et code
+# reportlab déjà présent — garder comme fallback
+
+
+P3-04 : Renforcer la Genericité du Modeler
+Fichier : nodes/modeler.py (RENFORCER — 53KB, modifier avec prudence)
+L'objectif est de s'assurer que le Modeler ne contient AUCUN hardcoding lié à une base spécifique. Audit à effectuer :
+
+Audit de genericité — rechercher et corriger :
+Chercher toutes les occurrences de noms de tables Northwind dans le code (Orders, Products, Customers, Employees, etc.) → les remplacer par de la logique dynamique
+Chercher les colonnes hardcodées (OrderDate, CustomerID, ProductID, etc.) → les remplacer par de la détection dynamique basée sur les patterns de nommage et types
+Vérifier que _detect_constellation_clusters() fonctionne sur un schéma non-Northwind
+Vérifier que la génération de DimDate ne suppose pas de colonnes nommées 'OrderDate' → détecter toutes colonnes DATE/DATETIME
+Vérifier que le scoring fact/dimension fonctionne sans connaître le domaine métier
+
+Amélioration : Heuristiques de Nommage Génériques
+Le Modeler peut utiliser ces heuristiques de nommage (sans hardcoder des noms spécifiques) :
+Colonnes finissant par 'ID' ou 'Key' → clés candidates
+Colonnes contenant 'Date', 'Time', 'At' → colonnes temporelles → candidats DimDate
+Colonnes de type MONEY, DECIMAL, FLOAT → mesures candidates
+Tables dont le nom contient 'Detail', 'Line', 'Item', 'Transaction', 'Log' → fort signal table de faits
+Tables dont le nom contient 'Type', 'Category', 'Status', 'Code' → fort signal table de dimension
+
+P3-05 : CDC Watermark — ETL Incrémental
+Fichier : nodes/cdc_watermark.py (NOUVEAU)
+Actuellement, chaque run fait un Full Load. Pour les grandes bases, cela n'est pas acceptable. Implémenter un mécanisme de watermark générique :
+Créer outputs/etl_watermarks.json pour persister les timestamps par table
+Au démarrage, lire le watermark et déterminer le mode : full_load (premier run ou reset) vs incremental
+En mode incrémental, extraire seulement WHERE last_modified_column > watermark
+Après chargement réussi, mettre à jour le watermark avec le timestamp du run
+Stocker state['etl_mode'] et state['etl_watermarks'] pour transmission au rapport
+
+Défi générique : détecter la colonne de modification
+Le framework ne connaît pas à l'avance la colonne qui indique la dernière modification. Algorithme de détection :
+# Par ordre de priorité :
+1. Colonne nommée 'UpdatedAt', 'ModifiedAt', 'LastModified', 'UpdateDate'
+2. Colonne nommée 'CreatedAt', 'InsertedAt', 'CreatedDate' (pour inserts seulement)
+3. Colonne auto-increment PK (pour inserts seulement, si pas de colonne date)
+4. Fallback : full_load (pas de colonne de tracking disponible)
+
+P3-06 : Dashboard Builder React
+Fichier : src/components/DashboardBuilder.jsx (NOUVEAU)
+Composant React pour visualiser les données du DW généré. Doit être générique : s'adapter au schéma produit par le Modeler.
+Au chargement, lire state.logical_model depuis le store Zustand pour connaître le schéma
+Auto-suggest : proposer des visualisations basées sur le schéma (mesures → axes Y, dimensions temporelles → axes X)
+Types de widgets : LineChart, BarChart, PieChart, KPI Card, DataTable (recharts — déjà dans package.json)
+Drag-and-drop : utiliser react-grid-layout (à ajouter à package.json)
+Chaque widget exécute une requête SQL via POST /api/query avec le SQL généré
+Export : PNG par widget, PDF du dashboard complet
+
+P3-07 : Scheduler APScheduler
+Fichier : api/services/scheduler_service.py (NOUVEAU)
+Remplacer le stub airflow_generator.py par un vrai scheduler Python natif :
+# Ajouter à requirements.txt :
+apscheduler>=3.10.0
+Implémenter APScheduler avec JobStore SQL Server (persister les jobs entre redémarrages)
+Endpoints : POST /api/schedule, GET /api/schedule, DELETE /api/schedule/{id}, PUT /api/schedule/{id}
+Chaque job déclenche un run complet du pipeline LangGraph avec les paramètres sauvegardés
+Afficher le statut des jobs dans un panneau Scheduler dans le frontend React
+
+6. Patterns Architecturaux — Règles Non-Négociables
+
+
+7. Configuration & Commandes
+7.1 Démarrage
+# Répertoire de travail :
+cd c:\Users\salah\Desktop\agent_dw_v3_fixed
+
+# Backend :
+.venv\Scripts\activate
+python -m uvicorn api.server:app --reload --port 8000
+
+# Frontend :
+npm run dev
+
+# Tests :
+pytest tests/ -v --tb=short
+
+# Ollama :
+ollama serve && ollama pull qwen2.5-coder:7b
+
+7.2 Variables .env
+SQL_HOST=127.0.0.1
+SQL_PORT=1433
+SQL_USER=sa
+SQL_PASSWORD=YourPassword123!
+SQL_DRIVER=ODBC Driver 17 for SQL Server
+JWT_SECRET=chaine-aleatoire-longue
+GOOGLE_API_KEY=AIza...  # Fallback LLM
+OLLAMA_MODEL=qwen2.5-coder:7b
+
+7.3 Nouvelles Dépendances Phase 3
+# requirements.txt — ajouter :
+fpdf2>=2.7.0
+apscheduler>=3.10.0
+pyodbc>=4.0.0
+
+# package.json — ajouter :
+react-grid-layout
+
+7.4 Checklist de Livraison
+P3-01 Fix Tests
+pytest tests/ -v → 0 erreurs, 0 failures
+Au moins 1 test sur une base source fictive NON-Northwind
+P3-02 Query Generator
+Génère des requêtes SQL OLAP correctes sur le schéma produit par le Modeler
+Les requêtes utilisent uniquement les noms de tables/colonnes du schéma généré
+Fallback algorithmique actif si LLM indisponible
+P3-03 Report Generator
+PDF généré avec 8 sections dynamiques
+Le rapport documente la base source réelle de ce run
+Résultats de requêtes inclus sous forme de tableaux
+P3-04 Genericité Modeler
+Aucune occurrence de noms Northwind dans la logique de modélisation
+Testé sur au moins 2 bases sources différentes
