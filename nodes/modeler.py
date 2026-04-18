@@ -152,8 +152,8 @@ Génère le Star Schema Kimball optimal pour cette base OLTP. Retourne uniquemen
 # ═════════════════════════════════════════════════════════════════════════════
 
 def modeler_node(state: AgentState) -> dict:
-    """Génère le modèle logique OLAP Star Schema et le DDL T-SQL correspondant."""
-    logger.info("--- AGENT MODELER v3.0 : Star Schema Intelligence ---")
+    """Génère le modèle logique OLAP Star/Constellation Schema et le DDL T-SQL correspondant."""
+    logger.info("--- AGENT MODELER v4.0 : Star/Constellation Schema Intelligence ---")
 
     metadata    = state.get("source_metadata", {})
     drift_warn  = ""
@@ -198,20 +198,37 @@ def modeler_node(state: AgentState) -> dict:
     if not logical_model:
         if metadata:
             logical_model = _build_star_from_relational(metadata, fk_out, fk_in, scores)
+            n_facts = len(logical_model.get('fact_tables', [logical_model.get('fact_table', {})]))
             logger.info(
-                f"[Modeler] 🤖 Star Schema auto-généré : "
-                f"{len(logical_model.get('dimension_tables', []))} dimensions + 1 fact"
+                f"[Modeler] 🤖 Schema auto-généré : "
+                f"{len(logical_model.get('dimension_tables', []))} dimensions + {n_facts} fact(s)"
             )
         else:
             logical_model = _default_skeleton_model()
             logger.info("[Modeler] 🦴 Skeleton model (aucune métadonnée)")
 
+    # ── Normalisation : garantir fact_tables (list) + backward compat fact_table ──
+    if "fact_tables" not in logical_model:
+        # LLM or old format returned singular fact_table → wrap
+        ft = logical_model.get("fact_table")
+        if ft:
+            logical_model["fact_tables"] = [ft]
+        else:
+            logical_model["fact_tables"] = []
+    # Backward compat: fact_table = first fact
+    if logical_model["fact_tables"]:
+        logical_model["fact_table"] = logical_model["fact_tables"][0]
+    else:
+        logical_model["fact_table"] = {}
+
     # ── Générer le DDL T-SQL ─────────────────────────────────────────────────
     sql_ddl = _generate_ddl(logical_model, prefix)
 
+    n_facts = len(logical_model.get('fact_tables', []))
+    schema_type = "Constellation" if n_facts > 1 else "Star"
     logger.info(
-        f"[Modeler] Modèle v{current_v + 1} — "
-        f"{len(logical_model.get('dimension_tables', []))} dimensions + 1 table de faits"
+        f"[Modeler] Modèle v{current_v + 1} ({schema_type}) — "
+        f"{len(logical_model.get('dimension_tables', []))} dimensions + {n_facts} table(s) de faits"
     )
 
     return {
@@ -220,8 +237,8 @@ def modeler_node(state: AgentState) -> dict:
         "previous_sql_ddl":      previous_ddl,
         "sql_ddl":               sql_ddl,
         "execution_log": state.get("execution_log", []) + [
-            f"[Modeler] ✅ Star Schema v{current_v+1} — "
-            f"{len(logical_model.get('dimension_tables', []))} dimensions"
+            f"[Modeler] ✅ {schema_type} Schema v{current_v+1} — "
+            f"{len(logical_model.get('dimension_tables', []))} dims + {n_facts} fact(s)"
         ],
     }
 
@@ -465,8 +482,167 @@ def _score_fact_candidates(
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# CONSTRUCTEUR PRINCIPAL DU STAR SCHEMA
+# CONSTELLATION CLUSTER DETECTION
 # ═════════════════════════════════════════════════════════════════════════════
+
+def _detect_constellation_clusters(
+    scores: List[Tuple[str, float]],
+    fk_out: dict,
+    fk_in: dict,
+    metadata: dict,
+) -> List[str]:
+    """
+    Détecte si la base contient plusieurs pôles transactionnels indépendants
+    (constellation) plutôt qu'un seul star schema.
+
+    Algorithme :
+    1. Prendre les candidats avec un score > 40% du score max
+    2. Exclure ceux qui sont dans la chaîne FK l'un de l'autre (header/detail)
+    3. Retourner les clusters indépendants comme tables de faits distinctes
+
+    Ex: Si la base a Orders/OrderDetails ET Absences/Conges,
+        OrderDetails et Absences forment deux clusters séparés.
+    """
+    if len(scores) < 2:
+        return [scores[0][0]] if scores else []
+
+    top_score = scores[0][1]
+    if top_score <= 0:
+        return [scores[0][0]]
+
+    # Candidats significatifs (score > 40% du top)
+    threshold = top_score * 0.40
+    significant = [(t, s) for t, s in scores if s >= threshold]
+
+    if len(significant) < 2:
+        return [significant[0][0]] if significant else []
+
+    # Construire les chaînes FK pour détecter les relations header/detail
+    def _are_related(table_a: str, table_b: str) -> bool:
+        """Vérifie si deux tables sont liées par FK directe ou transitive (1 hop)."""
+        # Direct FK between them
+        for fk in fk_out.get(table_a, []):
+            if fk.get("referred_table") == table_b:
+                return True
+        for fk in fk_out.get(table_b, []):
+            if fk.get("referred_table") == table_a:
+                return True
+        # Transitive: A → X, B → X (shared header → same cluster)
+        refs_a = {fk.get("referred_table") for fk in fk_out.get(table_a, [])}
+        refs_b = {fk.get("referred_table") for fk in fk_out.get(table_b, [])}
+        # If one is the header of the other
+        if table_a in refs_b or table_b in refs_a:
+            return True
+        # If they share a transactional header (not a pure dimension)
+        shared_refs = refs_a & refs_b
+        for shared in shared_refs:
+            shared_fks = fk_out.get(shared, [])
+            # A shared table with its own FK outs is likely a header, not a dim
+            if len(shared_fks) >= 2:
+                return True
+        return False
+
+    # Greedy clustering: pick independent fact tables
+    fact_clusters = [significant[0][0]]
+    for table, score in significant[1:]:
+        is_independent = True
+        for existing in fact_clusters:
+            if _are_related(table, existing):
+                is_independent = False
+                break
+        if is_independent:
+            fact_clusters.append(table)
+
+    # Cap at 5 fact tables max (sanity limit)
+    fact_clusters = fact_clusters[:5]
+
+    if len(fact_clusters) > 1:
+        logger.info(
+            f"[Modeler] 🌟 CONSTELLATION détectée : {len(fact_clusters)} pôles transactionnels — "
+            f"{', '.join(fact_clusters)}"
+        )
+    return fact_clusters
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CONSTRUCTEUR PRINCIPAL DU STAR / CONSTELLATION SCHEMA
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _build_single_fact_cluster(
+    fact_name: str,
+    metadata: dict,
+    fk_out: dict,
+    fk_in: dict,
+    exclude_tables: set,
+) -> Tuple[dict, List[dict], set]:
+    """
+    Construit un cluster Star Schema pour une seule table de faits.
+    Retourne (fact_table, dim_tables, dim_names_set) pour permettre
+    la fusion des dimensions conformées dans une constellation.
+    """
+    fact_info = metadata.get(fact_name, {})
+
+    # Détection du pattern Header / Détail
+    header_table = None
+    for fk in fk_out.get(fact_name, []):
+        ref = fk.get("referred_table", "")
+        if not ref or ref == fact_name or ref in exclude_tables:
+            continue
+        ref_fks = fk_out.get(ref, [])
+        if len(ref_fks) >= 2:
+            header_table = ref
+            logger.info(
+                f"[Modeler] Pattern Header/Détail : "
+                f"{fact_name} (détail) ← {header_table} (en-tête)"
+            )
+            break
+
+    # Collecter toutes les FK fait + header
+    all_fact_fks = list(fk_out.get(fact_name, []))
+    if header_table:
+        all_fact_fks += fk_out.get(header_table, [])
+
+    # Dédupliquer
+    local_exclude = {fact_name, header_table} if header_table else {fact_name}
+    local_exclude |= exclude_tables
+    seen_refs, unique_fks = set(), []
+    for fk in all_fact_fks:
+        ref = fk.get("referred_table", "")
+        if ref and ref not in seen_refs and ref not in local_exclude:
+            seen_refs.add(ref)
+            unique_fks.append(fk)
+
+    # Construire la table de faits
+    fact_table = _build_fact_table(
+        fact_name, fact_info,
+        header_table, metadata.get(header_table, {}) if header_table else {},
+        unique_fks, fk_out, metadata,
+    )
+
+    # Construire les dimensions pour ce cluster
+    dim_tables = []
+    dim_names = set()
+    for fk in unique_fks:
+        ref_table = fk.get("referred_table", "")
+        dim_name  = f"dim_{_to_dim_name(ref_table)}"
+        if dim_name in dim_names:
+            continue
+        dim_names.add(dim_name)
+
+        ref_info = metadata.get(ref_table, {})
+        if not ref_info:
+            continue
+
+        snow_fks = [
+            f for f in fk_out.get(ref_table, [])
+            if f.get("referred_table", "") not in local_exclude
+            and f.get("referred_table", "") != ref_table
+        ]
+        dim = _build_dim(dim_name, ref_table, ref_info, snow_fks, metadata)
+        dim_tables.append(dim)
+
+    return fact_table, dim_tables, dim_names
+
 
 def _build_star_from_relational(
     metadata: dict,
@@ -475,96 +651,107 @@ def _build_star_from_relational(
     scores: List[Tuple[str, float]],
 ) -> dict:
     """
-    Construit automatiquement le Star Schema depuis une base relationnelle.
+    Construit automatiquement le Star ou Constellation Schema depuis une base
+    relationnelle.
 
     Algorithme :
-    1. Sélectionner la meilleure table de faits (score #1)
-    2. Détecter le pattern header/détail et fusionner
-    3. Collecter toutes les FK vers dimensions
-    4. Construire chaque dimension avec aplatissement snowflake
-    5. Ajouter dim_date systématiquement
+    1. Détecter les clusters de faits indépendants (constellation)
+    2. Pour chaque cluster : construire fact + dimensions propres
+    3. Fusionner les dimensions conformées (dim_date partagée)
+    4. Ajouter dim_date systématiquement
     """
     if not scores:
         return _default_skeleton_model()
 
-    # ── 1. Sélection de la table de faits ────────────────────────────────────
-    best_fact, _ = scores[0]
-    fact_info    = metadata.get(best_fact, {})
+    # ── 1. Détection constellation ───────────────────────────────────────────
+    fact_cluster_names = _detect_constellation_clusters(scores, fk_out, fk_in, metadata)
 
-    # ── 2. Détection du pattern Header / Détail ──────────────────────────────
-    # ex: OrderDetails → Orders (Orders est le "header" qui a Customer, Employee, ShipVia)
-    header_table = None
-    for fk in fk_out.get(best_fact, []):
-        ref = fk.get("referred_table", "")
-        if not ref or ref == best_fact:
-            continue
-        ref_fks = fk_out.get(ref, [])
-        ref_info = metadata.get(ref, {})
-        # Le header a lui-même des FK sortantes (vers Client, Employé, etc.)
-        if len(ref_fks) >= 2:
-            header_table = ref
-            header_info  = ref_info
-            logger.info(
-                f"[Modeler] Pattern Header/Détail : "
-                f"{best_fact} (détail) ← {header_table} (en-tête)"
-            )
-            break
+    # ── 2. Construire chaque cluster ─────────────────────────────────────────
+    fact_tables = []
+    all_dim_tables = []
+    all_dim_names = set()
+    all_fact_names = set(fact_cluster_names)
 
-    # ── 3. Collecter toutes les FK fait + header ──────────────────────────────
-    all_fact_fks = list(fk_out.get(best_fact, []))
-    if header_table:
-        all_fact_fks += fk_out.get(header_table, [])
+    for fact_name in fact_cluster_names:
+        fact_table, cluster_dims, cluster_dim_names = _build_single_fact_cluster(
+            fact_name, metadata, fk_out, fk_in,
+            exclude_tables=all_fact_names - {fact_name}
+        )
+        fact_tables.append(fact_table)
 
-    # Dédupliquer (une seule FK par table référencée, exclure self/header)
-    seen_refs, unique_fks = set(), []
-    exclude = {best_fact, header_table} if header_table else {best_fact}
-    for fk in all_fact_fks:
-        ref = fk.get("referred_table", "")
-        if ref and ref not in seen_refs and ref not in exclude:
-            seen_refs.add(ref)
-            unique_fks.append(fk)
+        # Merge dimensions (conformed: keep first definition, skip duplicates)
+        for dim in cluster_dims:
+            if dim["name"] not in all_dim_names:
+                all_dim_names.add(dim["name"])
+                all_dim_tables.append(dim)
 
-    # ── 4. Construire la table de faits ──────────────────────────────────────
-    fact_table = _build_fact_table(
-        best_fact, fact_info,
-        header_table, metadata.get(header_table, {}) if header_table else {},
-        unique_fks, fk_out, metadata,
-    )
+    # ── 3. Ajouter dim_date conformée ────────────────────────────────────────
+    if "dim_date" not in all_dim_names:
+        primary_fact = fact_cluster_names[0] if fact_cluster_names else ""
+        # Find a header if exists for the primary fact
+        header = None
+        for fk in fk_out.get(primary_fact, []):
+            ref = fk.get("referred_table", "")
+            if ref and ref != primary_fact and len(fk_out.get(ref, [])) >= 2:
+                header = ref
+                break
+        all_dim_tables.insert(0, _build_dim_date(metadata, header or primary_fact))
+        all_dim_names.add("dim_date")
 
-    # ── 5. Construire les dimensions ─────────────────────────────────────────
-    dim_tables     = [_build_dim_date(metadata, header_table or best_fact)]
-    already_dimmed = {"dim_date"}
-
-    for fk in unique_fks:
-        ref_table = fk.get("referred_table", "")
-        dim_name  = f"dim_{_to_dim_name(ref_table)}"
-        if dim_name in already_dimmed:
-            continue
-        already_dimmed.add(dim_name)
-
-        ref_info = metadata.get(ref_table, {})
-        if not ref_info:
-            continue
-
-        # Aplatir le snowflake (ex: Products → Categories, Suppliers)
-        snow_fks = [
-            f for f in fk_out.get(ref_table, [])
-            if f.get("referred_table", "") not in exclude
-            and f.get("referred_table", "") != ref_table
-        ]
-
-        dim = _build_dim(dim_name, ref_table, ref_info, snow_fks, metadata)
-        dim_tables.append(dim)
-
+    # ── 4. Return model ──────────────────────────────────────────────────────
     return {
-        "fact_table": fact_table,
-        "dimension_tables": dim_tables,
+        "fact_tables": fact_tables,
+        "fact_table": fact_tables[0] if fact_tables else {},  # backward compat
+        "dimension_tables": all_dim_tables,
     }
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 # CONSTRUCTEURS DES TABLES
 # ═════════════════════════════════════════════════════════════════════════════
+
+def _infer_domain_metrics(metric_names: set, model_name: str) -> list:
+    """
+    Infers calculated metrics based on what columns exist,
+    not on assumed domain (works for HR, Health, Finance, E-commerce).
+    """
+    computed_cols = []
+    
+    # Pattern: quantity × unit_value → total
+    qty_col   = next((n for n in metric_names if any(k in n.lower() for k in ("quantit", "count", "nbr", "qty", "nombre"))), None)
+    price_col = next((n for n in metric_names if any(k in n.lower() for k in ("price", "prix", "tarif", "rate", "taux", "cost", "cout", "salary", "salaire", "amount", "montant"))), None)
+    disc_col  = next((n for n in metric_names if any(k in n.lower() for k in ("discount", "remise", "rebate"))), None)
+    
+    # Generic: if both qty and a rate/price exist, compute a product metric
+    if qty_col and price_col:
+        if disc_col:
+            computed_cols.append({
+                "name":     "total_value",
+                "type":     "DECIMAL(15,4)",
+                "role":     "metric",
+                "computed": f"[{qty_col}] * [{price_col}] * (1 - [{disc_col}])",
+            })
+        else:
+            computed_cols.append({
+                "name":     "total_value",
+                "type":     "DECIMAL(15,4)",
+                "role":     "metric",
+                "computed": f"[{qty_col}] * [{price_col}]",
+            })
+    
+    # Health domain: duration × rate → cost or load metrics
+    duration_col = next((n for n in metric_names if any(k in n.lower() for k in ("duration", "duree", "days", "jours", "hours", "heures", "length"))), None)
+    rate_col     = next((n for n in metric_names if any(k in n.lower() for k in ("rate", "taux", "per_day", "daily", "hourly"))), None)
+    if duration_col and rate_col and not (qty_col and price_col):
+        computed_cols.append({
+            "name":     "computed_total",
+            "type":     "DECIMAL(15,4)",
+            "role":     "metric",
+            "computed": f"[{duration_col}] * [{rate_col}]",
+        })
+    
+    return computed_cols
+
 
 def _build_fact_table(
     fact_name: str,
@@ -672,32 +859,8 @@ def _build_fact_table(
 
     # Métriques calculées — détection flexible des noms
     metric_names = {c["name"] for c in columns if c.get("role") == "metric"}
-    metric_names_flat = {n.replace("_", "") for n in metric_names}  # unitprice == unit_price
-    has_qty   = "quantity" in metric_names_flat or any("quantit" in n for n in metric_names)
-    has_price = "unitprice" in metric_names_flat or any("price" in n for n in metric_names)
-    has_disc  = "discount" in metric_names_flat or any("discount" in n for n in metric_names)
-    has_freight = "freight" in metric_names_flat or any("freight" in n for n in metric_names)
-
-    # Trouver les noms réels des colonnes pour la formule
-    qty_col   = next((n for n in metric_names if "quantit" in n.lower()), "quantity")
-    price_col = next((n for n in metric_names if "price" in n.lower() or "prix" in n.lower()), "unitprice")
-    disc_col  = next((n for n in metric_names if "discount" in n.lower() or "remise" in n.lower()), "discount")
-    frt_col   = next((n for n in metric_names if "freight" in n.lower() or "frais" in n.lower()), "freight")
-
-    if has_qty and has_price and has_disc:
-        columns.append({
-            "name": "sales_amount",
-            "type": "DECIMAL(15,4)",
-            "role": "metric",
-            "computed": f"{qty_col} * {price_col} * (1 - {disc_col})",
-        })
-        if has_freight:
-            columns.append({
-                "name": "net_amount",
-                "type": "DECIMAL(15,4)",
-                "role": "metric",
-                "computed": f"sales_amount - {frt_col}",
-            })
+    computed = _infer_domain_metrics(metric_names, fact_name)
+    columns.extend(computed)
 
     src_tables = [fact_name] if not header_name else [header_name, fact_name]
     
@@ -957,11 +1120,21 @@ def _parse_json(raw: str) -> dict:
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _generate_ddl(model: dict, prefix: str = "dw") -> str:
-    """Génère le DDL T-SQL complet (SQL Server) depuis le modèle logique."""
+    """Génère le DDL T-SQL complet (SQL Server) depuis le modèle logique.
+    Supporte les schémas Constellation (plusieurs tables de faits)."""
+    fact_tables = model.get("fact_tables", [])
+    # Backward compat: si pas de fact_tables, utiliser fact_table singulier
+    if not fact_tables:
+        ft = model.get("fact_table")
+        fact_tables = [ft] if ft else []
+
+    n_facts = len(fact_tables)
+    schema_label = "Constellation" if n_facts > 1 else "Star Schema"
+
     lines = [
         "-- ============================================================",
-        "-- Data Warehouse DDL — Star Schema Kimball (T-SQL / SQL Server)",
-        f"-- Préfixe : {prefix}",
+        f"-- Data Warehouse DDL — {schema_label} Kimball (T-SQL / SQL Server)",
+        f"-- Préfixe : {prefix} | {n_facts} table(s) de faits",
         "-- ============================================================\n",
     ]
 
@@ -977,7 +1150,7 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
             parts.append("PRIMARY KEY")
         return " ".join(parts)
 
-    # ── Dimensions d'abord ───────────────────────────────────────────────────
+    # ── Dimensions d'abord (conformées pour constellation) ───────────────────
     for dim in model.get("dimension_tables", []):
         tname  = f"{prefix}_{dim['name']}"
         cols   = [_col_def(c) for c in dim.get("columns", [])]
@@ -989,9 +1162,10 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
         lines.append(",\n".join(f"  {c}" for c in cols))
         lines.append(");\n")
 
-    # ── Table de faits ────────────────────────────────────────────────────────
-    fact = model.get("fact_table", {})
-    if fact:
+    # ── Tables de faits ──────────────────────────────────────────────────────
+    for fact in fact_tables:
+        if not fact:
+            continue
         tname  = f"{prefix}_{fact['name']}"
         cols   = [_col_def(c) for c in fact.get("columns", []) if c.get("role") != "computed"]
         source = ", ".join(fact.get("source_tables", [])) or fact["name"]
@@ -1002,7 +1176,7 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
         lines.append(",\n".join(f"  {c}" for c in cols))
         lines.append(");\n")
 
-        # Index sur les FK (T-SQL ne supporte pas INDEX inline)
+        # Index sur les FK
         fk_cols = [c["name"] for c in fact.get("columns", []) if c.get("role") == "fk"]
         for fk_col in fk_cols:
             idx = f"idx_{fact['name']}_{fk_col}"
@@ -1011,5 +1185,16 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
                 f"AND object_id=OBJECT_ID('{tname}'))"
             )
             lines.append(f"CREATE NONCLUSTERED INDEX [{idx}] ON [{tname}] ([{fk_col}]);\n")
+
+        # ── Table de quarantaine (rejets) pour chaque fait ────────────────────
+        reject_tname = f"{prefix}_rejets_{fact['name']}"
+        lines.append(f"-- Quarantaine rejets : {fact['name']}")
+        lines.append(f"IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '{reject_tname}')")
+        lines.append(f"CREATE TABLE [{reject_tname}] (")
+        lines.append("  [reject_sk] BIGINT IDENTITY(1,1) PRIMARY KEY,")
+        lines.append("  [rejected_at] DATETIME2 DEFAULT GETDATE(),")
+        lines.append("  [error_reason] NVARCHAR(500),")
+        lines.append("  [source_row_json] NVARCHAR(MAX)")
+        lines.append(");\n")
 
     return "\n".join(lines)

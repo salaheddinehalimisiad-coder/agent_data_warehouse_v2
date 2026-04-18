@@ -72,6 +72,10 @@ class AgentState(TypedDict, total=False):
     source_df:         Any     # DataFrame pandas (étapes ETL)
     sk_maps:           Dict[str, Dict[str, int]] # Mapping Surrogate Keys
     
+    # ─── Phase 2 : Constellation & MDM (NOUVEAU v5.0) ──────────────────────
+    fact_tables:       List[Dict]   # Multi-fact constellation support
+    reject_metrics:    Dict[str, Any]  # Quarantine metrics per fact table
+    
     # ─── Backup Flow (NOUVEAU v4.1) ────────────────────────────────────────
     restored_db:       str     # Nom de la base SQL Server restaurée
     is_backup_flow:    bool    # True si on part d'un .bak restauré

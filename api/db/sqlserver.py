@@ -10,15 +10,16 @@ def get_meta_connection(db_name="agent_dw_meta"):
     import pyodbc
     password = os.getenv("DB_PASSWORD")
     host     = os.getenv("DB_HOST", "127.0.0.1")
+    port     = os.getenv("DB_PORT", "1433")
     user     = os.getenv("DB_USER", "sa")
     if not password:
         raise RuntimeError("DB_PASSWORD manquant dans l'environnement")
     conn_str = (
-        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
-        f"SERVER={host},1433;DATABASE={db_name};"
-        f"UID={user};PWD={{{password}}};TrustServerCertificate=yes;"
+        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        f"SERVER={host},{port};DATABASE={db_name};"
+        f"UID={user};PWD={{{password}}};"
     )
-    return pyodbc.connect(conn_str, autocommit=True)
+    return pyodbc.connect(conn_str, autocommit=True, timeout=30)
 
 def init_metadata_db() -> None:
     """Crée la base de métadonnées et ses tables si elles n'existent pas."""

@@ -4,7 +4,7 @@ import logging
 import re
 from app_state import AgentState
 from nodes.llm_factory import get_llm, call_with_retry, extract_text
-from nodes.modeler import _generate_ddl, _parse_model_json
+from nodes.modeler import _generate_ddl, _parse_json
 from langchain_core.prompts import ChatPromptTemplate
 
 logger = logging.getLogger(__name__)
@@ -112,7 +112,7 @@ def chat_modifier_node(state: AgentState) -> dict:
         change_summary = sm.group(1).strip()
 
     json_part = re.sub(r"CHANGE_SUMMARY:.+", "", raw, flags=re.DOTALL).strip()
-    new_model = _parse_model_json(json_part)
+    new_model = _parse_json(json_part)
 
     if not new_model or not new_model.get("fact_table"):
         return {"execution_log": state.get("execution_log", []) + ["[ChatModifier] ⚠️ JSON invalide — inchangé"]}

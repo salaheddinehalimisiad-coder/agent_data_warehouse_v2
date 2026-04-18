@@ -9,55 +9,90 @@ import {
   applyNodeChanges, 
   applyEdgeChanges,
   Handle,
-  Position
+  Position,
+  ReactFlowProvider,
+  useReactFlow
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { 
   Database, Star, ShieldCheck, ChevronRight, 
   CheckCircle2, XCircle, RefreshCcw, Search,
-  Activity, Zap, Info, Key, Link as LinkIcon, Hash
+  Activity, Zap, Info, Key, Link as LinkIcon, Hash,
+  Maximize, Minimize
 } from 'lucide-react';
 import { usePipelineStore } from '../store/pipelineStore';
 import SchemaChangesDiff from './SchemaChangesDiff';
 
 // ─── Custom Node Components ──────────────────────────────────────────────────
 
-const TableNode = ({ data }) => {
+const TableNode = ({ id, data }) => {
+  const { setCenter, fitView, getNode, getZoom } = useReactFlow();
   const isFact = data.role === 'fact';
+
+  const handleHeaderClick = () => {
+    const currentZoom = getZoom();
+    // If the view is already zoomed in heavily, a second click zooms out to fit everything.
+    if (currentZoom > 1.2) {
+      fitView({ padding: 0.2, duration: 800 });
+    } else {
+      // Zoom deeply into this specific node
+      const node = getNode(id);
+      if (node) {
+        const w = 220;
+        const h = 30 + ((data.columns?.length || 0) * 16);
+        const centerX = node.position.x + (w / 2);
+        const centerY = node.position.y + (h / 2);
+        setCenter(centerX, centerY, { zoom: 1.8, duration: 800 });
+      }
+    }
+  };
+
   return (
-    <div className={`p-4 rounded-3xl border transition-all ${
+    <div className={`p-0 rounded-sm shadow-xl border transition-all ${
       isFact 
-      ? 'bg-indigo-600 border-indigo-400 shadow-2xl shadow-indigo-500/30' 
-      : 'bg-slate-900/90 backdrop-blur-md border-white/10'
-    } min-w-[180px]`}>
-      <Handle type="target" position={Position.Left} className="w-2 h-2 bg-indigo-500 border-none" />
-      <div className="flex items-center gap-3 mb-3">
-        <div className={`w-8 h-8 rounded-xl flex items-center justify-center border ${
-          isFact ? 'bg-white/20 border-white/30 text-white' : 'bg-white/5 border-white/10 text-slate-500'
-        }`}>
-          {isFact ? <Star size={14} fill="currentColor" /> : <Database size={14} />}
+      ? 'bg-[#0d0d16] border-indigo-500 shadow-indigo-500/10' 
+      : 'bg-[#151520] border-slate-700 shadow-black/80'
+    } w-[220px] overflow-hidden`}>
+      <Handle type="target" position={Position.Left} className="w-1.5 h-4 bg-indigo-500/50 border-none -ml-0.5 rounded-none" />
+      
+      {/* Header - Clickable for Auto-Focus */}
+      <div 
+        onClick={handleHeaderClick}
+        className={`px-3 py-1.5 flex items-center gap-2 border-b cursor-pointer hover:brightness-125 transition-all ${
+          isFact ? 'bg-indigo-600 border-indigo-400' : 'bg-slate-800 border-slate-600'
+        }`}
+        title="Double-cliquez pour cibler/dézoomer"
+      >
+        <div className={`text-white opacity-90`}>
+          {isFact ? <Star size={11} fill="currentColor" /> : <Database size={11} />}
         </div>
-        <div className="min-w-0">
-          <h4 className="text-[11px] font-black tracking-tight text-white uppercase truncate">{data.label}</h4>
-          <p className={`text-[8px] font-black uppercase tracking-widest ${isFact ? 'text-indigo-200' : 'text-slate-500'}`}>
-            {isFact ? 'Fact Entity' : 'Dimension'}
-          </p>
+        <div className="flex-1 min-w-0">
+            <h4 className="text-[11px] font-black tracking-[0.1em] text-white uppercase truncate leading-none">{data.label}</h4>
         </div>
       </div>
-      <div className="space-y-1">
-        {data.columns?.slice(0, 3).map((col, i) => (
-          <div key={i} className="flex items-center gap-2 text-[9px] font-mono text-slate-400">
-            <span className={col.role === 'pk' ? 'text-yellow-500' : col.role === 'fk' ? 'text-cyan-400' : 'text-slate-600'}>
-              {col.role === 'pk' ? 'PK' : col.role === 'fk' ? 'FK' : '•'}
+
+      {/* Columns List - ULTRA COMPACT */}
+      <div className="flex flex-col py-1 bg-black/40">
+        {data.columns?.map((col, i) => (
+          <div key={i} className="flex items-center justify-between px-3 py-[2px] hover:bg-white/5 transition-colors gap-4">
+            {/* Left side: Icon + Name */}
+            <div className="flex items-center gap-2 min-w-0">
+               <span className="shrink-0 w-3 flex justify-center text-[10px]">
+                 {col.role === 'pk' ? <Key size={9} className="text-yellow-500" /> : col.role === 'fk' ? <LinkIcon size={9} className="text-cyan-400 font-bold" /> : <span className="text-slate-600 font-bold text-[8px]">#</span>}
+               </span>
+               <span className={`text-[10px] font-mono truncate tracking-tight ${col.role === 'pk' ? 'text-white font-bold' : col.role === 'fk' ? 'text-cyan-200' : 'text-slate-400'}`}>
+                 {col.name}
+               </span>
+            </div>
+            {/* Right side: Type */}
+            <span className="text-[8px] font-mono font-bold text-slate-500 uppercase shrink-0">
+               {(col.type || col.dtype || 'TEXT').split('(')[0]}
             </span>
-            <span className="truncate">{col.name}</span>
           </div>
         ))}
-        {data.columns?.length > 3 && (
-          <div className="text-[8px] text-slate-600 italic">+{data.columns.length - 3} more...</div>
-        )}
       </div>
-      <Handle type="source" position={Position.Right} className="w-2 h-2 bg-indigo-500 border-none" />
+      
+      <Handle type="source" position={Position.Right} className="w-1.5 h-4 bg-indigo-500/50 border-none -mr-0.5 rounded-none" />
     </div>
   );
 };
@@ -66,7 +101,20 @@ const nodeTypes = {
   tableNode: TableNode,
 };
 
-// ─── Sub-Components ─────────────────────────────────────────────────────────
+// Helper component to recenter graph when entering/exiting Fullscreen modal
+const FitViewListener = ({ isFullscreen }) => {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    // Wait for CSS transition (duration-500) to complete before recalculating center
+    const timer = setTimeout(() => {
+      fitView({ padding: 0.2, duration: 800 });
+    }, 550);
+    return () => clearTimeout(timer);
+  }, [isFullscreen, fitView]);
+  return null;
+};
+
+// ─── Main Inspector Component ─────────────────────────────────────────────────────────
 
 function AgentPipelineSidebar({ PIPELINE_STAGES, agentStatuses, currentAgent }) {
   return (
@@ -182,6 +230,7 @@ export default function ArchitectureInspector() {
   const [reviewComment, setReviewComment] = useState("");
   const [showCommentBox, setShowCommentBox] = useState(false);
   const [viewMode, setViewMode] = useState('graph'); // 'graph' | 'sql'
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Initialize nodes/edges from logicalModel
   useEffect(() => {
@@ -202,17 +251,36 @@ export default function ArchitectureInspector() {
         data: { label: factTable.name, role: 'fact', columns: factTable.columns, description: factTable.description },
       });
 
-      // Dimensions around fact
+      // ─────────────────────────────────────────────────────────────
+      // INTELLIGENT CONSTELLATION LAYOUT (STAR SCHEMA)
+      // ─────────────────────────────────────────────────────────────
+      // We map dimensions into predefined aesthetic "slots" around the central Fact Table 
+      // preventing any vertical stacking ("une sur l'autre") and guaranteeing a beautifully balanced star.
+      
+      const getSlotPosition = (index, dim) => {
+         // Dynamically calculate the precise height of the node to avoid overlapping the central Fact Table
+         const dimHeight = 30 + ((dim.columns?.length || 0) * 16);
+         
+         const xOffset = 360; // Distance of the inner ring
+         
+         switch(index % 6) {
+             case 0: return { x: xOffset, y: -(dimHeight + 60) }; // Top-Right
+             case 1: return { x: -xOffset, y: -(dimHeight + 60) }; // Top-Left
+             case 2: return { x: xOffset, y: 260 }; // Bottom-Right
+             case 3: return { x: -xOffset, y: 260 }; // Bottom-Left
+             case 4: return { x: -(xOffset + 280), y: -(dimHeight / 2) + 80 }; // Far-Left
+             case 5: return { x: (xOffset + 280), y: -(dimHeight / 2) + 80 }; // Far-Right
+             default: return { x: 0, y: 0 };
+         }
+      };
+
       dimTables.forEach((dim, i) => {
-        const angle = (i / dimTables.length) * 2 * Math.PI;
-        const radius = 400;
+        const position = getSlotPosition(i, dim);
+
         newNodes.push({
           id: dim.name,
           type: 'tableNode',
-          position: { 
-            x: Math.cos(angle) * radius, 
-            y: Math.sin(angle) * radius 
-          },
+          position: position,
           data: { label: dim.name, role: 'dimension', columns: dim.columns, description: dim.description },
         });
 
@@ -220,8 +288,9 @@ export default function ArchitectureInspector() {
           id: `e-${dim.name}-${factTable.name}`,
           source: dim.name,
           target: factTable.name,
+          type: 'smoothstep',
           animated: true,
-          style: { stroke: '#6366f1', strokeWidth: 2, opacity: 0.4 },
+          style: { stroke: '#6366f1', strokeWidth: 1.5, opacity: 0.6 },
         });
       });
     }
@@ -263,9 +332,10 @@ export default function ArchitectureInspector() {
   };
 
   return (
-    <div className="flex h-full w-full bg-[#050508] relative overflow-hidden">
-      
-      {/* ── Left Sidebar (20%) ──────────────────────────────────────────────── */}
+    <ReactFlowProvider>
+      <div className="flex h-full w-full bg-[#050508] relative overflow-hidden">
+        
+        {/* ── Left Sidebar (20%) ──────────────────────────────────────────────── */}
       <div className="w-[20%] h-full shrink-0">
         <AgentPipelineSidebar 
           PIPELINE_STAGES={PIPELINE_STAGES} 
@@ -274,8 +344,20 @@ export default function ArchitectureInspector() {
         />
       </div>
 
-      {/* ── Center Canvas (60% / Flex) ────────────────────────────────────────── */}
-      <div className="flex-1 h-full relative border-r border-white/5 bg-[#08080c]">
+      {/* Fullscreen Backdrop Overlay */}
+      {isFullscreen && (
+         <div 
+           className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-md transition-all duration-500" 
+           onClick={() => setIsFullscreen(false)} 
+         />
+      )}
+
+      {/* ── Center Canvas (Flex / Modal Lightbox) ───────────────────────────── */}
+      <div className={`bg-[#08080c] transition-all duration-500 overflow-hidden ${
+        isFullscreen 
+          ? 'fixed inset-12 z-[100] rounded-[2.5rem] border border-white/10 shadow-[0_0_150px_rgba(0,0,0,0.8)]' 
+          : 'flex-1 h-full relative border-r border-white/5'
+      }`}>
         {/* Validation Header/Bar */}
         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-4">
            {pipelineStatus === 'awaiting_review' && (
@@ -344,12 +426,14 @@ export default function ArchitectureInspector() {
             onNodeClick={onNodeClick}
             nodeTypes={nodeTypes}
             fitView
+            fitViewOptions={{ padding: 0.15, maxZoom: 1.25 }}
+            minZoom={0.3}
+            maxZoom={2.5}
             className="bg-dot-pattern"
-            colorMode="dark"
-            style={{ background: '#08080c' }}
           >
             <Background color="#1e1e2d" gap={24} size={1} />
             <Controls className="bg-slate-900 border-white/10 fill-white" />
+            <FitViewListener isFullscreen={isFullscreen} />
           </ReactFlow>
         ) : (
           <div className="h-full p-10 overflow-auto custom-scrollbar bg-[#050508] font-mono text-[11px] leading-relaxed text-indigo-300">
@@ -370,16 +454,26 @@ export default function ArchitectureInspector() {
         </div>
 
         {/* View Switcher Overlay */}
-        <div className="absolute top-6 right-6 z-20 flex bg-black/40 backdrop-blur-xl rounded-xl p-1 border border-white/10">
+        <div className="absolute top-6 right-6 z-20 flex bg-black/40 backdrop-blur-xl rounded-xl p-1 border border-white/10 gap-1 items-center">
+           <button 
+             onClick={() => setIsFullscreen(!isFullscreen)}
+             className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center"
+             title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+           >
+             {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
+           </button>
+           
+           <div className="w-px h-5 bg-white/10 mx-1" />
+
            <button 
              onClick={() => setViewMode('graph')}
-             className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'graph' ? 'bg-indigo-600 text-white shadow-glow' : 'text-slate-500'}`}
+             className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'graph' ? 'bg-indigo-600 text-white shadow-glow' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}
            >
              Graph
            </button>
            <button 
              onClick={() => setViewMode('sql')}
-             className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'sql' ? 'bg-indigo-600 text-white shadow-glow' : 'text-slate-500'}`}
+             className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'sql' ? 'bg-indigo-600 text-white shadow-glow' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}
            >
              SQL
            </button>
@@ -401,15 +495,7 @@ export default function ArchitectureInspector() {
            </div>
         </div>
       </div>
-
-      {/* ── Right Sidebar (20%) ─────────────────────────────────────────────── */}
-      <div className="w-[20%] h-full shrink-0">
-        <PropertyInspector 
-          table={selectedNodeData} 
-          onClose={() => setSelectedNodeData(null)} 
-        />
-      </div>
-
     </div>
+    </ReactFlowProvider>
   );
 }

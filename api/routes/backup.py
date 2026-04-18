@@ -88,31 +88,35 @@ def restore_sqlserver_backup(bak_path: str, target_db: str) -> dict:
     monté à /var/opt/mssql/backup dans le conteneur SQL Server.
     """
     host     = os.getenv("DB_HOST", "sqlserver")
+    port     = os.getenv("DB_PORT", "1433")
     user     = os.getenv("DB_USER", "sa")
     password = os.getenv("DB_PASSWORD")
 
     if not password:
         return {"success": False, "error": "DB_PASSWORD manquant dans .env", "tables": []}
 
-    # Le volume est monté à des chemins différents dans chaque conteneur :
-    #   Backend    : /app/uploads/bak/fichier.bak
-    #   SQL Server : /var/opt/mssql/backup/fichier.bak
-    # On reconstruit le chemin SQL Server à partir du nom de fichier seul.
-    backup_mount = os.getenv("SQLSERVER_BACKUP_MOUNT_DIR", "/var/opt/mssql/backup")
-    bak_filename = Path(bak_path).name
-    bak_sql_path = str(Path(backup_mount) / bak_filename)
+    # ── Résolution des chemins (Windows local vs Docker Linux) ─────────────
+    import platform
+    if platform.system() == "Windows":
+        # Mode local : SQL Server tourne sur Windows, le .bak est accessible directement
+        bak_sql_path = str(Path(bak_path).resolve())
+    else:
+        # Mode Docker : le volume est monté à des chemins différents
+        backup_mount = os.getenv("SQLSERVER_BACKUP_MOUNT_DIR", "/var/opt/mssql/backup")
+        bak_filename = Path(bak_path).name
+        bak_sql_path = str(Path(backup_mount) / bak_filename)
 
     # Nom de DB sécurisé (alphanumeric + underscore)
     safe_db = re.sub(r"[^a-zA-Z0-9_]", "_", target_db)[:64] or "restored_db"
 
     conn_str = (
-        f"DRIVER={{ODBC Driver 18 for SQL Server}};"
-        f"SERVER={host},1433;DATABASE=master;"
-        f"UID={user};PWD={{{password}}};TrustServerCertificate=yes;"
+        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        f"SERVER={host},{port};DATABASE=master;"
+        f"UID={user};PWD={{{password}}};"
     )
 
     try:
-        conn = pyodbc.connect(conn_str, autocommit=True, timeout=300)
+        conn = pyodbc.connect(conn_str, autocommit=True, timeout=30)
         cursor = conn.cursor()
 
         # ── Étape 1 : Lire les logical names depuis le backup ─────────────────
@@ -139,8 +143,14 @@ def restore_sqlserver_backup(bak_path: str, target_db: str) -> dict:
 
         logger.info(f"[BAK] Logical names → data='{logical_data}' log='{logical_log}'")
 
-        # ── Étape 2 : Chemins de destination (Linux, dans le conteneur SS) ────
-        data_dir = os.getenv("SQLSERVER_DATA_DIR", "/var/opt/mssql/data")
+        # ── Étape 2 : Chemins de destination ──────────────────────────────────
+        if platform.system() == "Windows":
+            # Récupérer le répertoire de données par défaut de SQL Server
+            cursor.execute("SELECT SERVERPROPERTY('InstanceDefaultDataPath')")
+            row = cursor.fetchone()
+            data_dir = row[0].rstrip("\\") if row and row[0] else "C:\\temp"
+        else:
+            data_dir = os.getenv("SQLSERVER_DATA_DIR", "/var/opt/mssql/data")
         mdf_path = str(Path(data_dir) / f"{safe_db}.mdf")
         ldf_path = str(Path(data_dir) / f"{safe_db}_log.ldf")
 

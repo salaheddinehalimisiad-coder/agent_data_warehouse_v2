@@ -130,45 +130,56 @@ def etl_executor_node(state: AgentState) -> dict:
             logger.warning(f"[ETL] Dim {dim_name} erreur : {e}")
             exec_log = exec_log + [f"[ETL] ⚠️ {dim_name} : {e}"]
 
-    # ── Étape 4 : Charger la table de faits ──────────────────────────────────
-    fact = logical_model.get("fact_table", {})
-    fact_metrics = {}
+    # ── Étape 4 : Charger les tables de faits (Constellation support) ────────
+    fact_tables = logical_model.get("fact_tables", [])
+    if not fact_tables:
+        ft = logical_model.get("fact_table", {})
+        fact_tables = [ft] if ft else []
+
+    all_fact_metrics = {}
     session_id = state.get("session_id", "unknown")
-    if fact:
+    clean_action = state.get("clean_action", "NONE")
+
+    for fact in fact_tables:
+        if not fact:
+            continue
         fact_name  = fact.get("name", "")
         table_name = f"{user_prefix}_{fact_name}"
-        clean_action = state.get("clean_action", "NONE")
         try:
-            fact_metrics = _load_fact(
+            metrics = _load_fact(
                 dw_engine, table_name, fact, source_df, 
                 sk_maps, user_prefix, session_id, clean_action
             )
+            all_fact_metrics[fact_name] = metrics
             exec_log = exec_log + [
-                f"[ETL] ✅ {table_name} — {fact_metrics.get('inserted', 0)} faits insérés, "
-                f"{fact_metrics.get('rejected', 0)} rejetés"
+                f"[ETL] ✅ {table_name} — {metrics.get('inserted', 0)} faits insérés, "
+                f"{metrics.get('rejected', 0)} rejetés"
             ]
         except Exception as e:
             return {
                 "etl_status":  "failed",
-                "etl_error":   f"Erreur chargement faits : {e}",
+                "etl_error":   f"Erreur chargement faits ({fact_name}) : {e}",
                 "retry_count": retry_count + 1,
-                "execution_log": exec_log + [f"[ETL] ❌ Faits : {e}"],
+                "execution_log": exec_log + [f"[ETL] ❌ {fact_name} : {e}"],
             }
 
     # ── Étape 5 : Métriques post-load ────────────────────────────────────────
+    first_fact_name = fact_tables[0].get("name", "") if fact_tables else ""
     load_metrics = {
         "source_rows":   len(source_df),
         "dimensions":    dim_metrics,
-        "fact":          fact_metrics,
+        "fact":          all_fact_metrics.get(first_fact_name, {}),  # backward compat
+        "facts":         all_fact_metrics,                           # multi-fact
         "loaded_at":     datetime.now(timezone.utc).isoformat(),
         "dw_prefix":     user_prefix,
     }
     _persist_metrics(load_metrics, session_id)
 
-    total_inserted = fact_metrics.get("inserted", 0)
-    total_rejected = fact_metrics.get("rejected", 0)
+    total_inserted = sum(m.get("inserted", 0) for m in all_fact_metrics.values())
+    total_rejected = sum(m.get("rejected", 0) for m in all_fact_metrics.values())
     exec_log = exec_log + [
-        f"[ETL] 🏁 Chargement terminé — {total_inserted} faits / {total_rejected} rejetés"
+        f"[ETL] 🏁 Chargement terminé — {len(fact_tables)} fact(s), "
+        f"{total_inserted} insérés / {total_rejected} rejetés"
     ]
 
     # ── Également exporter le DDL et KTR comme artefacts ─────────────────────────────
@@ -193,36 +204,60 @@ def etl_executor_node(state: AgentState) -> dict:
 
 def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict:
     """
-    Charge une table de dimension :
+    Charge une table de dimension avec support SCD Type 2 :
     - Identifie la colonne source correspondante
     - Déduplique les valeurs
-    - INSERT OR IGNORE (upsert simple)
-    - Retourne le sk_map {valeur_naturelle: sk}
+    - SCD Type 2 : historise les changements d'attributs (valid_from/valid_to/is_current)
+    - Retourne le sk_map {valeur_naturelle: sk_current}
     """
     from sqlalchemy import text, inspect
     import pandas as pd
 
-    dim_name = dim_model.get("name", "")
-    columns  = dim_model.get("columns", [])
+    dim_name   = dim_model.get("name", "")
+    columns    = dim_model.get("columns", [])
+    scd_type   = dim_model.get("scd_type", 1)
 
-    # Colonnes attributs (pas pk, pas fk)
-    attr_cols = [c for c in columns if c.get("role") == "attribute"]
+    # Colonnes attributs (pas pk, pas fk, pas SCD metadata)
+    scd_meta_cols = {"valid_from", "valid_to", "is_current"}
+    attr_cols = [c for c in columns
+                 if c.get("role") == "attribute" and c.get("name") not in scd_meta_cols]
     pk_col    = next((c for c in columns if c.get("role") == "pk"), None)
 
+    # Detect if this dimension has SCD2 columns in its schema
+    has_scd2_cols = any(c.get("name") in scd_meta_cols for c in columns)
+    is_scd2 = (scd_type == 2 or has_scd2_cols) and "dim_date" not in dim_name
+
     if not attr_cols or not pk_col:
-        return {"sk_map": {}, "metrics": {"inserted": 0, "existing": 0}}
+        return {"sk_map": {}, "metrics": {"inserted": 0, "existing": 0, "updated": 0}}
 
     pk_name = pk_col["name"]
 
-    # Trouver la ou les colonnes source correspondantes
-    src_col_name = _find_source_col(attr_cols[0]["name"], source_df.columns.tolist())
+    # Identify the natural key column (the business key for SCD matching)
+    natural_key_col = next(
+        (c["name"] for c in attr_cols if c.get("natural_key")),
+        attr_cols[0]["name"]
+    )
+
+    # Build list of attribute column names (for change detection)
+    compare_attr_names = [c["name"] for c in attr_cols if c["name"] != natural_key_col]
+
+    # Trouver la colonne source correspondante à la natural key
+    src_col_name = _find_source_col(natural_key_col, source_df.columns.tolist())
+
+    # Build source mapping for ALL dimension attributes
+    src_attr_mapping = {}  # {dim_col_name: source_col_name}
+    for ac in attr_cols:
+        sc = _find_source_col(ac["name"], source_df.columns.tolist())
+        if sc:
+            src_attr_mapping[ac["name"]] = sc
 
     sk_map = {}
     inserted = 0
     existing = 0
+    updated  = 0  # SCD2: new version created for changed attributes
 
     if src_col_name:
-        # Valeurs uniques de la colonne source
+        # Collect unique rows keyed by natural key (keep last occurrence)
         unique_vals = source_df[src_col_name].dropna().unique().tolist()
 
         with engine.begin() as conn:
@@ -231,55 +266,150 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                 if not clean_val:
                     continue
 
-                # Vérifier si déjà existant
-                check_col = attr_cols[0]["name"]
                 try:
-                    row = conn.execute(
-                        text(f"SELECT TOP 1 [{pk_name}] FROM [{table_name}] WHERE [{check_col}] = :v"),
-                        {"v": clean_val}
-                    ).fetchone()
-                except Exception:
-                    row = None
+                    if is_scd2:
+                        # ═══ SCD TYPE 2 LOGIC ═══════════════════════════════════
+                        # 1. Check for existing CURRENT record
+                        row = conn.execute(
+                            text(f"SELECT TOP 1 [{pk_name}], "
+                                 + ", ".join(f"[{a}]" for a in compare_attr_names)
+                                 + f" FROM [{table_name}] WHERE [{natural_key_col}] = :v AND [is_current] = 1"),
+                            {"v": clean_val}
+                        ).fetchone()
 
-                if row:
-                    sk_map[clean_val] = row[0]
-                    existing += 1
-                else:
-                    # Construire le dict d'insertion
-                    insert_vals = {a["name"]: clean_val for a in attr_cols[:1]}
-                    # Construction SQL Server
-                    cols_str  = ", ".join(f"[{k}]" for k in insert_vals)
-                    vals_str  = ", ".join(f":{k}" for k in insert_vals)
-                    try:
-                        # INJECTION DIRECTIVE : Stratégie T-SQL MERGE (SCD Upsert) au lieu de INSERT IGNORE
-                        merge_sql = f"""
-                        MERGE [{table_name}] AS Target
-                        USING (SELECT :v AS [{check_col}]) AS Source
-                        ON Target.[{check_col}] = Source.[{check_col}]
-                        WHEN NOT MATCHED THEN
-                            INSERT ({cols_str}) VALUES ({vals_str});
-                        """
-                        insert_vals["v"] = clean_val
-                        conn.execute(text(merge_sql), insert_vals)
-                        
-                        # Re-lecture du SK généré
-                        row2 = conn.execute(
+                        if row:
+                            # 2. Compare attributes to detect change
+                            old_sk = row[0]
+                            old_attrs = {compare_attr_names[i]: row[i + 1] for i in range(len(compare_attr_names))}
+
+                            # Get new attribute values from source
+                            src_row = source_df[source_df[src_col_name].astype(str).str.strip() == clean_val].iloc[-1] if len(source_df[source_df[src_col_name].astype(str).str.strip() == clean_val]) > 0 else None
+                            new_attrs = {}
+                            for dim_col in compare_attr_names:
+                                sc = src_attr_mapping.get(dim_col)
+                                if sc and src_row is not None:
+                                    new_attrs[dim_col] = str(src_row.get(sc, "")).strip()
+                                else:
+                                    new_attrs[dim_col] = str(old_attrs.get(dim_col, ""))
+
+                            # Detect if any attribute changed
+                            changed = any(
+                                str(old_attrs.get(k, "")).strip() != str(new_attrs.get(k, "")).strip()
+                                for k in compare_attr_names
+                                if new_attrs.get(k) and old_attrs.get(k) is not None
+                            )
+
+                            if changed:
+                                # 3a. CLOSE the old record
+                                conn.execute(
+                                    text(f"UPDATE [{table_name}] SET [is_current] = 0, "
+                                         f"[valid_to] = GETDATE() "
+                                         f"WHERE [{pk_name}] = :sk"),
+                                    {"sk": old_sk}
+                                )
+
+                                # 3b. INSERT new current version
+                                all_insert_cols = {natural_key_col: clean_val}
+                                for dim_col in compare_attr_names:
+                                    all_insert_cols[dim_col] = new_attrs.get(dim_col, "")
+                                all_insert_cols["valid_from"] = "GETDATE()"
+                                all_insert_cols["is_current"] = 1
+
+                                non_func_cols = {k: v for k, v in all_insert_cols.items()
+                                                 if k != "valid_from"}
+                                cols_str = ", ".join(f"[{k}]" for k in non_func_cols) + ", [valid_from], [valid_to]"
+                                vals_str = ", ".join(f":{k}" for k in non_func_cols) + ", GETDATE(), '9999-12-31'"
+
+                                conn.execute(text(
+                                    f"INSERT INTO [{table_name}] ({cols_str}) VALUES ({vals_str})"
+                                ), non_func_cols)
+
+                                # Re-read the new SK
+                                row2 = conn.execute(
+                                    text(f"SELECT TOP 1 [{pk_name}] FROM [{table_name}] "
+                                         f"WHERE [{natural_key_col}] = :v AND [is_current] = 1 "
+                                         f"ORDER BY [{pk_name}] DESC"),
+                                    {"v": clean_val}
+                                ).fetchone()
+                                if row2:
+                                    sk_map[clean_val] = row2[0]
+                                updated += 1
+                            else:
+                                # No change — reuse existing SK
+                                sk_map[clean_val] = old_sk
+                                existing += 1
+                        else:
+                            # 4. NEW record — INSERT with SCD2 metadata
+                            insert_vals = {natural_key_col: clean_val}
+                            for dim_col in compare_attr_names:
+                                sc = src_attr_mapping.get(dim_col)
+                                if sc:
+                                    src_rows = source_df[source_df[src_col_name].astype(str).str.strip() == clean_val]
+                                    if len(src_rows) > 0:
+                                        insert_vals[dim_col] = str(src_rows.iloc[-1].get(sc, "")).strip()
+
+                            insert_vals["is_current"] = 1
+                            non_func_cols = {k: v for k, v in insert_vals.items()}
+                            cols_str = ", ".join(f"[{k}]" for k in non_func_cols) + ", [valid_from], [valid_to]"
+                            vals_str = ", ".join(f":{k}" for k in non_func_cols) + ", GETDATE(), '9999-12-31'"
+
+                            conn.execute(text(
+                                f"INSERT INTO [{table_name}] ({cols_str}) VALUES ({vals_str})"
+                            ), non_func_cols)
+
+                            # Re-read SK
+                            row2 = conn.execute(
+                                text(f"SELECT TOP 1 [{pk_name}] FROM [{table_name}] "
+                                     f"WHERE [{natural_key_col}] = :v AND [is_current] = 1 "
+                                     f"ORDER BY [{pk_name}] DESC"),
+                                {"v": clean_val}
+                            ).fetchone()
+                            if row2:
+                                sk_map[clean_val] = row2[0]
+                            inserted += 1
+
+                    else:
+                        # ═══ SCD TYPE 1 (original simple MERGE) ═════════════════
+                        check_col = natural_key_col
+                        row = conn.execute(
                             text(f"SELECT TOP 1 [{pk_name}] FROM [{table_name}] WHERE [{check_col}] = :v"),
                             {"v": clean_val}
                         ).fetchone()
-                        
-                        if row2:
-                            sk_map[clean_val] = row2[0]
-                            inserted += 1
-                    except Exception as e:
-                        logger.debug(f"[ETL] Dim {table_name} insert val '{clean_val}' : {e}")
+
+                        if row:
+                            sk_map[clean_val] = row[0]
+                            existing += 1
+                        else:
+                            insert_vals = {a["name"]: clean_val for a in attr_cols[:1]}
+                            cols_str  = ", ".join(f"[{k}]" for k in insert_vals)
+                            vals_str  = ", ".join(f":{k}" for k in insert_vals)
+                            merge_sql = f"""
+                            MERGE [{table_name}] AS Target
+                            USING (SELECT :v AS [{check_col}]) AS Source
+                            ON Target.[{check_col}] = Source.[{check_col}]
+                            WHEN NOT MATCHED THEN
+                                INSERT ({cols_str}) VALUES ({vals_str});
+                            """
+                            insert_vals["v"] = clean_val
+                            conn.execute(text(merge_sql), insert_vals)
+
+                            row2 = conn.execute(
+                                text(f"SELECT TOP 1 [{pk_name}] FROM [{table_name}] WHERE [{check_col}] = :v"),
+                                {"v": clean_val}
+                            ).fetchone()
+                            if row2:
+                                sk_map[clean_val] = row2[0]
+                                inserted += 1
+
+                except Exception as e:
+                    logger.debug(f"[ETL] Dim {table_name} val '{clean_val}' : {e}")
 
     # dim_date : chargement automatique des dates depuis source
     if "dim_date" in dim_name:
         sk_map.update(_load_dim_date_from_source(engine, table_name, source_df))
         inserted = len(sk_map)
 
-    return {"sk_map": sk_map, "metrics": {"inserted": inserted, "existing": existing}}
+    return {"sk_map": sk_map, "metrics": {"inserted": inserted, "existing": existing, "updated": updated}}
 
 
 def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
@@ -357,6 +487,7 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
     - Résolution des SKs via sk_maps
     - Mapping des métriques numériques
     - Compte les insertions et rejets
+    - Redirige les rejets vers la table de quarantaine
     - Diffuse la progression via SSE
     - Supporte IGNORE_REJECTS
     """
@@ -365,6 +496,10 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
     from api.services.sse import broadcast
 
     use_ignore  = clean_action in ("IGNORE_REJECTS", "DEDUPLICATE")
+
+    # Quarantine table name (auto-generated by DDL)
+    fact_name = fact_model.get("name", "")
+    reject_table = f"{prefix}_rejets_{fact_name}" if fact_name else ""
 
     columns  = fact_model.get("columns", [])
     pk_col   = next((c for c in columns if c.get("role") == "pk"), None)
@@ -423,7 +558,7 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
 
         # Insérer par batch de 500
         if len(rows_batch) >= 500:
-            ins, rej = _batch_insert(engine, table_name, rows_batch, use_ignore)
+            ins, rej = _batch_insert(engine, table_name, rows_batch, use_ignore, reject_table)
             inserted += ins
             rejected += rej
             rows_batch = []
@@ -438,7 +573,7 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
 
     # Insérer le reste
     if rows_batch:
-        ins, rej = _batch_insert(engine, table_name, rows_batch, use_ignore)
+        ins, rej = _batch_insert(engine, table_name, rows_batch, use_ignore, reject_table)
         inserted += ins
         rejected += rej
         broadcast(session_id, "etl_progress", {
@@ -452,9 +587,12 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
     return {"inserted": inserted, "rejected": rejected, "source_rows": len(source_df)}
 
 
-def _batch_insert(engine, table_name: str, rows: list, use_ignore: bool = False) -> Tuple[int, int]:
-    """Insère un batch de lignes. Retourne (inserted, rejected)."""
+def _batch_insert(engine, table_name: str, rows: list, use_ignore: bool = False,
+                   reject_table: str = "") -> Tuple[int, int]:
+    """Insère un batch de lignes. Les rejets sont redirigés vers la table de quarantaine.
+    Retourne (inserted, rejected)."""
     from sqlalchemy import text
+    import json as _json
     if not rows:
         return 0, 0
 
@@ -484,8 +622,23 @@ def _batch_insert(engine, table_name: str, rows: list, use_ignore: bool = False)
                             row
                         )
                     inserted += 1
-                except Exception:
+                except Exception as row_err:
                     rejected += 1
+                    # ═══ QUARANTINE: redirect rejected row ═══════════════════
+                    if reject_table:
+                        try:
+                            row_json = _json.dumps(
+                                {k: str(v) for k, v in row.items()},
+                                default=str, ensure_ascii=False
+                            )
+                            conn.execute(
+                                text(f"INSERT INTO [{reject_table}] "
+                                     f"([error_reason], [source_row_json]) "
+                                     f"VALUES (:err, :rj)"),
+                                {"err": str(row_err)[:500], "rj": row_json}
+                            )
+                        except Exception as q_err:
+                            logger.debug(f"[ETL] Quarantine insert failed: {q_err}")
     except Exception as e:
         error_msg = str(e)
         logger.warning(f"[ETL] Batch insert {table_name} : {error_msg}")
@@ -499,7 +652,7 @@ def _batch_insert(engine, table_name: str, rows: list, use_ignore: bool = False)
 def _build_engine(config: dict):
     """Construit un engine SQLAlchemy selon le type de base."""
     from sqlalchemy import create_engine
-    db_type  = config.get("type", "mysql").lower().replace("postgres", "postgresql")
+    db_type  = config.get("type", "sqlserver").lower().replace("postgres", "postgresql")
     host     = config.get("host", "localhost")
     port     = config.get("port", 3306)
     database = config.get("database", "data_warehouse")
@@ -519,9 +672,11 @@ def _build_engine(config: dict):
         return create_engine(f"sqlite:///{database}")
         
     if driver == "pyodbc":
+        from urllib.parse import quote_plus
+        encoded_pwd = quote_plus(str(password))
         # Injection Chaîne de connexion SQL Server
         return create_engine(
-            f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes",
+            f"mssql+pyodbc://{user}:{encoded_pwd}@{host}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server",
             pool_pre_ping=True, pool_recycle=3600, fast_executemany=True
         )
         

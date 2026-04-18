@@ -8,16 +8,50 @@ logger = logging.getLogger(__name__)
 
 
 def _to_python_types(obj: Any) -> Any:
-    """Convertit récursivement les types numpy en types Python standard."""
+    """Convertit récursivement les types numpy/pandas/db en types Python standard pour la sérialisation JSON."""
     import numpy as np
+    import math
+    import datetime
+    import decimal
+
     if isinstance(obj, dict):
         return {k: _to_python_types(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [_to_python_types(i) for i in obj]
+    elif isinstance(obj, bytes):
+        try:
+            return obj.decode('utf-8')
+        except Exception:
+            return "0x" + obj.hex()
+    elif isinstance(obj, (datetime.datetime, datetime.date)):
+        return obj.isoformat()
     elif isinstance(obj, (np.integer, np.floating)):
-        return obj.item()
+        val = obj.item()
+        if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+            return None
+        return val
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    elif isinstance(obj, decimal.Decimal):
+        return float(obj)
     elif isinstance(obj, np.ndarray):
         return _to_python_types(obj.tolist())
+    
+    # Try pd.isna() for NaT / NaN objects, but wrap in try-except to avoid pandas errors
+    import pandas as pd
+    try:
+        is_na = pd.isna(obj)
+        if isinstance(is_na, bool) and is_na:
+            return None
+    except Exception:
+        pass
+
+    # Safety fallback for any custom objects (like UUIDs, special database types)
+    if type(obj).__module__ != "builtins" and obj is not None:
+        return str(obj)
+
     return obj
 
 
@@ -113,7 +147,7 @@ def _explore_sql(config: dict, dw_config: dict = None) -> Dict[str, Any]:
     import pandas as pd
     from sqlalchemy import create_engine, inspect, text
 
-    db_type  = config.get("type", "mysql").lower()
+    db_type  = config.get("type", "sqlserver").lower()
     
     # Handle 'bak' source type: use DW config but with restored db
     if db_type == "bak":
@@ -143,7 +177,9 @@ def _explore_sql(config: dict, dw_config: dict = None) -> Dict[str, Any]:
     if db_type == "sqlite":
         url = f"sqlite:///{database}"
     elif driver == "pyodbc":
-        url = f"mssql+pyodbc://{user}:{password}@{host}:{port}/{database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+        from urllib.parse import quote_plus
+        encoded_pwd = quote_plus(str(password))
+        url = f"mssql+pyodbc://{user}:{encoded_pwd}@{host}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server"
     else:
         url = f"{db_type}+{driver}://{user}:{password}@{host}:{port}/{database}"
     

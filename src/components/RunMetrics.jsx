@@ -1,7 +1,7 @@
-// src/components/RunMetrics.jsx — Dashboard métriques post-chargement v2.0
+// src/components/RunMetrics.jsx — Dashboard métriques post-chargement v5.0 (Constellation + Rejets)
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, CheckCircle2, XCircle, Database, Clock, Layers, Download, Trophy } from 'lucide-react';
+import { BarChart3, CheckCircle2, XCircle, Database, Clock, Layers, Download, Trophy, AlertTriangle, Activity } from 'lucide-react';
 import { usePipelineStore } from '../store/pipelineStore';
 import HealHistory from './HealHistory';
 import ExecutiveSummary from './ExecutiveSummary';
@@ -63,7 +63,8 @@ function MetricCard({ label, value, sub, color = 'default' }) {
 function DimRow({ name, metrics }) {
   const inserted = metrics?.inserted || 0;
   const existing = metrics?.existing || 0;
-  const total    = inserted + existing;
+  const updated  = metrics?.updated  || 0;
+  const total    = inserted + existing + updated;
   const pct      = total > 0 ? Math.round((inserted / total) * 100) : 0;
 
   return (
@@ -77,10 +78,52 @@ function DimRow({ name, metrics }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="text-[10px] text-slate-500 w-24 text-right shrink-0">
-        <span className="text-emerald-400 font-semibold">{inserted}</span> nouv · {existing} exist
+      <div className="text-[10px] text-slate-500 w-32 text-right shrink-0">
+        <span className="text-emerald-400 font-semibold">{inserted}</span> nouv
+        {updated > 0 && <> · <span className="text-amber-400 font-semibold">{updated}</span> SCD2</>}
+        {' '} · {existing} exist
       </div>
     </div>
+  );
+}
+
+function FactCard({ factName, metrics }) {
+  const inserted = metrics?.inserted || 0;
+  const rejected = metrics?.rejected || 0;
+  const total = inserted + rejected;
+  const loadRate = total > 0 ? Math.round((inserted / total) * 100) : 0;
+  const color = loadRate >= 90 ? 'emerald' : loadRate >= 70 ? 'amber' : 'rose';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className={`rounded-2xl border border-${color}-500/20 bg-${color}-500/[0.04] p-4 space-y-2`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Activity size={12} className={`text-${color}-400`} />
+          <span className="text-[11px] font-black text-white uppercase tracking-wider truncate">
+            {factName.replace('fact_', '').replace(/_/g, ' ')}
+          </span>
+        </div>
+        <span className={`text-[10px] font-black text-${color}-400 bg-${color}-500/10 px-2 py-0.5 rounded-full`}>
+          {loadRate}%
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-center">
+        <div>
+          <div className="text-lg font-black text-emerald-400">{inserted.toLocaleString()}</div>
+          <div className="text-[8px] font-bold text-slate-500 uppercase">Insérés</div>
+        </div>
+        <div>
+          <div className={`text-lg font-black ${rejected > 0 ? 'text-rose-400' : 'text-slate-500'}`}>
+            {rejected.toLocaleString()}
+          </div>
+          <div className="text-[8px] font-bold text-slate-500 uppercase">Rejetés</div>
+        </div>
+      </div>
+    </motion.div>
   );
 }
 
@@ -98,14 +141,31 @@ export default function RunMetrics() {
     etlStatus, pipelineStatus, sessionId, userPrefix, nodeDurations 
   } = usePipelineStore();
 
-  const factMetrics = loadMetrics?.fact || {};
+  // ═══ Multi-fact aggregation (Constellation support) ═══════════════════════
+  const factsMap    = loadMetrics?.facts || {};
+  const factEntries = Object.entries(factsMap);
+  const isConstellation = factEntries.length > 1;
+
+  // Fallback: if no 'facts' key, use legacy 'fact' key
+  const factMetrics = useMemo(() => {
+    if (factEntries.length > 0) return factsMap;
+    const legacy = loadMetrics?.fact;
+    if (legacy && typeof legacy === 'object' && legacy.inserted !== undefined) {
+      return { default: legacy };
+    }
+    return {};
+  }, [loadMetrics, factsMap, factEntries.length]);
+
   const dimMetrics  = loadMetrics?.dimensions || {};
   const sourceRows  = loadMetrics?.source_rows || 0;
   const loadedAt    = loadMetrics?.loaded_at;
 
-  const totalInserted = factMetrics.inserted || 0;
-  const totalRejected = factMetrics.rejected || 0;
-  const loadRate      = sourceRows > 0 ? Math.round((totalInserted / sourceRows) * 100) : 0;
+  // Aggregate across all facts
+  const totalInserted = useMemo(() => 
+    Object.values(factMetrics).reduce((sum, m) => sum + (m?.inserted || 0), 0), [factMetrics]);
+  const totalRejected = useMemo(() => 
+    Object.values(factMetrics).reduce((sum, m) => sum + (m?.rejected || 0), 0), [factMetrics]);
+  const loadRate = sourceRows > 0 ? Math.round((totalInserted / sourceRows) * 100) : 0;
 
   const loadTimeStr = useMemo(() => {
     if (!loadedAt) return null;
@@ -125,10 +185,12 @@ export default function RunMetrics() {
       load_rate_pct: loadRate,
       grade: runGrade.g,
       source_rows: sourceRows,
+      facts: factMetrics,
       facts_inserted: totalInserted,
       facts_rejected: totalRejected,
       loaded_at: loadedAt,
       dimensions: dimMetrics,
+      is_constellation: isConstellation,
     };
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -202,7 +264,14 @@ export default function RunMetrics() {
             <BarChart3 size={15} className="text-emerald-400" />
           </div>
           <div>
-            <h2 className="text-[13px] font-black text-white">Métriques de chargement</h2>
+            <h2 className="text-[13px] font-black text-white">
+              Métriques de chargement
+              {isConstellation && (
+                <span className="ml-2 text-[9px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">
+                  ★ Constellation
+                </span>
+              )}
+            </h2>
             <p className="text-[10px] text-slate-500">{loadTimeStr || 'Dernier run ETL'}</p>
           </div>
         </div>
@@ -242,21 +311,67 @@ export default function RunMetrics() {
             <MetricCard
               label="Rejetées"
               value={totalRejected.toLocaleString()}
-              sub={totalRejected > 0 ? 'Vérifier logs' : 'Aucun'}
+              sub={totalRejected > 0 ? 'Quarantaine active' : 'Aucun'}
               color={totalRejected === 0 ? 'default' : 'error'}
             />
             <MetricCard
-              label="Dimensions"
-              value={Object.keys(dimMetrics).length}
+              label={isConstellation ? "Facts / Dims" : "Dimensions"}
+              value={isConstellation ? `${factEntries.length}F / ${Object.keys(dimMetrics).length}D` : Object.keys(dimMetrics).length}
               color="info"
             />
           </div>
         </div>
 
-        {/* Neural Dashboard Dashboard (Visualisations IA) */}
+        {/* ═══ Multi-Fact Cards (Constellation) ═══════════════════════════════ */}
+        {factEntries.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Activity size={12} className="text-indigo-400" />
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                {isConstellation ? 'Constellation — Tables de Faits' : 'Table de Faits'}
+              </span>
+            </div>
+            <div className={`grid ${isConstellation ? 'grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'} gap-3`}>
+              {factEntries.map(([name, metrics]) => (
+                <FactCard key={name} factName={name} metrics={metrics} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ═══ Quarantine Alert (Rejets) ═══════════════════════════════════════ */}
+        {totalRejected > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl border border-rose-500/20 bg-rose-500/[0.04] p-5"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle size={14} className="text-rose-400" />
+              <span className="text-[11px] font-black text-rose-400 uppercase tracking-wider">
+                Quarantaine — {totalRejected} ligne(s) redirigée(s)
+              </span>
+            </div>
+            <div className="text-[12px] text-slate-300 leading-relaxed">
+              Les lignes rejetées ont été automatiquement sauvegardées dans les tables de quarantaine 
+              (<span className="font-mono text-rose-300">rejets_fact_*</span>) avec le motif d'erreur.
+              Consultez ces tables dans SQL Server pour diagnostic et re-injection.
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {factEntries.filter(([, m]) => (m?.rejected || 0) > 0).map(([name, m]) => (
+                <div key={name} className="flex items-center justify-between bg-black/30 rounded-xl px-3 py-2 border border-white/5">
+                  <span className="text-[10px] font-mono text-slate-400 truncate">{name}</span>
+                  <span className="text-[10px] font-black text-rose-400">{m.rejected} rej.</span>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Neural Dashboard (Visualisations IA) */}
         {visualizations.length > 0 && <ExecutiveSummary content={executiveSummary} visualizations={visualizations} />}
 
-        {/* Performance Profiler (Nouveau v4.0) */}
+        {/* Performance Profiler */}
         {Object.keys(nodeDurations).length > 0 && (
           <div className="rounded-[32px] p-8 border border-white/[0.05] bg-white/[0.02] space-y-6">
             <div className="flex items-center justify-between">
@@ -304,7 +419,9 @@ export default function RunMetrics() {
             <div className="px-5 py-3 border-b border-white/[0.04]">
               <div className="flex items-center gap-2">
                 <Layers size={12} className="text-indigo-400" />
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Dimensions chargées</span>
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  Dimensions chargées {isConstellation && '(conformées)'}
+                </span>
               </div>
             </div>
             <div className="px-5 py-2">
@@ -322,26 +439,37 @@ export default function RunMetrics() {
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Évaluation du run</span>
           </div>
           <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <div className={`w-2 h-2 rounded-full shrink-0 ${loadRate >= 90 ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-              <span className="text-[12px] text-slate-300">
-                {loadRate >= 90 ? 'Taux de chargement excellent' : `Taux de chargement acceptable (${loadRate}%)`}
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className={`w-2 h-2 rounded-full shrink-0 ${totalRejected === 0 ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-              <span className="text-[12px] text-slate-300">
-                {totalRejected === 0 ? 'Aucun rejet — données propres' : `${totalRejected} ligne(s) rejetée(s) — vérifier les contraintes`}
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className={`w-2 h-2 rounded-full shrink-0 ${Object.keys(dimMetrics).length > 0 ? 'bg-emerald-500' : 'bg-slate-600'}`} />
-              <span className="text-[12px] text-slate-300">
-                {Object.keys(dimMetrics).length > 0
-                  ? `${Object.keys(dimMetrics).length} dimension(s) peuplée(s)`
-                  : 'Aucune dimension chargée'}
-              </span>
-            </div>
+            {[
+              {
+                ok: loadRate >= 90,
+                text: loadRate >= 90 
+                  ? `Load rate excellent (${loadRate}%)`
+                  : `Load rate acceptable (${loadRate}%) — check rejections`,
+              },
+              {
+                ok: totalRejected === 0,
+                text: totalRejected === 0 
+                  ? "No rejections — data clean"
+                  : `${totalRejected} row(s) rejected → quarantine tables`,
+              },
+              {
+                ok: Object.keys(dimMetrics).length > 0,
+                text: Object.keys(dimMetrics).length > 0
+                  ? `${Object.keys(dimMetrics).length} dimension(s) populated`
+                  : "No dimensions loaded",
+              },
+              ...(isConstellation ? [{
+                ok: true,
+                text: `Constellation schema: ${factEntries.length} independent fact tables`,
+              }] : []),
+            ].map((evalItem, idx) => (
+              <div key={idx} className="flex items-center gap-3">
+                <div className={`w-2 h-2 rounded-full shrink-0 ${evalItem.ok ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                <span className="text-[12px] text-slate-300">
+                  {evalItem.text}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </div>

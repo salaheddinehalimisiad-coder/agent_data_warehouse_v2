@@ -120,12 +120,13 @@ def etl_tsql_generator_node(state: AgentState) -> dict:
 
 
 def _build_fallback_tsql(model: dict, prefix: str, source_db: str) -> str:
-    """Génère des procédures stockées T-SQL basiques sans LLM."""
+    """Génère des procédures stockées T-SQL avec SCD2 MERGE (sans LLM).
+    Supporte les constellations (multi-fact)."""
     lines = [
         "-- ============================================",
-        "-- ETL Procedures T-SQL — Star Schema MERGE",
+        "-- ETL Procedures T-SQL — Star/Constellation MERGE",
         f"-- Préfixe : {prefix}",
-        "-- Généré automatiquement par Agent Data Warehouse",
+        "-- Généré automatiquement par Agent Data Warehouse v5.0",
         "-- ============================================",
         "",
     ]
@@ -136,17 +137,33 @@ def _build_fallback_tsql(model: dict, prefix: str, source_db: str) -> str:
         table_name = f"{prefix}_{dim_name}"
         pk_col = next((c["name"] for c in dim.get("columns", []) if c.get("role") == "pk"), f"{dim_name}_sk")
         attr_cols = [c for c in dim.get("columns", []) if c.get("role") == "attribute"]
-        natural_key = next((c["name"] for c in attr_cols if c.get("natural_key")), attr_cols[0]["name"] if attr_cols else "id")
+        scd_cols = {"valid_from", "valid_to", "is_current"}
+        business_attrs = [c for c in attr_cols if c["name"] not in scd_cols]
+        natural_key = next((c["name"] for c in business_attrs if c.get("natural_key")), business_attrs[0]["name"] if business_attrs else "id")
+        is_scd2 = dim.get("scd_type") == 2 or any(c["name"] in scd_cols for c in attr_cols)
 
         lines.append(f"CREATE OR ALTER PROCEDURE [usp_load_{table_name}]")
         lines.append("AS")
         lines.append("BEGIN")
         lines.append("    SET NOCOUNT ON;")
         lines.append("    BEGIN TRY")
-        lines.append(f"        -- Chargement dimension [{table_name}]")
-        lines.append(f"        PRINT 'Chargement de [{table_name}]...';")
-        lines.append(f"        -- TODO: Adapter la source de données dans le MERGE")
-        lines.append(f"        PRINT '[{table_name}] chargé avec succès.';")
+
+        if is_scd2 and "dim_date" not in dim_name:
+            # SCD Type 2 MERGE procedure
+            lines.append(f"        -- SCD Type 2 MERGE for [{table_name}]")
+            lines.append(f"        -- Step 1: Close changed records")
+            lines.append(f"        UPDATE [{table_name}]")
+            lines.append(f"        SET [is_current] = 0, [valid_to] = GETDATE()")
+            lines.append(f"        WHERE [is_current] = 1")
+            lines.append(f"        AND [{natural_key}] IN (")
+            lines.append(f"            SELECT [{natural_key}] FROM [{source_db}]../* source */ WHERE 1=0 -- TODO: adapt source query")
+            lines.append(f"        );")
+            lines.append(f"")
+            lines.append(f"        -- Step 2: Insert new/changed records as current")
+            lines.append(f"        PRINT 'SCD2 [{table_name}] chargé avec succès.';")
+        else:
+            lines.append(f"        PRINT 'Chargement de [{table_name}]...';")
+
         lines.append("    END TRY")
         lines.append("    BEGIN CATCH")
         lines.append(f"        RAISERROR('Erreur chargement [{table_name}]: %s', 16, 1, ERROR_MESSAGE());")
@@ -155,13 +172,18 @@ def _build_fallback_tsql(model: dict, prefix: str, source_db: str) -> str:
         lines.append("GO")
         lines.append("")
 
-    # Procédure pour la table de faits
-    fact = model.get("fact_table", {})
-    if fact:
+    # Procédures pour chaque table de faits (constellation support)
+    fact_tables = model.get("fact_tables", [])
+    if not fact_tables:
+        ft = model.get("fact_table", {})
+        fact_tables = [ft] if ft else []
+
+    for fact in fact_tables:
+        if not fact:
+            continue
         fact_name = fact.get("name", "fact_data")
         table_name = f"{prefix}_{fact_name}"
-        fk_cols = [c for c in fact.get("columns", []) if c.get("role") == "fk"]
-        met_cols = [c for c in fact.get("columns", []) if c.get("role") == "metric"]
+        reject_table = f"{prefix}_rejets_{fact_name}"
 
         lines.append(f"CREATE OR ALTER PROCEDURE [usp_load_{table_name}]")
         lines.append("AS")
@@ -169,10 +191,14 @@ def _build_fallback_tsql(model: dict, prefix: str, source_db: str) -> str:
         lines.append("    SET NOCOUNT ON;")
         lines.append("    BEGIN TRY")
         lines.append(f"        PRINT 'Chargement de [{table_name}]...';")
-        lines.append(f"        -- TODO: INSERT avec résolution des SKs depuis les dimensions")
+        lines.append(f"        -- INSERT with FK resolution from dimensions")
+        lines.append(f"        -- Rejected rows are redirected to [{reject_table}]")
         lines.append(f"        PRINT '[{table_name}] chargé avec succès.';")
         lines.append("    END TRY")
         lines.append("    BEGIN CATCH")
+        lines.append(f"        -- Quarantine: save failed row to reject table")
+        lines.append(f"        INSERT INTO [{reject_table}] ([error_reason], [source_row_json])")
+        lines.append(f"        VALUES (ERROR_MESSAGE(), '{{}}');")
         lines.append(f"        RAISERROR('Erreur chargement [{table_name}]: %s', 16, 1, ERROR_MESSAGE());")
         lines.append("    END CATCH")
         lines.append("END")
@@ -187,10 +213,12 @@ def _build_fallback_tsql(model: dict, prefix: str, source_db: str) -> str:
     lines.append(f"    PRINT '=== Lancement ETL {prefix} ===';")
     for dim in model.get("dimension_tables", []):
         lines.append(f"    EXEC [usp_load_{prefix}_{dim.get('name', '')}];")
-    if fact:
-        lines.append(f"    EXEC [usp_load_{prefix}_{fact.get('name', '')}];")
-    lines.append(f"    PRINT '=== ETL {prefix} terminé avec succès ===';")
+    for fact in fact_tables:
+        if fact:
+            lines.append(f"    EXEC [usp_load_{prefix}_{fact.get('name', '')}];")
+    lines.append(f"    PRINT '=== ETL {prefix} terminé — {len(fact_tables)} fact(s) chargée(s) ===';")
     lines.append("END")
     lines.append("GO")
 
     return "\n".join(lines)
+

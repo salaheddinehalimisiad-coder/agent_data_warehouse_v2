@@ -42,10 +42,8 @@ def create_token(user_id: int, email: str, prefix: str) -> str:
 def decode_token(token: str) -> dict:
     """Décode et vérifie un JWT. Lève HTTPException 401 si invalide."""
     if not JWT_AVAILABLE:
-        # mode dev : accepter tous les tokens devtoken_
-        if token.startswith("devtoken_"):
-            return {"sub": "1", "email": "dev@local", "prefix": "dw"}
-        raise HTTPException(status_code=401, detail="PyJWT non installé — token invalide")
+        # mode dev : accepter tous les tokens (PyJWT non installé)
+        return {"sub": "1", "email": "dev@local", "prefix": "dw"}
     try:
         payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         return payload

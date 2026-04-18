@@ -59,9 +59,9 @@ def data_quality_agent_node(state: AgentState) -> dict:
         for col in columns:
             col_name  = col.get("name", "?")
             dtype     = col.get("dtype", "object")
-            null_pct  = col.get("null_pct", 0.0)
-            nunique   = col.get("nunique", 0)
-            samples   = col.get("sample_values", [])
+            null_pct  = col.get("null_pct") or 0.0
+            nunique   = col.get("nunique") or 0
+            samples   = col.get("sample_values") or []
 
             issues = []
             score  = 100.0

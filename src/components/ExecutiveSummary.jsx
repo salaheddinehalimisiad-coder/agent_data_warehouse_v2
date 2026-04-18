@@ -6,10 +6,13 @@ import { Sparkles, Terminal, ShieldCheck, Target, Lightbulb, Copy, Check, BarCha
 function NeuralChart({ type, title, data }) {
   if (!data || data.length === 0) return null;
 
-  // Extraction simple des clés (on prend la première numérique pour Y, la première textuelle pour X)
   const keys = Object.keys(data[0]);
-  const xKey = keys.find(k => typeof data[0][k] === 'string') || keys[0];
-  const yKey = keys.find(k => typeof data[0][k] === 'number') || keys[1];
+  
+  // Smart key detection: prefer numeric columns for Y, string/date for X
+  const yKey = keys.find(k => typeof data[0][k] === 'number' && !['id','sk','pk'].some(s => k.toLowerCase().includes(s)));
+  const xKey = keys.find(k => k !== yKey && (typeof data[0][k] === 'string' || k.toLowerCase().includes('date') || k.toLowerCase().includes('name') || k.toLowerCase().includes('label'))) || keys[0];
+
+  if (!yKey) return null;  // no numeric column → skip chart
 
   const maxVal = Math.max(...data.map(d => d[yKey] || 0), 1);
 
