@@ -59,6 +59,7 @@ function ColumnRow({ col, onFkClick, highlightedDim }) {
 
 function TableCard({ name, table, isFactTable, isSelected, onSelect, highlightedBy, onFkClick, highlightedDim }) {
   const columns = table?.columns || [];
+  const hierarchies = table?.hierarchies || [];
   const scols = { pk: 0, fk: 0, metric: 0, attribute: 0 };
   columns.forEach(c => { if (scols[c.role] !== undefined) scols[c.role]++; });
 
@@ -101,7 +102,10 @@ function TableCard({ name, table, isFactTable, isSelected, onSelect, highlighted
           <div className="flex items-center gap-3 mt-1">
             <span className="text-[9px] text-slate-600">{columns.length} colonnes</span>
             {scols.fk > 0 && <span className="text-[9px] text-cyan-500">{scols.fk} FK</span>}
-            {scols.metric > 0 && <span className="text-[9px] text-emerald-500">{scols.metric} métriques</span>}
+            {scols.metric > 0 && <span className="text-[9px] text-emerald-500">{scols.metric} mét</span>}
+            {hierarchies.length > 0 && (
+               <span className="text-[9px] text-indigo-400 flex items-center gap-1"><Layers size={10} /> Hiérarchies</span>
+            )}
           </div>
         </div>
         <ChevronRight
@@ -119,7 +123,27 @@ function TableCard({ name, table, isFactTable, isSelected, onSelect, highlighted
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 pt-1 border-t border-white/[0.04] space-y-1.5">
+            {hierarchies.length > 0 && (
+              <div className="px-4 py-3 border-t border-indigo-500/10 bg-indigo-500/5 space-y-2">
+                {hierarchies.map((h, i) => (
+                  <div key={i} className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-1.5 text-indigo-400">
+                       <Layers size={11} />
+                       <span className="text-[10px] font-black tracking-wide uppercase">{h.name}</span>
+                    </div>
+                    <div className="flex items-center flex-wrap gap-1">
+                      {h.levels.map((lvl, j) => (
+                        <div key={j} className="flex items-center gap-1">
+                          <span className="text-[10px] text-slate-300 font-mono px-1.5 py-0.5 rounded bg-black/20 border border-white/5">{lvl}</span>
+                          {j < h.levels.length - 1 && <ChevronRight size={10} className="text-slate-600" />}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="px-4 pb-4 pt-2 border-t border-white/[0.04] space-y-1.5">
               {columns.map((col, i) => (
                 <ColumnRow
                   key={i}

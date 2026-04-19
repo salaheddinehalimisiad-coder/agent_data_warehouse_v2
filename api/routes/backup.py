@@ -113,6 +113,7 @@ def restore_sqlserver_backup(bak_path: str, target_db: str) -> dict:
         f"DRIVER={{ODBC Driver 17 for SQL Server}};"
         f"SERVER={host},{port};DATABASE=master;"
         f"UID={user};PWD={{{password}}};"
+        f"Encrypt=no;TrustServerCertificate=yes;"
     )
 
     try:

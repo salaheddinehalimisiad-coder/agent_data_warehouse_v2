@@ -18,7 +18,7 @@ import {
   Database, Star, ShieldCheck, ChevronRight, 
   CheckCircle2, XCircle, RefreshCcw, Search,
   Activity, Zap, Info, Key, Link as LinkIcon, Hash,
-  Maximize, Minimize
+  Maximize, Minimize, Layers
 } from 'lucide-react';
 import { usePipelineStore } from '../store/pipelineStore';
 import SchemaChangesDiff from './SchemaChangesDiff';
@@ -73,6 +73,24 @@ const TableNode = ({ id, data }) => {
 
       {/* Columns List - ULTRA COMPACT */}
       <div className="flex flex-col py-1 bg-black/40">
+        {/* Hierarchies - IN ORANGE */}
+        {data.hierarchies?.map((h, idx) => (
+          <div key={`h-${idx}`} className="px-3 py-1.5 border-b border-orange-500/20 bg-orange-500/5 mb-1 group">
+             <div className="flex items-center gap-1.5 text-orange-400 mb-1">
+                <Layers size={9} />
+                <span className="text-[8px] font-black uppercase tracking-wider">{h.name}</span>
+             </div>
+             <div className="flex items-center flex-wrap gap-0.5">
+                {h.levels.map((lvl, j) => (
+                  <React.Fragment key={j}>
+                    <span className="text-[7px] text-orange-200/70 font-mono truncate max-w-[60px]">{lvl}</span>
+                    {j < h.levels.length - 1 && <span className="text-[6px] text-orange-500/40">→</span>}
+                  </React.Fragment>
+                ))}
+             </div>
+          </div>
+        ))}
+
         {data.columns?.map((col, i) => (
           <div key={i} className="flex items-center justify-between px-3 py-[2px] hover:bg-white/5 transition-colors gap-4">
             {/* Left side: Icon + Name */}
@@ -243,13 +261,19 @@ export default function ArchitectureInspector() {
     const newEdges = [];
 
     // Fact table at center
-    if (factTable) {
-      newNodes.push({
-        id: factTable.name,
-        type: 'tableNode',
-        position: { x: 0, y: 0 },
-        data: { label: factTable.name, role: 'fact', columns: factTable.columns, description: factTable.description },
-      });
+      if (factTable) {
+        newNodes.push({
+          id: factTable.name,
+          type: 'tableNode',
+          position: { x: 0, y: 0 },
+          data: { 
+            label: factTable.name, 
+            role: 'fact', 
+            columns: factTable.columns, 
+            hierarchies: factTable.hierarchies || [],
+            description: factTable.description 
+          },
+        });
 
       // ─────────────────────────────────────────────────────────────
       // INTELLIGENT CONSTELLATION LAYOUT (STAR SCHEMA)
@@ -281,7 +305,13 @@ export default function ArchitectureInspector() {
           id: dim.name,
           type: 'tableNode',
           position: position,
-          data: { label: dim.name, role: 'dimension', columns: dim.columns, description: dim.description },
+          data: { 
+            label: dim.name, 
+            role: 'dimension', 
+            columns: dim.columns, 
+            hierarchies: dim.hierarchies || [],
+            description: dim.description 
+          },
         });
 
         newEdges.push({
@@ -443,15 +473,15 @@ export default function ArchitectureInspector() {
           </div>
         )}
 
-        {/* Diff Overlay */}
-        <div className="absolute top-24 left-6 z-20 w-72">
+        {/* Diff Overlay - REMOVED AS PER USER REQUEST */}
+        {/* <div className="absolute top-24 left-6 z-20 w-72">
            <SchemaChangesDiff 
               previousDdl={previousSqlDDL} 
               currentDdl={sqlDDL} 
               driftDetails={schemaDriftDetails}
               version={logicalModelVersion}
            />
-        </div>
+        </div> */}
 
         {/* View Switcher Overlay */}
         <div className="absolute top-6 right-6 z-20 flex bg-black/40 backdrop-blur-xl rounded-xl p-1 border border-white/10 gap-1 items-center">
@@ -479,8 +509,8 @@ export default function ArchitectureInspector() {
            </button>
         </div>
 
-        {/* Legend */}
-        <div className="absolute bottom-6 left-6 z-20 glass-card p-4 rounded-2xl border-white/5 flex gap-6 items-center">
+        {/* Legend - REMOVED AS PER USER REQUEST */}
+        {/* <div className="absolute bottom-6 left-6 z-20 glass-card p-4 rounded-2xl border-white/5 flex gap-6 items-center">
            <div className="flex items-center gap-2">
               <div className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
               <span className="text-[9px] font-black text-white uppercase tracking-widest">Fact Table</span>
@@ -493,7 +523,7 @@ export default function ArchitectureInspector() {
               <div className="w-8 h-0.5 bg-indigo-500/40" />
               <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Relationship</span>
            </div>
-        </div>
+        </div> */}
       </div>
     </div>
     </ReactFlowProvider>

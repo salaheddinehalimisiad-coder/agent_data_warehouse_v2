@@ -31,6 +31,7 @@ xlrd>=2.0.1                     # .xls legacy
 
 # ── Export PDF ───────────────────────────────────────────────
 reportlab>=4.2.0
+fpdf2>=2.7.0                     # Phase 3 — layouts complexes avec tables
 
 # ── Auth JWT ─────────────────────────────────────────────────
 PyJWT>=2.8.0
@@ -56,3 +57,6 @@ crewai
 
 sqlparse>=0.5.0
 pyodbc>=5.1.0
+
+# ── Phase 3 : Scheduler ────────────────────────────────────────
+apscheduler>=3.10.0

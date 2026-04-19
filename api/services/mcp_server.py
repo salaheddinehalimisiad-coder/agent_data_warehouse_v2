@@ -10,7 +10,7 @@ def _get_sql_server_engine(database_name: str):
     """Génère l'Engine de connexion Read-Only vers SQL Server pour les requêtes MCP."""
     password = os.getenv("DB_PASSWORD", "StrongP@ssw0rd!")
     host = os.getenv("DB_HOST", "sqlserver")
-    url = f"mssql+pyodbc://sa:{password}@{host}:1433/{database_name}?driver=ODBC+Driver+17+for+SQL+Server"
+    url = f"mssql+pyodbc://sa:{password}@{host}:1433/{database_name}?driver=ODBC+Driver+17+for+SQL+Server&Encrypt=no&TrustServerCertificate=yes"
     return create_engine(url)
 
 @tool

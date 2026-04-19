@@ -111,15 +111,6 @@ npm run dev
 
 ---
 
-## 🗺️ Roadmap & Évolutions
-Consultez la [Roadmap Stratégique (Phase 3)](./ROADMAP.md) pour découvrir les prochaines étapes du projet :
-- Générateur de requêtes analytiques (SQL OLAP, DAX).
-- Moteur de rapports PDF professionnels.
-- ETL Incrémental via CDC Watermarking.
-- Dashboard Builder interactif.
-
----
-
 <p align="center">
 Développé dans le cadre d'un pipeline MLOps de R&D avancée.
 </p>

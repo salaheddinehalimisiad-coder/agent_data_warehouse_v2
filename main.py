@@ -1,6 +1,10 @@
-# main.py — Orchestration LangGraph v3.0
+# main.py — Orchestration LangGraph v6.0 (Phase 3)
 """
-v3.0 — Nouveaux nœuds intégrés :
+v6.0 — Phase 3 : Nouveaux nœuds :
+  - query_generator  : génération + exécution de requêtes OLAP sur le DW
+  - cdc_watermark    : détection mode ETL (full_load vs incremental)
+
+v3.0 — Nœuds existants :
   - data_quality_agent : profiling DQ entre explorer et drift_detector
   - lineage_tracker    : construction du lignage après ETL success
 
@@ -30,6 +34,8 @@ from nodes.lineage_tracker       import lineage_tracker_node
 from nodes.insight_generator     import insight_generator_node
 from nodes.cataloger             import cataloger_node
 from nodes.governance_agent      import governance_agent_node
+from nodes.query_generator       import query_generator_node        # P3-02
+from nodes.cdc_watermark         import cdc_watermark_node          # P3-05
 
 logger           = logging.getLogger(__name__)
 MAX_RETRIES      = 3
@@ -187,6 +193,7 @@ def create_agent_workflow():
     workflow.add_node("critic",               profile_node(critic_node, "critic"))
     workflow.add_node("human_review",         human_review_node)
     workflow.add_node("chat_modifier",        profile_node(chat_modifier_node, "chat_modifier"))
+    workflow.add_node("cdc_watermark",        profile_node(cdc_watermark_node, "cdc_watermark"))      # P3-05
     workflow.add_node("etl_tsql_generator",   profile_node(etl_tsql_generator_node, "etl_tsql_generator"))
     workflow.add_node("etl_initializer",      profile_node(etl_initializer_node, "etl_initializer"))
     workflow.add_node("etl_extractor",        profile_node(etl_extractor_node, "etl_extractor"))
@@ -194,6 +201,7 @@ def create_agent_workflow():
     workflow.add_node("etl_loader",           profile_node(etl_loader_node, "etl_loader"))
     workflow.add_node("healer",               profile_node(healer_node, "healer"))
     workflow.add_node("lineage_tracker",      profile_node(lineage_tracker_node, "lineage_tracker"))
+    workflow.add_node("query_generator",      profile_node(query_generator_node, "query_generator"))  # P3-02
     workflow.add_node("insight_generator",    profile_node(insight_generator_node, "insight_generator"))
     workflow.add_node("cataloger",            profile_node(cataloger_node, "cataloger"))
 
@@ -224,11 +232,14 @@ def create_agent_workflow():
     })
     workflow.add_edge("chat_modifier", "critic")
 
-    # Boucle 2 : Human Review → ETL ou Chat Modifier
+    # Boucle 2 : Human Review → CDC Watermark → ETL ou Chat Modifier
     workflow.add_conditional_edges("human_review", route_after_human_review, {
-        "etl_generator": "etl_tsql_generator",
+        "etl_generator": "cdc_watermark",
         "chat_modifier": "chat_modifier",
     })
+
+    # P3-05 : CDC Watermark → ETL T-SQL Generator
+    workflow.add_edge("cdc_watermark", "etl_tsql_generator")
 
     # Phase ETL fractionnée avec vérification d'erreur à chaque étape
     workflow.add_edge("etl_tsql_generator", "etl_initializer")
@@ -267,16 +278,19 @@ def create_agent_workflow():
         "etl_loader",
         route_etl_step_execution,
         {
-            "success": "insight_generator",
+            "success": "lineage_tracker",
             "failed": "healer",
             "critical_failure": END
         }
     )
 
     workflow.add_edge("healer", "etl_initializer")
+
+    # Post-ETL : lineage → query_generator → insight → cataloger → END
+    workflow.add_edge("lineage_tracker",  "query_generator")
+    workflow.add_edge("query_generator",  "insight_generator")
     workflow.add_edge("insight_generator", "cataloger")
-    workflow.add_edge("cataloger", "lineage_tracker")
-    workflow.add_edge("lineage_tracker", END)
+    workflow.add_edge("cataloger", END)
 
     memory = MemorySaver()
     return workflow.compile(

@@ -18,6 +18,7 @@ def get_meta_connection(db_name="agent_dw_meta"):
         f"DRIVER={{ODBC Driver 17 for SQL Server}};"
         f"SERVER={host},{port};DATABASE={db_name};"
         f"UID={user};PWD={{{password}}};"
+        f"Encrypt=no;TrustServerCertificate=yes;"
     )
     return pyodbc.connect(conn_str, autocommit=True, timeout=30)
 

@@ -44,11 +44,22 @@ AGENT_LABELS = {
 }
 
 # Nœuds après lesquels on persiste en DB
-_PERSIST_AFTER = {"modeler", "etl_loader", "lineage_tracker", "human_review", "human_review_dq"}
+_PERSIST_AFTER = {"modeler", "etl_initializer", "etl_loader", "lineage_tracker", "human_review", "human_review_dq"}
 
 
 def get_pipeline_state(session_id: str) -> dict:
-    return _pipeline_states.get(session_id, {})
+    state = _pipeline_states.get(session_id)
+    if not state:
+        # P3-04 : Restauration depuis la DB si serveur redémarré
+        try:
+            from api.db.sqlserver import get_session_state
+            db_state = get_session_state(session_id)
+            if db_state:
+                _pipeline_states[session_id] = db_state
+                return db_state
+        except Exception as e:
+            logger.warning(f"[Service] Échec restauration session {session_id} : {e}")
+    return state or {}
 
 
 def update_pipeline_state(session_id: str, state: dict) -> None:

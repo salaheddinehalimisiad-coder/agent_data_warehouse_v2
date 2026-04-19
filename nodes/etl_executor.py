@@ -673,11 +673,22 @@ def _build_engine(config: dict):
         
     if driver == "pyodbc":
         from urllib.parse import quote_plus
-        encoded_pwd = quote_plus(str(password))
-        # Injection Chaîne de connexion SQL Server
+        # Correction v4.1 : chaîne de connexion plus robuste pour SQL Server / TDS error
+        # Force Encrypt=no pour éviter les erreurs de protocole SSL sur les installs locales
+        params = quote_plus(
+            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+            f"SERVER={host},{port};"
+            f"DATABASE={database};"
+            f"UID={user};"
+            f"PWD={password};"
+            f"Encrypt=no;"
+            f"TrustServerCertificate=yes;"
+        )
         return create_engine(
-            f"mssql+pyodbc://{user}:{encoded_pwd}@{host}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server",
-            pool_pre_ping=True, pool_recycle=3600, fast_executemany=True
+            f"mssql+pyodbc:///?odbc_connect={params}",
+            pool_pre_ping=True, 
+            pool_recycle=3600, 
+            fast_executemany=True
         )
         
     return create_engine(

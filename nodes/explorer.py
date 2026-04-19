@@ -179,7 +179,7 @@ def _explore_sql(config: dict, dw_config: dict = None) -> Dict[str, Any]:
     elif driver == "pyodbc":
         from urllib.parse import quote_plus
         encoded_pwd = quote_plus(str(password))
-        url = f"mssql+pyodbc://{user}:{encoded_pwd}@{host}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server"
+        url = f"mssql+pyodbc://{user}:{encoded_pwd}@{host}:{port}/{database}?driver=ODBC+Driver+17+for+SQL+Server&Encrypt=no&TrustServerCertificate=yes"
     else:
         url = f"{db_type}+{driver}://{user}:{password}@{host}:{port}/{database}"
     

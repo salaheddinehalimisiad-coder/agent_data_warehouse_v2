@@ -34,9 +34,9 @@ export const AGENT_STATUS_COLORS = {
 
 export const AGENT_ORDER = [
   'explorer', 'data_quality', 'drift_detector', 'modeler', 'governance', 'critic',
-  'human_review', 'chat_modifier', 'etl_generator', 'etl_extractor', 'etl_transformer', 'etl_loader',
-  'healer', 'insight_generator', 'forecaster', 'cataloger',
-  'airflow_generator', 'dbt_generator', 'mock_generator', 'lineage_tracker'
+  'human_review', 'chat_modifier', 'cdc_watermark', 'etl_generator', 'etl_extractor', 'etl_transformer', 'etl_loader',
+  'healer', 'lineage_tracker', 'query_generator', 'insight_generator', 'forecaster', 'cataloger',
+  'airflow_generator', 'dbt_generator', 'mock_generator'
 ];
 
 const AGENT_EMOJIS = {
@@ -48,18 +48,20 @@ const AGENT_EMOJIS = {
   critic:           '⚖️',
   human_review:     '👤',
   chat_modifier:    '💬',
+  cdc_watermark:    '💧',
   etl_generator:    '⚙️',
   etl_extractor:    '📥',
   etl_transformer:  '🔄',
   etl_loader:       '📤',
   healer:           '🔧',
+  lineage_tracker:  '🔗',
+  query_generator:  '📊',
   insight_generator:'💡',
   forecaster:       '📈',
   cataloger:        '📚',
   airflow_generator:'🌬️',
   dbt_generator:    '🏗️',
   mock_generator:   '🧪',
-  lineage_tracker:  '🔗',
 };
 
 const initialAgentStatuses = Object.fromEntries(
@@ -101,6 +103,11 @@ const INITIAL_PIPELINE_STATE = {
   governanceReport:     null,
   mockDataSql:          null,
   sourceMetadata:       null,
+  // ─── Phase 3 ────────────────────────────────────────────────────────
+  generatedQueries:     [],
+  queryResults:         [],
+  etlMode:              null,
+  etlWatermarks:        null,
 };
 
 export const usePipelineStore = create((set, get) => ({
@@ -339,6 +346,11 @@ function _handleSSEEvent(type, data, set, get) {
         governanceReport:     data.governance_report     || null,
         mockDataSql:          data.mock_data_sql         || null,
         sourceMetadata:       data.source_metadata       || null,
+        // Phase 3
+        generatedQueries:     data.generated_queries     || [],
+        queryResults:         data.query_results         || [],
+        etlMode:              data.etl_mode              || null,
+        etlWatermarks:        data.etl_watermarks        || null,
       });
       break;
 
@@ -372,6 +384,11 @@ function _handleSSEEvent(type, data, set, get) {
       if (u.governance_report      !== undefined) patch.governanceReport      = u.governance_report;
       if (u.mock_data_sql          !== undefined) patch.mockDataSql           = u.mock_data_sql;
       if (u.source_metadata        !== undefined) patch.sourceMetadata        = u.source_metadata;
+      // Phase 3
+      if (u.generated_queries      !== undefined) patch.generatedQueries      = u.generated_queries;
+      if (u.query_results          !== undefined) patch.queryResults          = u.query_results;
+      if (u.etl_mode               !== undefined) patch.etlMode              = u.etl_mode;
+      if (u.etl_watermarks         !== undefined) patch.etlWatermarks        = u.etl_watermarks;
 
       if (data.agent) patch.currentAgent = data.agent;
       set(patch);

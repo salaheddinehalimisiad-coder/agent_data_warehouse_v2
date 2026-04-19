@@ -98,6 +98,7 @@ Tu analyses une base de données OLTP relationnelle et tu dois concevoir le Star
 - Surrogate key suffixe _sk, type BIGINT IDENTITY(1,1)
 - Pas de FK physiques sur la fact_ (INDEX seulement)
 - natural_key de la source doit rester dans chaque dimension
+- Identifier et lister les hiérarchies logiques (ex: category -> subcategory -> product) dans l'array "hierarchies" pour les dimensions concernées.
 
 ## FORMAT JSON OBLIGATOIRE (pur, sans markdown). CECI EST UN TEMPLATE GÉNÉRIQUE :
 {{
@@ -126,6 +127,9 @@ Tu analyses une base de données OLTP relationnelle et tu dois concevoir le Star
         {{"name": "year", "type": "INT", "role": "attribute"}},
         {{"name": "month", "type": "TINYINT", "role": "attribute"}},
         {{"name": "is_weekend", "type": "BIT DEFAULT 0", "role": "attribute"}}
+      ],
+      "hierarchies": [
+        {{"name": "Hierarchy_Date", "levels": ["year", "month", "date_full"]}}
       ]
     }}
   ]
@@ -951,6 +955,19 @@ def _build_dim(
     ]
 
     snow_tables = [f.get("referred_table", "") for f in snowflake_fks]
+    
+    # Construire une hiérarchie basique si on snowflake
+    hierarchies = []
+    if snow_tables:
+        levels = []
+        for ref in snow_tables:
+            levels.append(f"{_to_dim_name(ref)}_{_find_pk_col(metadata.get(ref, {}).get('columns', []), ref) or 'id'}")
+        levels.append(nat_key or entity + "_id")
+        hierarchies.append({
+            "name": f"Hierarchy_{entity.capitalize()}",
+            "levels": levels
+        })
+
     return {
         "name": dim_name,
         "description": f"Dimension {entity} (source : {src_table}" +
@@ -959,6 +976,7 @@ def _build_dim(
         "natural_key": nat_key or entity + "_id",
         "scd_type": 2,
         "columns": cols,
+        "hierarchies": hierarchies,
     }
 
 
@@ -983,6 +1001,12 @@ def _build_dim_date(metadata: dict, src_table: str = "") -> dict:
             {"name": "is_weekend",     "type": "BIT DEFAULT 0", "role": "attribute"},
             {"name": "is_month_start", "type": "BIT DEFAULT 0", "role": "attribute"},
             {"name": "is_month_end",   "type": "BIT DEFAULT 0", "role": "attribute"},
+        ],
+        "hierarchies": [
+            {
+                "name": "Date_Hierarchy",
+                "levels": ["year", "semester", "quarter", "month", "week", "date_full"]
+            }
         ],
     }
 

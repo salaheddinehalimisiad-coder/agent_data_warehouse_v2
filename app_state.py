@@ -80,6 +80,24 @@ class AgentState(TypedDict, total=False):
     restored_db:       str     # Nom de la base SQL Server restaurée
     is_backup_flow:    bool    # True si on part d'un .bak restauré
 
+    # ─── Phase 3 : Query Generator (NOUVEAU v6.0) ─────────────────────────
+    generated_queries: List[Dict]   # [{title, sql, description, type}]
+    query_results:     List[Dict]   # [{title, sql, columns, rows, error}]
+    queries_schema_context: str     # Contexte du schéma DW injecté dans les prompts
+
+    # ─── Phase 3 : CDC Watermark (NOUVEAU v6.0) ───────────────────────────
+    etl_mode:          str          # "full_load" | "incremental"
+    etl_watermarks:    Dict[str, Any]  # {table: {column, last_value, last_run}}
+    cdc_delta_counts:  Dict[str, int]  # {table_name: nb_rows_changed}
+
+    # ─── Phase 3 : Scheduler (NOUVEAU v6.0) ───────────────────────────────
+    schedule_config:   Dict[str, Any]  # {job_id, cron, next_run, ...}
+
+    # ─── Phase 3 : Report (NOUVEAU v6.0) ──────────────────────────────────
+    pdf_report_path:   str          # Chemin du dernier rapport PDF généré
+    report_sections:   List[Dict[str, Any]] # Sections composées du rapport
+    report_language:   str          # 'fr' | 'en' (défaut: 'fr')
+
 
 
     # ─── Journal ──────────────────────────────────────────────────────────
