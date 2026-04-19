@@ -10,12 +10,15 @@ import json
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, Optional, List
 from app_state import AgentState
 
 logger = logging.getLogger(__name__)
 
-WATERMARK_FILE = "outputs/etl_watermarks.json"
+# Ancré à la racine du projet pour rester stable quel que soit le CWD
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+WATERMARK_FILE = str(_PROJECT_ROOT / "outputs" / "etl_watermarks.json")
 
 # Noms de colonnes candidats pour la détection de la colonne de modification
 # Par ordre de priorité décroissante

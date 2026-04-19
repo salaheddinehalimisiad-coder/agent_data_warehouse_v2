@@ -16,8 +16,19 @@ Le rapport utilise state['logical_model'] et state['query_results'] — données
 import os
 import logging
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Ancré à la racine du projet (remonte de api/services/ → racine)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_OUTPUTS_DIR = _PROJECT_ROOT / "outputs"
+
+
+def _outputs_path(session_id: str) -> str:
+    """Retourne le chemin absolu du rapport PDF pour une session."""
+    _OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    return str(_OUTPUTS_DIR / f"{session_id}_report.pdf")
 
 
 def generate_pdf_report(state: dict, session_id: str) -> str:
@@ -45,8 +56,7 @@ def _generate_pdf_fpdf2(state: dict, session_id: str) -> str:
     """Génère le rapport PDF avec fpdf2."""
     from fpdf import FPDF
 
-    os.makedirs("outputs", exist_ok=True)
-    pdf_path = f"outputs/{session_id}_report.pdf"
+    pdf_path = _outputs_path(session_id)
     generated_at = datetime.now().strftime("%d/%m/%Y à %H:%M")
 
     pdf = FPDF()
@@ -425,8 +435,7 @@ def _generate_pdf_reportlab(state: dict, session_id: str) -> str:
     )
     from reportlab.lib.enums import TA_CENTER
 
-    os.makedirs("outputs", exist_ok=True)
-    pdf_path = f"outputs/{session_id}_report.pdf"
+    pdf_path = _outputs_path(session_id)
 
     doc = SimpleDocTemplate(
         pdf_path, pagesize=A4,
