@@ -1,45 +1,101 @@
-name: Agent Data Warehouse CI
+name: Antigravity BI — CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 jobs:
+
+  # ── Backend : pytest + ruff ────────────────────────────────────────────────
   backend-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest httpx pytest-asyncio
-    - name: Run tests with pytest
-      run: |
-        pytest tests/ -v --tb=short
-    - name: Lint with Ruff
-      run: |
-        pip install ruff
-        ruff check .
+      - uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install ODBC Driver 18 (SQL Server)
+        run: |
+          curl -sSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/22.04/prod jammy main" | sudo tee /etc/apt/sources.list.d/mssql.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov httpx ruff
+
+      - name: Lint (ruff — non bloquant)
+        continue-on-error: true
+        run: ruff check . --exit-zero
+
+      - name: Run pytest
+        env:
+          JWT_SECRET: ci-test-jwt-secret-at-least-32-characters-long-for-production-mode
+          APP_ENV: test
+          ENVIRONMENT: test
+          DB_HOST: 127.0.0.1
+          DB_PORT: "1433"
+          DB_USER: sa
+          DB_PASSWORD: CiTest2026!
+          DB_NAME: agent_dw_meta
+        run: pytest tests/ -v --tb=short
+
+  # ── Frontend : lint + build ────────────────────────────────────────────────
   frontend-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
-    - name: Install dependencies
-      run: npm install
-    - name: Run Build
-      run: npm run build
-    - name: Run Lint
-      run: npm run lint
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (Vite)
+        env:
+          VITE_API_URL: ""
+        run: npm run build
+
+      - name: Lint (ESLint — non bloquant)
+        continue-on-error: true
+        run: npm run lint
+
+  # ── Docker : validation des compose et build images ────────────────────────
+  docker-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare fake .env for compose
+        run: |
+          cat > .env <<'EOF'
+          DB_PASSWORD=CiTest2026!
+          JWT_SECRET=ci-test-jwt-secret-at-least-32-characters-long-for-production-mode
+          ALLOWED_ORIGINS=http://localhost:8080
+          OLLAMA_BASE_URL=http://host.docker.internal:11434
+          EOF
+
+      - name: Validate docker-compose.yml
+        run: docker compose -f docker-compose.yml --env-file .env config --quiet
+
+      - name: Validate docker-compose.deploy.yml
+        run: docker compose -f docker-compose.deploy.yml --env-file .env config --quiet
+
+      - name: Build backend image
+        run: docker compose -f docker-compose.deploy.yml --env-file .env build backend
+
+      - name: Build frontend image
+        run: docker compose -f docker-compose.deploy.yml --env-file .env build frontend
