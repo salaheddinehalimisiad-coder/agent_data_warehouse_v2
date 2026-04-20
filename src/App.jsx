@@ -309,17 +309,25 @@ export default function App() {
             <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-purple-600/3 blur-[140px] rounded-full" />
           </div>
 
-          {/* ── Header ─────────────────────────────────────────────────────────── */}
-          <header className="relative flex items-center px-6 h-14 border-b shrink-0 z-40" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-base)' }}>
-            {/* Brand */}
+          {/* ── Header v5.0 (Premium Dark) ───────────────────────────────────── */}
+          <header
+            className="relative flex items-center px-6 h-16 border-b shrink-0 z-40 backdrop-blur-xl"
+            style={{ borderColor: 'var(--border-soft)', background: 'rgba(6,8,17,0.7)' }}
+          >
+            {/* Brand — logo premium avec halo violet + dot live */}
             <div className="flex items-center gap-3 mr-6">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-glow shrink-0">
-                <Sparkles size={14} className="text-white" />
+              <div
+                className="relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-grad-violet shadow-glow-violet"
+              >
+                <Sparkles size={16} className="text-white drop-shadow" strokeWidth={2.5} />
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400 animate-pulse-soft ring-2 ring-ink-950" />
               </div>
-              <div>
-                <h1 className="text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>Agent Architect</h1>
+              <div className="leading-tight">
+                <h1 className="text-[14px] font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                  Antigravity <span className="gradient-text">BI</span>
+                </h1>
+                <p className="text-[10px] font-mono text-slate-500 leading-none mt-0.5">v5.0 · Premium Dark</p>
               </div>
-              <span className="text-[10px] font-mono font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-md">v4.0 PRO</span>
             </div>
 
             <div className="flex items-center gap-2.5">
@@ -406,9 +414,9 @@ export default function App() {
                 disabled={isRunning}
                 className="btn btn-primary gap-2"
               >
-                <Play size={13} fill="black" />
+                <Play size={13} fill="currentColor" />
                 New Pipeline
-                <kbd className="hidden lg:inline-flex text-[8px] font-mono bg-black/20 px-1 py-0.5 rounded border border-white/20 ml-1">⌘K</kbd>
+                <kbd className="hidden lg:inline-flex text-[9px] font-mono bg-white/15 px-1.5 py-0.5 rounded border border-white/20 ml-1">⌘K</kbd>
               </button>
             </div>
           </header>

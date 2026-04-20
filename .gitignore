@@ -9,6 +9,9 @@ build/
 
 # Environnement — NE JAMAIS committer
 .env
+.env.deploy
+.env.local
+.env.*.local
 
 # Données & outputs
 uploads/
@@ -28,3 +31,8 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Agent state / temp build files
+.claude/
+vite.config.js.timestamp-*.mjs
+*.timestamp-*.mjs

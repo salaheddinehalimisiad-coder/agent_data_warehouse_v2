@@ -1,20 +1,29 @@
-# nodes/etl_executor.py — Agent ETL Executor v4.0 PRO — ETL Python natif
+# nodes/etl_executor.py — Agent ETL Executor v4.2 PRO — TDS-safe + Real Batching
 """
-REFONTE COMPLÈTE v4.0 :
-  - ETL Python natif via SQLAlchemy (plus de dépendance Pentaho)
-  - Lookup Surrogate Keys réels (résolution FK dans les dimensions)
-  - Chargement dimensions AVANT faits (intégrité référentielle)
-  - Métriques post-chargement : lignes insérées, rejets, doublons
-  - Mode incrémental optionnel (delta load via watermark)
-  - Fallback : export .ktr si DW non configuré (mode dégradé)
-  - Chemins absolus via pathlib
+REFONTE v4.2 (suite v4.0) :
+  - TDS-safe : _build_engine utilise un creator=pyodbc.connect (bypass parsing URL
+    SQLAlchemy), normalise les instances nommées SQL Express, échappe correctement
+    les braces du password.
+  - DDL-safe : _execute_ddl exécute en AUTOCOMMIT (compatible CREATE DATABASE,
+    ALTER DATABASE SET, etc.) et découpe proprement les batches séparés par 'GO'.
+  - Batching RÉEL : _batch_insert utilise executemany (fast_executemany=True
+    exploité par pyodbc Driver 17), 1 aller-retour TDS pour N lignes.
+  - Fact load : source_df parcouru avec itertuples (≈5× plus rapide qu'iterrows),
+    broadcast SSE throttlé pour ne plus spammer l'UI.
+  - Helper _verify_tables_created exporté pour l'Initializer.
+  - Aucun changement de signature publique : etl_executor_node inchangé.
 """
 import os
-import logging
+import re
 import json
+import time
+import logging
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
+import pandas as pd
+
 from app_state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -22,6 +31,10 @@ logger = logging.getLogger(__name__)
 _HERE = Path(__file__).parent.parent
 OUTPUTS_DIR = _HERE / "outputs"
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  NODE ENTRY POINT — etl_executor_node (inchangé fonctionnellement)
+# ═════════════════════════════════════════════════════════════════════════════
 
 def etl_executor_node(state: AgentState) -> dict:
     """
@@ -33,16 +46,16 @@ def etl_executor_node(state: AgentState) -> dict:
     5. Chargement de la table de faits
     6. Métriques post-chargement
     """
-    logger.info("--- AGENT ETL EXECUTOR v4.0 : ETL Python Natif ---")
+    logger.info("--- AGENT ETL EXECUTOR v4.2 : ETL Python Natif (TDS-safe) ---")
 
-    sql_ddl      = state.get("sql_ddl", "")
+    sql_ddl       = state.get("sql_ddl", "")
     logical_model = state.get("logical_model", {})
-    dw_config    = state.get("dw_connection_config", {})
+    dw_config     = state.get("dw_connection_config", {})
     source_config = state.get("connection_config", {})
-    retry_count  = state.get("retry_count", 0)
-    user_prefix  = state.get("user_prefix", "dw")
-    exec_log     = state.get("execution_log", [])
-    source_meta  = state.get("source_metadata", {})
+    retry_count   = state.get("retry_count", 0)
+    user_prefix   = state.get("user_prefix", "dw")
+    exec_log      = state.get("execution_log", [])
+    source_meta   = state.get("source_metadata", {})
 
     # ── Validation minimale ──────────────────────────────────────────────────
     if not logical_model or not sql_ddl:
@@ -53,7 +66,7 @@ def etl_executor_node(state: AgentState) -> dict:
             "execution_log": exec_log + ["[ETL] ERREUR : modèle absent"],
         }
 
-    # ── Mode dégradé si pas de config DW ───────────────────────────────────
+    # ── Mode dégradé si pas de config DW ─────────────────────────────────────
     if not dw_config or not dw_config.get("host"):
         exec_log = exec_log + ["[ETL] Mode dégradé — pas de config DW, export DDL uniquement"]
         return _export_ddl_only(sql_ddl, user_prefix, exec_log, retry_count, state.get("etl_code", ""))
@@ -66,13 +79,13 @@ def etl_executor_node(state: AgentState) -> dict:
     except Exception as e:
         logger.warning(f"[ETL] DW non accessible : {e} — export DDL uniquement")
         return _export_ddl_only(
-            sql_ddl, user_prefix, 
-            exec_log + [f"[ETL] DW inaccessible : {e}"], 
-            retry_count, 
+            sql_ddl, user_prefix,
+            exec_log + [f"[ETL] DW inaccessible : {e}"],
+            retry_count,
             state.get("etl_code", "")
         )
 
-    # ── Étape 1 : Créer le schéma DDL ───────────────────────────────────────
+    # ── Étape 1 : Créer le schéma DDL ────────────────────────────────────────
     ddl_err = _execute_ddl(dw_engine, sql_ddl)
     if ddl_err:
         return {
@@ -86,22 +99,23 @@ def etl_executor_node(state: AgentState) -> dict:
     # ── Étape 2 : Lire les données source ────────────────────────────────────
     try:
         source_df = _read_source(source_config, dw_config)
-        
+
         # Application des directives du Healer (Strategic Remediation)
         clean_action = state.get("clean_action", "NONE")
         if clean_action == "DEDUPLICATE":
             orig_len = len(source_df)
             source_df = source_df.drop_duplicates()
             exec_log.append(f"[ETL] 🔧 Remediation : {orig_len - len(source_df)} doublons supprimés")
-        
+
         if clean_action == "CAST_TYPES":
             exec_log.append("[ETL] 🔧 Remediation : Conversion forcée des types")
             for col in source_df.columns:
                 if source_df[col].dtype == 'object':
                     try:
                         source_df[col] = pd.to_numeric(source_df[col], errors='ignore')
-                    except: pass
-        
+                    except Exception:
+                        pass
+
         exec_log = exec_log + [f"[ETL] ✅ Source lue — {len(source_df)} lignes"]
     except Exception as e:
         return {
@@ -112,7 +126,7 @@ def etl_executor_node(state: AgentState) -> dict:
         }
 
     # ── Étape 3 : Charger les dimensions ─────────────────────────────────────
-    sk_maps: Dict[str, Dict[str, int]] = {}   # {dim_name: {natural_key: sk}}
+    sk_maps: Dict[str, Dict[str, int]] = {}
     dim_metrics: Dict[str, dict] = {}
 
     for dim in logical_model.get("dimension_tables", []):
@@ -120,7 +134,7 @@ def etl_executor_node(state: AgentState) -> dict:
         table_name = f"{user_prefix}_{dim_name}"
         try:
             result = _load_dimension(dw_engine, table_name, dim, source_df)
-            sk_maps[dim_name]    = result["sk_map"]
+            sk_maps[dim_name]     = result["sk_map"]
             dim_metrics[dim_name] = result["metrics"]
             exec_log = exec_log + [
                 f"[ETL] ✅ {table_name} — {result['metrics']['inserted']} insérées, "
@@ -130,7 +144,7 @@ def etl_executor_node(state: AgentState) -> dict:
             logger.warning(f"[ETL] Dim {dim_name} erreur : {e}")
             exec_log = exec_log + [f"[ETL] ⚠️ {dim_name} : {e}"]
 
-    # ── Étape 4 : Charger les tables de faits (Constellation support) ────────
+    # ── Étape 4 : Charger les tables de faits (Constellation) ────────────────
     fact_tables = logical_model.get("fact_tables", [])
     if not fact_tables:
         ft = logical_model.get("fact_table", {})
@@ -147,7 +161,7 @@ def etl_executor_node(state: AgentState) -> dict:
         table_name = f"{user_prefix}_{fact_name}"
         try:
             metrics = _load_fact(
-                dw_engine, table_name, fact, source_df, 
+                dw_engine, table_name, fact, source_df,
                 sk_maps, user_prefix, session_id, clean_action
             )
             all_fact_metrics[fact_name] = metrics
@@ -166,12 +180,12 @@ def etl_executor_node(state: AgentState) -> dict:
     # ── Étape 5 : Métriques post-load ────────────────────────────────────────
     first_fact_name = fact_tables[0].get("name", "") if fact_tables else ""
     load_metrics = {
-        "source_rows":   len(source_df),
-        "dimensions":    dim_metrics,
-        "fact":          all_fact_metrics.get(first_fact_name, {}),  # backward compat
-        "facts":         all_fact_metrics,                           # multi-fact
-        "loaded_at":     datetime.now(timezone.utc).isoformat(),
-        "dw_prefix":     user_prefix,
+        "source_rows": len(source_df),
+        "dimensions":  dim_metrics,
+        "fact":        all_fact_metrics.get(first_fact_name, {}),
+        "facts":       all_fact_metrics,
+        "loaded_at":   datetime.now(timezone.utc).isoformat(),
+        "dw_prefix":   user_prefix,
     }
     _persist_metrics(load_metrics, session_id)
 
@@ -182,25 +196,27 @@ def etl_executor_node(state: AgentState) -> dict:
         f"{total_inserted} insérés / {total_rejected} rejetés"
     ]
 
-    # ── Également exporter le DDL et KTR comme artefacts ─────────────────────────────
+    # ── Artefacts (DDL + KTR) ────────────────────────────────────────────────
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     ddl_path = OUTPUTS_DIR / f"{user_prefix}_schema.sql"
     ddl_path.write_text(sql_ddl, encoding="utf-8")
-    
+
     ktr_xml = state.get("etl_code", "")
     if ktr_xml:
         ktr_path = OUTPUTS_DIR / f"{user_prefix}_pipeline.ktr"
         ktr_path.write_text(ktr_xml, encoding="utf-8")
 
     return {
-        "etl_status":   "success",
-        "etl_error":    "",
-        "load_metrics": load_metrics,
+        "etl_status":    "success",
+        "etl_error":     "",
+        "load_metrics":  load_metrics,
         "execution_log": exec_log,
     }
 
 
-# ─── Chargement des dimensions ────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+#  DIMENSIONS — SCD Type 1 + SCD Type 2
+# ═════════════════════════════════════════════════════════════════════════════
 
 def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict:
     """
@@ -210,20 +226,18 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
     - SCD Type 2 : historise les changements d'attributs (valid_from/valid_to/is_current)
     - Retourne le sk_map {valeur_naturelle: sk_current}
     """
-    from sqlalchemy import text, inspect
-    import pandas as pd
+    from sqlalchemy import text
 
-    dim_name   = dim_model.get("name", "")
-    columns    = dim_model.get("columns", [])
-    scd_type   = dim_model.get("scd_type", 1)
+    dim_name = dim_model.get("name", "")
+    columns  = dim_model.get("columns", [])
+    scd_type = dim_model.get("scd_type", 1)
 
     # Colonnes attributs (pas pk, pas fk, pas SCD metadata)
     scd_meta_cols = {"valid_from", "valid_to", "is_current"}
     attr_cols = [c for c in columns
                  if c.get("role") == "attribute" and c.get("name") not in scd_meta_cols]
-    pk_col    = next((c for c in columns if c.get("role") == "pk"), None)
+    pk_col = next((c for c in columns if c.get("role") == "pk"), None)
 
-    # Detect if this dimension has SCD2 columns in its schema
     has_scd2_cols = any(c.get("name") in scd_meta_cols for c in columns)
     is_scd2 = (scd_type == 2 or has_scd2_cols) and "dim_date" not in dim_name
 
@@ -232,32 +246,26 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
 
     pk_name = pk_col["name"]
 
-    # Identify the natural key column (the business key for SCD matching)
     natural_key_col = next(
         (c["name"] for c in attr_cols if c.get("natural_key")),
         attr_cols[0]["name"]
     )
-
-    # Build list of attribute column names (for change detection)
     compare_attr_names = [c["name"] for c in attr_cols if c["name"] != natural_key_col]
 
-    # Trouver la colonne source correspondante à la natural key
     src_col_name = _find_source_col(natural_key_col, source_df.columns.tolist())
 
-    # Build source mapping for ALL dimension attributes
-    src_attr_mapping = {}  # {dim_col_name: source_col_name}
+    src_attr_mapping: Dict[str, str] = {}
     for ac in attr_cols:
         sc = _find_source_col(ac["name"], source_df.columns.tolist())
         if sc:
             src_attr_mapping[ac["name"]] = sc
 
-    sk_map = {}
+    sk_map: Dict[str, int] = {}
     inserted = 0
     existing = 0
-    updated  = 0  # SCD2: new version created for changed attributes
+    updated  = 0
 
     if src_col_name:
-        # Collect unique rows keyed by natural key (keep last occurrence)
         unique_vals = source_df[src_col_name].dropna().unique().tolist()
 
         with engine.begin() as conn:
@@ -268,8 +276,7 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
 
                 try:
                     if is_scd2:
-                        # ═══ SCD TYPE 2 LOGIC ═══════════════════════════════════
-                        # 1. Check for existing CURRENT record
+                        # ─── SCD TYPE 2 ────────────────────────────────────
                         row = conn.execute(
                             text(f"SELECT TOP 1 [{pk_name}], "
                                  + ", ".join(f"[{a}]" for a in compare_attr_names)
@@ -278,13 +285,15 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                         ).fetchone()
 
                         if row:
-                            # 2. Compare attributes to detect change
                             old_sk = row[0]
-                            old_attrs = {compare_attr_names[i]: row[i + 1] for i in range(len(compare_attr_names))}
+                            old_attrs = {compare_attr_names[i]: row[i + 1]
+                                         for i in range(len(compare_attr_names))}
 
-                            # Get new attribute values from source
-                            src_row = source_df[source_df[src_col_name].astype(str).str.strip() == clean_val].iloc[-1] if len(source_df[source_df[src_col_name].astype(str).str.strip() == clean_val]) > 0 else None
-                            new_attrs = {}
+                            match_rows = source_df[
+                                source_df[src_col_name].astype(str).str.strip() == clean_val
+                            ]
+                            src_row = match_rows.iloc[-1] if len(match_rows) > 0 else None
+                            new_attrs: Dict[str, str] = {}
                             for dim_col in compare_attr_names:
                                 sc = src_attr_mapping.get(dim_col)
                                 if sc and src_row is not None:
@@ -292,7 +301,6 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                                 else:
                                     new_attrs[dim_col] = str(old_attrs.get(dim_col, ""))
 
-                            # Detect if any attribute changed
                             changed = any(
                                 str(old_attrs.get(k, "")).strip() != str(new_attrs.get(k, "")).strip()
                                 for k in compare_attr_names
@@ -300,7 +308,6 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                             )
 
                             if changed:
-                                # 3a. CLOSE the old record
                                 conn.execute(
                                     text(f"UPDATE [{table_name}] SET [is_current] = 0, "
                                          f"[valid_to] = GETDATE() "
@@ -308,15 +315,12 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                                     {"sk": old_sk}
                                 )
 
-                                # 3b. INSERT new current version
                                 all_insert_cols = {natural_key_col: clean_val}
                                 for dim_col in compare_attr_names:
                                     all_insert_cols[dim_col] = new_attrs.get(dim_col, "")
-                                all_insert_cols["valid_from"] = "GETDATE()"
                                 all_insert_cols["is_current"] = 1
 
-                                non_func_cols = {k: v for k, v in all_insert_cols.items()
-                                                 if k != "valid_from"}
+                                non_func_cols = {k: v for k, v in all_insert_cols.items()}
                                 cols_str = ", ".join(f"[{k}]" for k in non_func_cols) + ", [valid_from], [valid_to]"
                                 vals_str = ", ".join(f":{k}" for k in non_func_cols) + ", GETDATE(), '9999-12-31'"
 
@@ -324,7 +328,6 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                                     f"INSERT INTO [{table_name}] ({cols_str}) VALUES ({vals_str})"
                                 ), non_func_cols)
 
-                                # Re-read the new SK
                                 row2 = conn.execute(
                                     text(f"SELECT TOP 1 [{pk_name}] FROM [{table_name}] "
                                          f"WHERE [{natural_key_col}] = :v AND [is_current] = 1 "
@@ -335,16 +338,16 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                                     sk_map[clean_val] = row2[0]
                                 updated += 1
                             else:
-                                # No change — reuse existing SK
                                 sk_map[clean_val] = old_sk
                                 existing += 1
                         else:
-                            # 4. NEW record — INSERT with SCD2 metadata
                             insert_vals = {natural_key_col: clean_val}
                             for dim_col in compare_attr_names:
                                 sc = src_attr_mapping.get(dim_col)
                                 if sc:
-                                    src_rows = source_df[source_df[src_col_name].astype(str).str.strip() == clean_val]
+                                    src_rows = source_df[
+                                        source_df[src_col_name].astype(str).str.strip() == clean_val
+                                    ]
                                     if len(src_rows) > 0:
                                         insert_vals[dim_col] = str(src_rows.iloc[-1].get(sc, "")).strip()
 
@@ -357,7 +360,6 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                                 f"INSERT INTO [{table_name}] ({cols_str}) VALUES ({vals_str})"
                             ), non_func_cols)
 
-                            # Re-read SK
                             row2 = conn.execute(
                                 text(f"SELECT TOP 1 [{pk_name}] FROM [{table_name}] "
                                      f"WHERE [{natural_key_col}] = :v AND [is_current] = 1 "
@@ -369,7 +371,7 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                             inserted += 1
 
                     else:
-                        # ═══ SCD TYPE 1 (original simple MERGE) ═════════════════
+                        # ─── SCD TYPE 1 ────────────────────────────────────
                         check_col = natural_key_col
                         row = conn.execute(
                             text(f"SELECT TOP 1 [{pk_name}] FROM [{table_name}] WHERE [{check_col}] = :v"),
@@ -404,7 +406,7 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                 except Exception as e:
                     logger.debug(f"[ETL] Dim {table_name} val '{clean_val}' : {e}")
 
-    # dim_date : chargement automatique des dates depuis source
+    # dim_date : chargement automatique depuis la source
     if "dim_date" in dim_name:
         sk_map.update(_load_dim_date_from_source(engine, table_name, source_df))
         inserted = len(sk_map)
@@ -413,8 +415,7 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
 
 
 def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
-    """Charge dim_date depuis les colonnes dates détectées dans la source (T-SQL / SQL Server)."""
-    import pandas as pd
+    """Charge dim_date depuis les colonnes dates détectées (T-SQL MERGE)."""
     import datetime
     from sqlalchemy import text
 
@@ -429,7 +430,7 @@ def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
     if not date_cols:
         return {}
 
-    sk_map = {}
+    sk_map: Dict[str, int] = {}
     dates_seen: set = set()
 
     for dcol in date_cols[:1]:
@@ -442,7 +443,6 @@ def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
                     dates_seen.add(d)
                     key = str(d)
 
-                    # Lire le SK s'il existe déjà
                     row = conn.execute(
                         text(f"SELECT TOP 1 [date_sk] FROM [{table_name}] WHERE [date_full] = :d"),
                         {"d": d}
@@ -452,7 +452,6 @@ def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
                         sk_map[key] = row[0]
                     else:
                         dt = datetime.date.fromisoformat(key)
-                        # T-SQL MERGE pour éviter les doublons (remplace INSERT IGNORE MySQL)
                         conn.execute(text(f"""
                             MERGE [{table_name}] AS Target
                             USING (SELECT :df AS date_full) AS Source
@@ -466,7 +465,6 @@ def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
                             "d2": dt.day, "wd": dt.strftime("%A"),
                         })
 
-                        # Relire le SK nouvellement créé
                         row2 = conn.execute(
                             text(f"SELECT TOP 1 [date_sk] FROM [{table_name}] WHERE [date_full] = :d"),
                             {"d": d}
@@ -479,8 +477,12 @@ def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
     return sk_map
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+#  FACT LOAD — itertuples + broadcast throttlé + batching réel
+# ═════════════════════════════════════════════════════════════════════════════
+
 def _load_fact(engine, table_name: str, fact_model: dict, source_df,
-               sk_maps: dict, prefix: str, session_id: str = "unknown", 
+               sk_maps: dict, prefix: str, session_id: str = "unknown",
                clean_action: str = "NONE") -> dict:
     """
     Charge la table de faits :
@@ -488,21 +490,21 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
     - Mapping des métriques numériques
     - Compte les insertions et rejets
     - Redirige les rejets vers la table de quarantaine
-    - Diffuse la progression via SSE
-    - Supporte IGNORE_REJECTS
+    - Diffuse la progression via SSE (throttlé à 2 pulses/sec max)
+    - Supporte IGNORE_REJECTS (dédup in-memory)
     """
-    from sqlalchemy import text
-    import pandas as pd
-    from api.services.sse import broadcast
+    try:
+        from api.services.sse import broadcast
+    except Exception:
+        def broadcast(*_args, **_kwargs):  # type: ignore
+            return None
 
-    use_ignore  = clean_action in ("IGNORE_REJECTS", "DEDUPLICATE")
+    use_ignore = clean_action in ("IGNORE_REJECTS", "DEDUPLICATE")
 
-    # Quarantine table name (auto-generated by DDL)
-    fact_name = fact_model.get("name", "")
+    fact_name    = fact_model.get("name", "")
     reject_table = f"{prefix}_rejets_{fact_name}" if fact_name else ""
 
     columns  = fact_model.get("columns", [])
-    pk_col   = next((c for c in columns if c.get("role") == "pk"), None)
     fk_cols  = [c for c in columns if c.get("role") == "fk"]
     met_cols = [c for c in columns if c.get("role") == "metric"]
 
@@ -510,230 +512,392 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
         return {"inserted": 0, "rejected": 0, "reason": "Aucune métrique définie"}
 
     total_rows = len(source_df)
-    inserted = 0
-    rejected = 0
-    rows_batch = []
+    inserted   = 0
+    rejected   = 0
+    rows_batch: List[Dict[str, Any]] = []
 
-    for idx, src_row in source_df.iterrows():
-        row_dict = {}
+    src_cols_list = source_df.columns.tolist()
+    BATCH_SIZE  = 500
+    PULSE_EVERY = 0.5  # secondes — max 2 pulses SSE / seconde
 
-        # Résolution des FKs
+    load_start_ts = time.monotonic()
+    last_pulse    = load_start_ts
+
+    # ⚡ itertuples ≈ 5-10× plus rapide qu'iterrows
+    for idx, src_tuple in enumerate(source_df.itertuples(index=False, name="Row")):
+        src_row = src_tuple._asdict()
+        row_dict: Dict[str, Any] = {}
+
+        # ─── Résolution des FKs ──────────────────────────────────────────────
         for fk in fk_cols:
-            fk_name  = fk["name"]
-            ref_dim  = fk.get("references", "")
-            dim_sks  = sk_maps.get(ref_dim, {})
+            fk_name = fk["name"]
+            ref_dim = fk.get("references", "")
+            dim_sks = sk_maps.get(ref_dim, {})
 
-            # Chercher la valeur source pour cette FK
-            nat_key_col = _find_source_col(fk_name.replace("_sk", ""), source_df.columns.tolist())
+            nat_key_col = _find_source_col(fk_name.replace("_sk", ""), src_cols_list)
             if nat_key_col and dim_sks:
                 nat_val = str(src_row.get(nat_key_col, "")).strip()
                 sk_val  = dim_sks.get(nat_val)
                 if sk_val:
                     row_dict[fk_name] = sk_val
                 else:
-                    # Résolution par date si dim_date
                     if "date" in ref_dim:
-                        import pandas as pd2
                         try:
-                            d = str(pd2.to_datetime(src_row.get(nat_key_col)).date())
+                            d = str(pd.to_datetime(src_row.get(nat_key_col)).date())
                             row_dict[fk_name] = dim_sks.get(d, 1)
                         except Exception:
                             row_dict[fk_name] = 1
                     else:
-                        row_dict[fk_name] = 1  # default SK
+                        row_dict[fk_name] = 1
 
-        # Mapping des métriques
+        # ─── Mapping métriques ───────────────────────────────────────────────
         for met in met_cols:
             met_name = met["name"]
-            src_col  = _find_source_col(met_name, source_df.columns.tolist())
+            src_col  = _find_source_col(met_name, src_cols_list)
             if src_col:
                 val = src_row.get(src_col, 0)
                 try:
-                    row_dict[met_name] = float(val) if "decimal" in met.get("type","").lower() else int(float(val))
+                    if "decimal" in met.get("type", "").lower():
+                        row_dict[met_name] = float(val)
+                    else:
+                        row_dict[met_name] = int(float(val))
                 except (ValueError, TypeError):
                     row_dict[met_name] = 0
 
         if row_dict:
             rows_batch.append(row_dict)
 
-        # Insérer par batch de 500
-        if len(rows_batch) >= 500:
+        # ─── Batch flush ─────────────────────────────────────────────────────
+        if len(rows_batch) >= BATCH_SIZE:
             ins, rej = _batch_insert(engine, table_name, rows_batch, use_ignore, reject_table)
             inserted += ins
             rejected += rej
             rows_batch = []
-            # Pulse notification
-            broadcast(session_id, "etl_progress", {
-                "inserted": inserted,
-                "rejected": rejected,
-                "total":    total_rows,
-                "table":    table_name,
-                "pct":      round((idx / total_rows) * 100, 1)
-            })
 
-    # Insérer le reste
+            now = time.monotonic()
+            if now - last_pulse >= PULSE_EVERY:
+                pct = round((idx / max(1, total_rows)) * 100, 1)
+                bar = "▰" * int(pct / 5) + "▱" * max(0, 20 - int(pct / 5))
+                elapsed = max(0.1, now - load_start_ts)
+                broadcast(session_id, "etl_progress", {
+                    "table":        table_name,
+                    "inserted":     inserted,
+                    "rejected":     rejected,
+                    "total":        total_rows,
+                    "pct":          pct,
+                    "bar":          bar,
+                    "rate_rows_s":  round(inserted / elapsed, 1),
+                    "phase":        f"Loading ⚡ [{bar}] {pct:.1f}%",
+                })
+                last_pulse = now
+
+    # ─── Flush final ─────────────────────────────────────────────────────────
     if rows_batch:
         ins, rej = _batch_insert(engine, table_name, rows_batch, use_ignore, reject_table)
         inserted += ins
         rejected += rej
-        broadcast(session_id, "etl_progress", {
-            "inserted": inserted,
-            "rejected": rejected,
-            "total":    total_rows,
-            "table":    table_name,
-            "pct":      100
-        })
 
-    return {"inserted": inserted, "rejected": rejected, "source_rows": len(source_df)}
+    elapsed_total = max(0.1, time.monotonic() - load_start_ts)
+    broadcast(session_id, "etl_progress", {
+        "table":       table_name,
+        "inserted":    inserted,
+        "rejected":    rejected,
+        "total":       total_rows,
+        "pct":         100.0,
+        "bar":         "▰" * 20,
+        "rate_rows_s": round(inserted / elapsed_total, 1),
+        "phase":       f"✅ Done — {inserted:,} rows in {elapsed_total:.1f}s",
+    })
 
+    return {
+        "inserted":    inserted,
+        "rejected":    rejected,
+        "source_rows": len(source_df),
+        "duration_s":  round(elapsed_total, 2),
+        "rate_rows_s": round(inserted / elapsed_total, 1),
+    }
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  BATCH INSERT — vrai executemany, respect de la limite 2100 paramètres
+# ═════════════════════════════════════════════════════════════════════════════
 
 def _batch_insert(engine, table_name: str, rows: list, use_ignore: bool = False,
                    reject_table: str = "") -> Tuple[int, int]:
-    """Insère un batch de lignes. Les rejets sont redirigés vers la table de quarantaine.
-    Retourne (inserted, rejected)."""
+    """
+    Insère un batch via executemany réel (fast_executemany=True exploité par
+    pyodbc Driver 17). Stratégie :
+
+      1) Insertion en masse par chunks sûrs (< 2000 paramètres, marge sur la
+         limite dure 2100 de SQL Server).
+      2) En cas d'échec du chunk : repli ligne-à-ligne sur ce chunk uniquement,
+         avec redirection des rejets vers la table de quarantaine.
+      3) use_ignore=True : dédup in-memory avant insertion (plus de faux-MERGE
+         'ON 1=0' qui ne servait à rien).
+
+    Retour : (inserted, rejected)
+    """
     from sqlalchemy import text
-    import json as _json
+
     if not rows:
         return 0, 0
 
-    cols    = list(rows[0].keys())
+    cols     = list(rows[0].keys())
     cols_str = ", ".join(f"[{c}]" for c in cols)
     vals_str = ", ".join(f":{c}" for c in cols)
+    insert_sql = text(f"INSERT INTO [{table_name}] ({cols_str}) VALUES ({vals_str})")
+
+    MAX_PARAMS = 2000
+    chunk_size = max(1, MAX_PARAMS // max(1, len(cols)))
+
+    if use_ignore:
+        seen = set()
+        deduped = []
+        for r in rows:
+            key = tuple(r.get(c) for c in cols)
+            if key not in seen:
+                seen.add(key)
+                deduped.append(r)
+        rows = deduped
 
     inserted = 0
     rejected = 0
-    try:
-        with engine.begin() as conn:
-            for row in rows:
+
+    for start in range(0, len(rows), chunk_size):
+        chunk = rows[start:start + chunk_size]
+        try:
+            with engine.begin() as conn:
+                conn.execute(insert_sql, chunk)
+            inserted += len(chunk)
+        except Exception as batch_err:
+            logger.warning(
+                f"[ETL] Batch {table_name} ({len(chunk)} rows) a échoué ({batch_err}). "
+                "Repli ligne-à-ligne."
+            )
+            for row in chunk:
                 try:
-                    if use_ignore:
-                        # Simulation de INSERT IGNORE en T-SQL avec MERGE
-                        merge_stmt = f"""
-                        MERGE [{table_name}] AS Target
-                        USING (SELECT {vals_str}) AS Source ({cols_str})
-                        ON 1=0 -- Condition factice, remplacez par PK pour Upsert réel
-                        WHEN NOT MATCHED THEN
-                            INSERT ({cols_str}) VALUES ({vals_str});
-                        """
-                        conn.execute(text(merge_stmt), row)
-                    else:
-                        conn.execute(
-                            text(f"INSERT INTO [{table_name}] ({cols_str}) VALUES ({vals_str})"),
-                            row
-                        )
+                    with engine.begin() as conn:
+                        conn.execute(insert_sql, row)
                     inserted += 1
                 except Exception as row_err:
                     rejected += 1
-                    # ═══ QUARANTINE: redirect rejected row ═══════════════════
                     if reject_table:
                         try:
-                            row_json = _json.dumps(
+                            row_json = json.dumps(
                                 {k: str(v) for k, v in row.items()},
-                                default=str, ensure_ascii=False
+                                default=str, ensure_ascii=False,
                             )
-                            conn.execute(
-                                text(f"INSERT INTO [{reject_table}] "
-                                     f"([error_reason], [source_row_json]) "
-                                     f"VALUES (:err, :rj)"),
-                                {"err": str(row_err)[:500], "rj": row_json}
-                            )
+                            with engine.begin() as conn:
+                                conn.execute(
+                                    text(
+                                        f"INSERT INTO [{reject_table}] "
+                                        f"([error_reason], [source_row_json]) "
+                                        f"VALUES (:err, :rj)"
+                                    ),
+                                    {"err": str(row_err)[:500], "rj": row_json},
+                                )
                         except Exception as q_err:
                             logger.debug(f"[ETL] Quarantine insert failed: {q_err}")
-    except Exception as e:
-        error_msg = str(e)
-        logger.warning(f"[ETL] Batch insert {table_name} : {error_msg}")
-        rejected += len(rows)
 
     return inserted, rejected
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════════════════
+#  CONNECTION LAYER — TDS-safe pour SQL Server / Express
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _normalize_sqlserver_target(host: str, port) -> str:
+    """
+    Construit un SERVER= robuste pour SQL Server / Express.
+
+    Règles :
+      - host contient un backslash (instance nommée) → 'host\\INSTANCE' SEUL
+        (SQL Browser actif requis ; pas de port pour éviter les conflits TDS).
+      - host = 'host,port' déjà fourni par l'utilisateur → on le garde.
+      - sinon → 'host,port'.
+    """
+    host = (host or "").strip()
+    port = str(port or "").strip()
+
+    if not host:
+        return "127.0.0.1,1433"
+    if "," in host:
+        return host
+    if "\\" in host:
+        logger.info(
+            f"[_build_engine] Instance nommée détectée ({host}) — "
+            "SQL Browser requis, port ignoré pour éviter le conflit TDS."
+        )
+        return host
+    return f"{host},{port or '1433'}"
+
 
 def _build_engine(config: dict):
-    """Construit un engine SQLAlchemy selon le type de base."""
+    """Construit un engine SQLAlchemy — v4.2 TDS-safe (creator pyodbc direct)."""
     from sqlalchemy import create_engine
+    from urllib.parse import quote_plus
+
     db_type  = config.get("type", "sqlserver").lower().replace("postgres", "postgresql")
     host     = config.get("host", "localhost")
-    port     = config.get("port", 3306)
+    port     = config.get("port", 1433 if db_type in ("sqlserver", "mssql") else 3306)
     database = config.get("database", "data_warehouse")
-    user     = config.get("user", "root")
+    user     = config.get("user", "sa")
     password = config.get("password", "")
-
-    driver_map = {
-        "mysql": "mysqlconnector",
-        "postgresql": "psycopg2",
-        "sqlite": "pysqlite",
-        "sqlserver": "pyodbc",
-        "mssql": "pyodbc",
-    }
-    driver = driver_map.get(db_type, "pyodbc")
 
     if db_type == "sqlite":
         return create_engine(f"sqlite:///{database}")
-        
-    if driver == "pyodbc":
-        from urllib.parse import quote_plus
-        # Correction v4.1 : chaîne de connexion plus robuste pour SQL Server / TDS error
-        # Force Encrypt=no pour éviter les erreurs de protocole SSL sur les installs locales
-        params = quote_plus(
+
+    if db_type in ("sqlserver", "mssql"):
+        import pyodbc
+        server = _normalize_sqlserver_target(host, port)
+
+        # Échappement ODBC officiel : '}' dans un password doit être doublé.
+        safe_pwd = (password or "").replace("}", "}}")
+        conn_str = (
             f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-            f"SERVER={host},{port};"
+            f"SERVER={server};"
             f"DATABASE={database};"
             f"UID={user};"
-            f"PWD={password};"
+            f"PWD={{{safe_pwd}}};"
             f"Encrypt=no;"
             f"TrustServerCertificate=yes;"
+            f"Connection Timeout=30;"
+            f"MARS_Connection=yes;"
         )
+        logger.info(
+            f"[_build_engine] SQL Server resolved → SERVER={server}, DB={database}, UID={user}"
+        )
+
+        # ✅ creator= : bypass complet du parsing URL SQLAlchemy, identique à
+        # get_meta_connection() qui fonctionne côté métadonnées.
+        def _connect():
+            return pyodbc.connect(conn_str, autocommit=False, timeout=30)
+
         return create_engine(
-            f"mssql+pyodbc:///?odbc_connect={params}",
-            pool_pre_ping=True, 
-            pool_recycle=3600, 
-            fast_executemany=True
+            "mssql+pyodbc://",
+            creator=_connect,
+            pool_pre_ping=True,
+            pool_recycle=1800,
+            fast_executemany=True,
+            future=True,
         )
-        
+
+    # Autres dialectes (MySQL, Postgres)
+    driver_map = {"mysql": "mysqlconnector", "postgresql": "psycopg2"}
+    driver = driver_map.get(db_type, "pyodbc")
+    pwd_enc = quote_plus(password or "")
     return create_engine(
-        f"{db_type}+{driver}://{user}:{password}@{host}:{port}/{database}",
+        f"{db_type}+{driver}://{user}:{pwd_enc}@{host}:{port}/{database}",
         pool_pre_ping=True, pool_recycle=3600,
     )
 
 
 def _test_connection(engine) -> None:
+    """Ping réel : SELECT 1 + lecture de @@VERSION pour valider le handshake TDS."""
     from sqlalchemy import text
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
+        try:
+            row = conn.execute(text("SELECT @@VERSION AS v")).fetchone()
+            if row:
+                version = str(row[0]).split("\n")[0][:80]
+                logger.info(f"[_test_connection] ✅ TDS handshake OK — {version}")
+        except Exception:
+            logger.info("[_test_connection] ✅ Connexion OK (dialecte non-SQL Server)")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  DDL EXECUTION — AUTOCOMMIT + split 'GO' + tolérance 'already exists'
+# ═════════════════════════════════════════════════════════════════════════════
+
+_DDL_GO_SPLITTER = re.compile(r'^\s*GO\s*;?\s*$', re.IGNORECASE | re.MULTILINE)
+
+
+def _split_tsql_batches(sql_ddl: str) -> list:
+    """
+    Découpe un script T-SQL comme sqlcmd :
+      1) retire commentaires -- et /* */
+      2) split sur 'GO' en tant que ligne entière
+      3) split chaque batch sur ';'
+    """
+    sql_clean = re.sub(r'--.*$', '', sql_ddl, flags=re.MULTILINE)
+    sql_clean = re.sub(r'/\*.*?\*/', '', sql_clean, flags=re.DOTALL)
+
+    batches = _DDL_GO_SPLITTER.split(sql_clean)
+
+    statements: List[str] = []
+    for batch in batches:
+        for stmt in batch.split(";"):
+            s = stmt.strip()
+            if len(s) >= 5:
+                statements.append(s)
+    return statements
 
 
 def _execute_ddl(engine, sql_ddl: str) -> str:
-    """Exécute le DDL T-SQL (SQL Server). Retourne '' si OK, message d'erreur sinon."""
+    """
+    Exécute le DDL en AUTOCOMMIT (indispensable pour CREATE DATABASE,
+    ALTER DATABASE SET, FULLTEXT, SNAPSHOT_ISOLATION, etc.).
+    Retourne '' si OK, message d'erreur sinon.
+    """
     from sqlalchemy import text
-    import re
+
+    statements = _split_tsql_batches(sql_ddl)
+    if not statements:
+        return "DDL vide après nettoyage."
+
     try:
-        # Nettoyage : suppression des commentaires mono-ligne et multi-lignes
-        sql_clean = re.sub(r'--.*$', '', sql_ddl, flags=re.MULTILINE)
-        sql_clean = re.sub(r'/\*.*?\*/', '', sql_clean, flags=re.DOTALL)
-
-        # Split sur les points-virgules
-        statements = [s.strip() for s in sql_clean.split(";") if s.strip()]
-
-        with engine.begin() as conn:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
             for stmt in statements:
-                if len(stmt) < 5:
-                    continue
                 try:
                     conn.execute(text(stmt))
                 except Exception as stmt_err:
-                    logger.error(f"[ExecuteDDL] Erreur statement: {stmt[:100]}... -> {stmt_err}")
-                    return f"Erreur SQL: {str(stmt_err)} (Statement: {stmt[:50]}...)"
+                    msg = str(stmt_err)
+                    if "already" in msg.lower() and "exist" in msg.lower():
+                        logger.info(
+                            f"[ExecuteDDL] ⊙ objet déjà existant (skipped) : {stmt[:60]}"
+                        )
+                        continue
+                    logger.error(
+                        f"[ExecuteDDL] ❌ Statement: {stmt[:100]}... → {msg}"
+                    )
+                    return f"Erreur SQL: {msg} (Statement: {stmt[:80]}...)"
         return ""
     except Exception as e:
-        logger.error(f"[ExecuteDDL] Erreur globale: {e}")
-        return f"DDL Critical Error: {str(e)}"
+        logger.error(f"[ExecuteDDL] ❌ Global: {e}")
+        return f"Erreur globale DDL: {e}"
 
+
+def _verify_tables_created(engine, user_prefix: str) -> Tuple[int, List[str]]:
+    """
+    Vérifie activement que les tables 'user_prefix_%' existent bien dans la DB
+    cible après l'exécution du DDL. Retourne (nb_tables, noms_complets).
+    Utilisé par etl_initializer_node pour éviter les 'success' fantômes.
+    """
+    from sqlalchemy import text
+    sql = text("""
+        SELECT TABLE_SCHEMA + '.' + TABLE_NAME AS full_name
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_TYPE = 'BASE TABLE'
+          AND TABLE_NAME LIKE :p
+        ORDER BY TABLE_NAME
+    """)
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(sql, {"p": f"{user_prefix}\\_%" if "\\" not in user_prefix else f"{user_prefix}%"}).fetchall()
+        names = [r[0] for r in rows]
+        return len(names), names
+    except Exception as e:
+        logger.warning(f"[_verify_tables_created] {e}")
+        return 0, []
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  SOURCE READING
+# ═════════════════════════════════════════════════════════════════════════════
 
 def _read_source(config: dict, dw_config: dict = None):
     """Lit les données source et retourne un DataFrame pandas."""
-    import pandas as pd
-    from pathlib import Path
     source_type = config.get("type", "csv").lower()
 
     if source_type == "csv":
@@ -749,11 +913,9 @@ def _read_source(config: dict, dw_config: dict = None):
         return pd.read_excel(path, engine=engine_name)
 
     elif source_type in ("mysql", "postgresql", "postgres", "sqlite", "sqlserver", "mssql", "bak"):
-        # Handle 'bak' source type
         if source_type == "bak":
             if not dw_config:
                 raise ValueError("DW config missing for 'bak' source type")
-            # Use credentials from DW but point to restored source DB
             source_cfg = dw_config.copy()
             source_cfg["database"] = config.get("restored_db", dw_config.get("database"))
             source_cfg["type"] = "sqlserver"
@@ -763,24 +925,21 @@ def _read_source(config: dict, dw_config: dict = None):
 
         table = config.get("table", "")
         if table:
-            # SQL Server specific escaping
             if "sqlserver" in str(src_engine.url) or "mssql" in str(src_engine.url):
                 return pd.read_sql(f"SELECT * FROM [{table}]", src_engine)
             return pd.read_sql_table(table, src_engine)
-        
-        # Default query refinement
+
         query = config.get("query", "")
         if not query:
             if "sqlserver" in str(src_engine.url) or "mssql" in str(src_engine.url):
                 query = "SELECT TOP 100 * FROM INFORMATION_SCHEMA.TABLES"
             else:
                 query = "SELECT * FROM information_schema.tables LIMIT 100"
-        
+
         return pd.read_sql(query, src_engine)
 
     elif source_type == "rest_api":
         import requests
-        import pandas as pd
         url      = config.get("url", "")
         headers  = config.get("headers", {})
         root_key = config.get("root_key", None)
@@ -795,6 +954,10 @@ def _read_source(config: dict, dw_config: dict = None):
         raise ValueError(f"Type source non supporté : {source_type}")
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+#  UTILITAIRES
+# ═════════════════════════════════════════════════════════════════════════════
+
 def _find_source_col(target_name: str, source_cols: list) -> Optional[str]:
     """Cherche la colonne source la plus proche du nom cible."""
     clean = target_name.lower()
@@ -803,22 +966,17 @@ def _find_source_col(target_name: str, source_cols: list) -> Optional[str]:
     for pfx in ("dim_", "fact_"):
         clean = clean.removeprefix(pfx)
 
-    # Correspondance exacte
     for col in source_cols:
         if col.lower() == clean or col.lower() == target_name.lower():
             return col
-
-    # Correspondance partielle
     for col in source_cols:
         if clean in col.lower() or col.lower() in clean:
             return col
-
     return None
 
 
 def _is_date_column(series) -> bool:
     """Vérifie heuristiquement si une colonne contient des dates."""
-    import pandas as pd
     sample = series.dropna().head(5)
     if len(sample) == 0:
         return False
@@ -829,18 +987,17 @@ def _is_date_column(series) -> bool:
         return False
 
 
-def _export_ddl_only(sql_ddl: str, user_prefix: str, exec_log: list, retry_count: int, ktr_xml: str = "") -> dict:
+def _export_ddl_only(sql_ddl: str, user_prefix: str, exec_log: list,
+                     retry_count: int, ktr_xml: str = "") -> dict:
     """Mode dégradé : exporte uniquement le DDL SQL."""
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     ddl_path = OUTPUTS_DIR / f"{user_prefix}_schema.sql"
     ktr_path = OUTPUTS_DIR / f"{user_prefix}_pipeline.ktr"
 
     ddl_path.write_text(sql_ddl, encoding="utf-8")
-    # Conserver le KTR généré précédemment s'il existe
     if ktr_xml:
         ktr_path.write_text(ktr_xml, encoding="utf-8")
     else:
-        # Écrire aussi un .ktr minimal pour compatibilité
         ktr_path.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
 <transformation>
   <info><name>ETL_{user_prefix}</name></info>
@@ -863,7 +1020,7 @@ def _persist_metrics(metrics: dict, session_id: str) -> None:
     metrics_file = OUTPUTS_DIR / "load_metrics_history.json"
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    history = []
+    history: List[dict] = []
     if metrics_file.exists():
         try:
             history = json.loads(metrics_file.read_text())
@@ -871,6 +1028,6 @@ def _persist_metrics(metrics: dict, session_id: str) -> None:
             history = []
 
     history.append({"session_id": session_id, **metrics})
-    history = history[-100:]  # garder les 100 derniers
+    history = history[-100:]
 
     metrics_file.write_text(json.dumps(history, indent=2, default=str))

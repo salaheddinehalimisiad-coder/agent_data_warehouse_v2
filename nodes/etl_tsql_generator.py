@@ -142,27 +142,63 @@ def _build_fallback_tsql(model: dict, prefix: str, source_db: str) -> str:
         natural_key = next((c["name"] for c in business_attrs if c.get("natural_key")), business_attrs[0]["name"] if business_attrs else "id")
         is_scd2 = dim.get("scd_type") == 2 or any(c["name"] in scd_cols for c in attr_cols)
 
+        # v4.2 : procédure SCD2 FONCTIONNELLE (fini le TODO WHERE 1=0).
+        # Convention : l'orchestrateur peuple une table staging [prefix_stg_<entity>]
+        # au même schéma que la dim AVANT d'appeler cette procédure.
+        stg_entity = dim_name.replace("dim_", "", 1) if dim_name.startswith("dim_") else dim_name
+        stg_table  = f"{prefix}_stg_{stg_entity}"
+
         lines.append(f"CREATE OR ALTER PROCEDURE [usp_load_{table_name}]")
         lines.append("AS")
         lines.append("BEGIN")
         lines.append("    SET NOCOUNT ON;")
+        lines.append("    SET XACT_ABORT ON;")
         lines.append("    BEGIN TRY")
 
         if is_scd2 and "dim_date" not in dim_name:
-            # SCD Type 2 MERGE procedure
-            lines.append(f"        -- SCD Type 2 MERGE for [{table_name}]")
-            lines.append(f"        -- Step 1: Close changed records")
-            lines.append(f"        UPDATE [{table_name}]")
-            lines.append(f"        SET [is_current] = 0, [valid_to] = GETDATE()")
-            lines.append(f"        WHERE [is_current] = 1")
-            lines.append(f"        AND [{natural_key}] IN (")
-            lines.append(f"            SELECT [{natural_key}] FROM [{source_db}]../* source */ WHERE 1=0 -- TODO: adapt source query")
-            lines.append(f"        );")
-            lines.append(f"")
-            lines.append(f"        -- Step 2: Insert new/changed records as current")
-            lines.append(f"        PRINT 'SCD2 [{table_name}] chargé avec succès.';")
+            attr_cols_for_compare = [
+                c["name"] for c in business_attrs if c["name"] != natural_key
+            ] or [natural_key]
+            hash_expr = " + '|' + ".join(
+                f"ISNULL(CAST(src.[{c}] AS NVARCHAR(4000)), '∅')"
+                for c in attr_cols_for_compare
+            )
+            insert_cols_list = (
+                [natural_key] + attr_cols_for_compare
+                + ["valid_from", "valid_to", "is_current", "row_hash"]
+            )
+            insert_cols_sql = ", ".join(f"[{c}]" for c in insert_cols_list)
+            select_cols_sql = (
+                f"src.[{natural_key}], "
+                + ", ".join(f"src.[{c}]" for c in attr_cols_for_compare)
+                + ", SYSUTCDATETIME(), '9999-12-31 23:59:59.999', 1, "
+                + f"HASHBYTES('SHA2_256', {hash_expr})"
+            )
+
+            lines.append(f"        -- SCD Type 2 pour [{table_name}] via staging [{stg_table}]")
+            lines.append("        DECLARE @now DATETIME2(3) = SYSUTCDATETIME();")
+            lines.append("")
+            lines.append("        -- Étape 1 : fermer les versions courantes dont le hash a changé")
+            lines.append(f"        UPDATE tgt SET [is_current] = 0, [valid_to] = @now")
+            lines.append(f"        FROM [{table_name}] tgt")
+            lines.append(f"        INNER JOIN [{stg_table}] src ON tgt.[{natural_key}] = src.[{natural_key}]")
+            lines.append(f"        WHERE tgt.[is_current] = 1")
+            lines.append(f"          AND tgt.[row_hash] <> HASHBYTES('SHA2_256', {hash_expr});")
+            lines.append("")
+            lines.append("        -- Étape 2 : insérer les nouvelles versions (nouvelles clés ou hash modifié)")
+            lines.append(f"        INSERT INTO [{table_name}] ({insert_cols_sql})")
+            lines.append(f"        SELECT {select_cols_sql}")
+            lines.append(f"        FROM [{stg_table}] src")
+            lines.append(f"        WHERE NOT EXISTS (")
+            lines.append(f"            SELECT 1 FROM [{table_name}] tgt")
+            lines.append(f"             WHERE tgt.[{natural_key}] = src.[{natural_key}]")
+            lines.append(f"               AND tgt.[is_current] = 1")
+            lines.append(f"               AND tgt.[row_hash] = HASHBYTES('SHA2_256', {hash_expr})")
+            lines.append("        );")
+            lines.append("")
+            lines.append(f"        PRINT CONCAT('SCD2 [{table_name}] chargé : ', @@ROWCOUNT, ' lignes affectées.');")
         else:
-            lines.append(f"        PRINT 'Chargement de [{table_name}]...';")
+            lines.append(f"        PRINT 'Chargement de [{table_name}] (non-SCD2)...';")
 
         lines.append("    END TRY")
         lines.append("    BEGIN CATCH")

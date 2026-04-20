@@ -880,6 +880,119 @@ def _build_fact_table(
     }
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+#  DÉTECTION DE HIÉRARCHIES SÉMANTIQUES (v4.2)
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# Extension de la détection snowflake-FK + Date déjà en place.
+# Heuristiques : inspection des noms de colonnes + détection de parent-child
+# auto-référencés. Les hiérarchies retournées respectent le schéma `{name, levels}`
+# attendu par ArchitectureInspector.jsx (rendu orange + icône Layers).
+
+# Patterns ordonnés du plus grossier au plus fin ; les niveaux sont retenus
+# seulement s'ils correspondent à une colonne réelle de la dimension.
+_SEMANTIC_HIERARCHY_PATTERNS: List[Tuple[str, List[List[str]]]] = [
+    ("Geography", [
+        ["continent", "country", "region", "state", "province", "county", "city", "district", "postal_code", "zip", "zip_code"],
+        ["country_code", "region_code", "city", "postal_code"],
+    ]),
+    ("Product", [
+        ["department", "category", "subcategory", "family", "brand", "line", "product", "sku", "variant"],
+        ["category", "subcategory", "product_name", "sku"],
+        ["brand", "product_line", "product", "sku"],
+    ]),
+    ("Organization", [
+        ["company", "division", "department", "team", "employee", "role"],
+        ["group", "subgroup", "account"],
+        ["manager", "supervisor", "employee"],
+    ]),
+    ("Customer", [
+        ["segment", "tier", "customer", "contact"],
+    ]),
+    ("Time", [
+        ["year", "semester", "quarter", "month", "week", "day_of_week", "day"],
+    ]),
+]
+
+
+def _col_exists(cols: List[dict], needle: str) -> Optional[str]:
+    """Retourne le vrai nom de colonne qui matche approximativement `needle`."""
+    needle_l = needle.lower()
+    for c in cols:
+        cn = str(c.get("name", "")).lower()
+        if cn == needle_l:
+            return c["name"]
+    # match partiel : needle contenu dans le nom
+    for c in cols:
+        cn = str(c.get("name", "")).lower()
+        if needle_l in cn or cn in needle_l:
+            return c["name"]
+    return None
+
+
+def _detect_self_fk_hierarchy(
+    src_table: str, src_info: dict, entity: str
+) -> Optional[dict]:
+    """
+    Détecte une hiérarchie parent-enfant auto-référencée (ex: employee.manager_id
+    → employee.employee_id). Très courant pour Employee, Category, Account.
+    """
+    cols = src_info.get("columns", [])
+    col_names_l = {str(c.get("name", "")).lower() for c in cols}
+    pk = _find_pk_col(cols, src_table)
+    pk_l = (pk or "").lower()
+
+    candidates = [
+        "parent_id", f"parent_{entity}_id", "manager_id", "supervisor_id",
+        "reports_to", "parent_sk", "parent", "parent_category_id",
+    ]
+    for candidate in candidates:
+        if candidate in col_names_l:
+            # Hiérarchie récursive → on la signale avec un niveau unique
+            return {
+                "name":    f"Hierarchy_{entity.capitalize()}_Recursive",
+                "levels":  [f"{entity}_{pk_l or 'id'}"],
+                "type":    "parent_child",
+                "parent_column": candidate,
+            }
+    return None
+
+
+def _detect_semantic_hierarchies(
+    entity: str, cols: List[dict], snow_tables: List[str]
+) -> List[dict]:
+    """
+    Applique les patterns sémantiques sur les colonnes de la dimension.
+    Retourne la liste des hiérarchies détectées (potentiellement multiples
+    pour une même dimension, ex. Geography + Organization pour une
+    dimension 'customer').
+    """
+    found: List[dict] = []
+    seen_domains: set = set()
+
+    for domain, pattern_sets in _SEMANTIC_HIERARCHY_PATTERNS:
+        if domain in seen_domains:
+            continue
+        for pattern in pattern_sets:
+            matched_levels: List[str] = []
+            for token in pattern:
+                col = _col_exists(cols, token)
+                if col and col not in matched_levels:
+                    matched_levels.append(col)
+            # Une hiérarchie doit avoir au moins 2 niveaux pour être utile
+            if len(matched_levels) >= 2:
+                found.append({
+                    "name":   f"Hierarchy_{entity.capitalize()}_{domain}",
+                    "levels": matched_levels,
+                    "type":   "semantic",
+                    "domain": domain,
+                })
+                seen_domains.add(domain)
+                break  # on ne garde qu'un pattern par domaine
+
+    return found
+
+
 def _build_dim(
     dim_name: str,
     src_table: str,
@@ -947,26 +1060,39 @@ def _build_dim(
                 "source_column": cname,
             })
 
-    # SCD Type 2
+    # SCD Type 2 — v4.2 : DATETIME2(3) (résolution milliseconde) + row_hash
     cols += [
-        {"name": "valid_from",  "type": "DATE",        "role": "attribute"},
-        {"name": "valid_to",    "type": "DATE",        "role": "attribute"},
-        {"name": "is_current",  "type": "BIT DEFAULT 1", "role": "attribute"},
+        {"name": "valid_from",  "type": "DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME()", "role": "attribute"},
+        {"name": "valid_to",    "type": "DATETIME2(3) NOT NULL DEFAULT '9999-12-31 23:59:59.999'", "role": "attribute"},
+        {"name": "is_current",  "type": "BIT NOT NULL DEFAULT 1", "role": "attribute"},
+        {"name": "row_hash",    "type": "BINARY(32)", "role": "attribute"},
     ]
 
     snow_tables = [f.get("referred_table", "") for f in snowflake_fks]
-    
-    # Construire une hiérarchie basique si on snowflake
-    hierarchies = []
+
+    # ── Hiérarchies v4.2 ──────────────────────────────────────────────────────
+    # 1) Snowflake FK chain (inchangé)
+    hierarchies: List[dict] = []
     if snow_tables:
         levels = []
         for ref in snow_tables:
-            levels.append(f"{_to_dim_name(ref)}_{_find_pk_col(metadata.get(ref, {}).get('columns', []), ref) or 'id'}")
+            levels.append(
+                f"{_to_dim_name(ref)}_{_find_pk_col(metadata.get(ref, {}).get('columns', []), ref) or 'id'}"
+            )
         levels.append(nat_key or entity + "_id")
         hierarchies.append({
-            "name": f"Hierarchy_{entity.capitalize()}",
-            "levels": levels
+            "name":   f"Hierarchy_{entity.capitalize()}_Snowflake",
+            "levels": levels,
+            "type":   "snowflake",
         })
+
+    # 2) Hiérarchies sémantiques (Geography / Product / Organization / Customer)
+    hierarchies.extend(_detect_semantic_hierarchies(entity, cols, snow_tables))
+
+    # 3) Hiérarchie parent-child auto-référencée (self-FK)
+    recursive = _detect_self_fk_hierarchy(src_table, src_info, entity)
+    if recursive:
+        hierarchies.append(recursive)
 
     return {
         "name": dim_name,
@@ -1111,9 +1237,10 @@ def _default_skeleton_model() -> dict:
                     {"name": "entity_id",    "type": "INT",          "role": "attribute", "natural_key": True},
                     {"name": "entity_name",  "type": "NVARCHAR(255)", "role": "attribute"},
                     {"name": "category",     "type": "NVARCHAR(100)", "role": "attribute"},
-                    {"name": "valid_from",   "type": "DATE",          "role": "attribute"},
-                    {"name": "valid_to",     "type": "DATE",          "role": "attribute"},
-                    {"name": "is_current",   "type": "BIT DEFAULT 1", "role": "attribute"},
+                    {"name": "valid_from",   "type": "DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME()", "role": "attribute"},
+                    {"name": "valid_to",     "type": "DATETIME2(3) NOT NULL DEFAULT '9999-12-31 23:59:59.999'", "role": "attribute"},
+                    {"name": "is_current",   "type": "BIT NOT NULL DEFAULT 1", "role": "attribute"},
+                    {"name": "row_hash",     "type": "BINARY(32)", "role": "attribute"},
                 ],
             }
         ],
@@ -1185,6 +1312,39 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
         lines.append(f"CREATE TABLE [{tname}] (")
         lines.append(",\n".join(f"  {c}" for c in cols))
         lines.append(");\n")
+
+        # ── SCD2 : index filtré unique + index sur valid_from/valid_to ────────
+        is_scd2 = dim.get("scd_type") == 2 or any(
+            c.get("name") == "is_current" for c in dim.get("columns", [])
+        )
+        if is_scd2 and "dim_date" not in dim["name"]:
+            nk_col = dim.get("natural_key")
+            if not nk_col:
+                nk_col = next(
+                    (c["name"] for c in dim.get("columns", []) if c.get("natural_key")),
+                    None,
+                )
+            if nk_col:
+                uidx = f"uq_{dim['name']}_current"
+                lines.append(
+                    f"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='{uidx}' "
+                    f"AND object_id=OBJECT_ID('{tname}'))"
+                )
+                lines.append(
+                    f"CREATE UNIQUE NONCLUSTERED INDEX [{uidx}] ON [{tname}] "
+                    f"([{nk_col}]) WHERE [is_current] = 1;"
+                )
+
+            # Index sur la fenêtre temporelle : accélère les AS OF queries
+            tidx = f"idx_{dim['name']}_validity"
+            lines.append(
+                f"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='{tidx}' "
+                f"AND object_id=OBJECT_ID('{tname}'))"
+            )
+            lines.append(
+                f"CREATE NONCLUSTERED INDEX [{tidx}] ON [{tname}] "
+                f"([valid_from], [valid_to]) INCLUDE ([is_current]);\n"
+            )
 
     # ── Tables de faits ──────────────────────────────────────────────────────
     for fact in fact_tables:

@@ -1,0 +1,124 @@
+# docker-compose.deploy.yml — Déploiement prêt pour le PC du prof
+# Usage :
+#   docker compose -f docker-compose.deploy.yml --env-file .env up -d --build
+# Une seule commande = 3 conteneurs : SQL Server + Backend FastAPI + Frontend Nginx
+#
+# Ports publiés sur l'hôte :
+#   - 1433  → SQL Server       (le prof peut s'y connecter avec SSMS)
+#   - 8000  → API FastAPI      (Swagger : http://localhost:8000/api/docs)
+#   - 8080  → Frontend React   (UI   : http://localhost:8080)
+
+networks:
+  agent_dw_net:
+    driver: bridge
+
+volumes:
+  sql_data:
+    driver: local
+  sql_log:
+    driver: local
+
+services:
+
+  # ── SQL Server 2022 ─────────────────────────────────────────────────────────
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: agent_dw_sqlserver
+    restart: unless-stopped
+    networks:
+      - agent_dw_net
+    user: root
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${DB_PASSWORD}"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql_data:/var/opt/mssql/data
+      - sql_log:/var/opt/mssql/log
+      # Volume partagé : le backend écrit les .bak ici, SQL Server les restaure
+      - ./uploads/bak:/var/opt/mssql/backup
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -No -C || exit 1"
+      ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s   # SQL Server met ~25-30s à démarrer la première fois
+
+  # ── Backend FastAPI ─────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    image: antigravity-bi-backend:latest
+    container_name: agent_dw_backend
+    restart: unless-stopped
+    networks:
+      - agent_dw_net
+    env_file: .env
+    environment:
+      # Surcharges — dans le réseau Docker on adresse SQL Server par son nom
+      DB_HOST: "sqlserver"
+      DB_PORT: "1433"
+      DB_USER: "sa"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      # Chemins Linux à l'intérieur des conteneurs
+      SQLSERVER_BACKUP_MOUNT_DIR: "/var/opt/mssql/backup"
+      SQLSERVER_DATA_DIR: "/var/opt/mssql/data"
+      BAK_UPLOAD_DIR: "/app/uploads/bak"
+      # Accès Ollama éventuel sur l'hôte
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      # CORS : autoriser le frontend nginx
+      ALLOWED_ORIGINS: "http://localhost:8080,http://127.0.0.1:8080"
+      # Environnement
+      APP_ENV: "production"
+      ENVIRONMENT: "production"
+    volumes:
+      # Volume partagé avec SQL Server pour les .bak
+      - ./uploads/bak:/app/uploads/bak
+      - ./outputs:/app/outputs
+      # NB : pas de ".:/app" ici → l'image est self-contained pour le déploiement
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # pour joindre Ollama sur le PC
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 2g
+
+  # ── Frontend React (build statique servi par Nginx + proxy /api) ────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        # En prod on laisse vide → client.js utilise des chemins relatifs
+        # et Nginx proxifie /api vers le backend
+        VITE_API_URL: ""
+    image: antigravity-bi-frontend:latest
+    container_name: agent_dw_frontend
+    restart: unless-stopped
+    networks:
+      - agent_dw_net
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

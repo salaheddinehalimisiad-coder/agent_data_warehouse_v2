@@ -1,94 +1,186 @@
-# nodes/etl_loader.py — Step 3: Load (Multi-Fact / Constellation Support)
+# nodes/etl_loader.py — Step 3: Load (v4.2 — Vibrant logs + Multi-Fact / Constellation)
+"""
+Step 3 : LOAD (Constellation Support)
+  - Boucle sur tous les fact_tables (multi-fact)
+  - Résolution des SKs pour chaque fact table
+  - Chargement via _load_fact (itertuples + executemany + broadcast throttlé)
+  - Logs "vibrants" : emojis, barres de progression, taux %, débit rows/s
+  - Agrégation des métriques cross-fact
+"""
+import time
 import logging
 from datetime import datetime, timezone
+
 from app_state import AgentState
 from nodes.etl_executor import _load_fact, _build_engine, _persist_metrics
 
 logger = logging.getLogger(__name__)
 
+
+def _yield_emoji(inserted: int, rejected: int) -> str:
+    """Sélectionne un emoji de statut selon le taux de rejet."""
+    total = inserted + rejected
+    if total == 0:
+        return "⚪"
+    rate = rejected / total
+    if rate == 0.0:
+        return "🏆"
+    if rate < 0.01:
+        return "🟢"
+    if rate < 0.05:
+        return "🟡"
+    if rate < 0.20:
+        return "🟠"
+    return "🔴"
+
+
+def _format_duration(seconds: float) -> str:
+    """Formate une durée en 1m23s / 45.2s."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    m, s = divmod(seconds, 60)
+    return f"{int(m)}m{int(s):02d}s"
+
+
 def etl_loader_node(state: AgentState) -> dict:
     """
-    LOAD STEP (v2.0 — Constellation Support):
-    - Loops over all fact_tables (multi-fact constellation)
-    - Resolves SKs for each fact table
-    - Loads data into each final fact table
-    - Aggregates and persists load metrics across all facts
+    LOAD STEP (v4.2 — Vibrant Logs) :
+      - Loops over all fact_tables (multi-fact constellation)
+      - Resolves SKs for each fact table
+      - Loads data into each final fact table
+      - Aggregates and persists load metrics across all facts
+      - Émet des logs expressifs pour le widget Premium Dark
     """
-    logger.info("--- [ETL] STEP 3: LOAD ---")
+    logger.info("--- [ETL] STEP 3: LOAD (v4.2) ---")
     logical_model = state.get("logical_model", {})
-    dw_config    = state.get("dw_connection_config", {})
-    source_df    = state.get("source_df")
-    sk_maps      = state.get("sk_maps", {})
-    user_prefix  = state.get("user_prefix", "dw")
-    session_id   = state.get("session_id", "unknown")
-    exec_log     = state.get("execution_log", [])
-    clean_action = state.get("clean_action", "NONE")
-    dim_metrics  = state.get("load_metrics", {}).get("dimensions", {})
-    
-    if source_df is None or not sk_maps:
-         return {"etl_status": "failed", "etl_error": "Missing data or SK maps", "execution_log": exec_log + ["[Load] ❌ Missing inputs"]}
+    dw_config     = state.get("dw_connection_config", {})
+    source_df     = state.get("source_df")
+    sk_maps       = state.get("sk_maps", {})
+    user_prefix   = state.get("user_prefix", "dw")
+    session_id    = state.get("session_id", "unknown")
+    exec_log      = state.get("execution_log", [])
+    clean_action  = state.get("clean_action", "NONE")
+    dim_metrics   = state.get("load_metrics", {}).get("dimensions", {})
 
-    # Get fact tables list (constellation) or single fact (backward compat)
+    if source_df is None or (not sk_maps and logical_model.get("dimension_tables")):
+        return {
+            "etl_status": "failed",
+            "etl_error":  "Missing data or SK maps",
+            "execution_log": exec_log + ["[Load] ❌ Missing inputs (source_df / sk_maps)"],
+        }
+
+    # ── Fact tables list : constellation ou single fact (compat) ─────────────
     fact_tables = logical_model.get("fact_tables", [])
     if not fact_tables:
         ft = logical_model.get("fact_table", {})
         fact_tables = [ft] if ft else []
 
     if not fact_tables:
-        return {"etl_status": "success", "execution_log": exec_log + ["[Load] ℹ️ No fact table defined"]}
+        return {
+            "etl_status": "success",
+            "execution_log": exec_log + ["[Load] ℹ️ Aucune fact table définie — skip load"],
+        }
+
+    # ── Header vibrant ───────────────────────────────────────────────────────
+    source_rows = len(source_df)
+    exec_log.append(
+        f"[Load] 🚀 Démarrage — {len(fact_tables)} fact(s) × {source_rows:,} rows source "
+        f"• Préfixe DW: [{user_prefix}] • Action: {clean_action}"
+    )
+
+    load_start = time.monotonic()
 
     try:
         dw_engine = _build_engine(dw_config)
-        
-        all_fact_metrics = {}
+
+        all_fact_metrics: dict = {}
         total_inserted = 0
         total_rejected = 0
 
-        for fact in fact_tables:
+        for i, fact in enumerate(fact_tables, 1):
             fact_name = fact.get("name", "")
             if not fact_name:
                 continue
             table_name = f"{user_prefix}_{fact_name}"
-            
-            metrics = _load_fact(
-                dw_engine, table_name, fact, source_df, 
-                sk_maps, user_prefix, session_id, clean_action
-            )
-            all_fact_metrics[fact_name] = metrics
-            total_inserted += metrics.get("inserted", 0)
-            total_rejected += metrics.get("rejected", 0)
+
             exec_log.append(
-                f"[Load] ✅ {fact_name}: {metrics['inserted']} rows inserted, "
-                f"{metrics['rejected']} rejected"
+                f"[Load] ⏳ ({i}/{len(fact_tables)}) Chargement → «{fact_name}» "
+                f"vers [{table_name}]…"
             )
-        
+
+            fact_start = time.monotonic()
+            metrics = _load_fact(
+                dw_engine, table_name, fact, source_df,
+                sk_maps, user_prefix, session_id, clean_action,
+            )
+            fact_elapsed = time.monotonic() - fact_start
+
+            ins = metrics.get("inserted", 0)
+            rej = metrics.get("rejected", 0)
+            rate_ok = 100 * ins / max(1, ins + rej)
+            rows_s  = metrics.get("rate_rows_s", round(ins / max(0.1, fact_elapsed), 1))
+            emoji   = _yield_emoji(ins, rej)
+
+            all_fact_metrics[fact_name] = metrics
+            total_inserted += ins
+            total_rejected += rej
+
+            # Ligne de progression par fact, riche et lisible
+            exec_log.append(
+                f"[Load] {emoji} «{fact_name}» → "
+                f"✅ {ins:,} inserted  "
+                f"⚠️ {rej:,} rejected  "
+                f"📊 yield {rate_ok:.1f}%  "
+                f"⚡ {rows_s:,.0f} rows/s  "
+                f"🕒 {_format_duration(fact_elapsed)}"
+            )
+
+        # ── Métriques consolidées ────────────────────────────────────────────
         load_metrics = {
-            "source_rows": len(source_df),
-            "fact": all_fact_metrics.get(fact_tables[0].get("name", ""), {}),  # backward compat
-            "facts": all_fact_metrics,  # multi-fact metrics
-            "dimensions": dim_metrics,
-            "loaded_at": datetime.now(timezone.utc).isoformat(),
-            "dw_prefix": user_prefix,
+            "source_rows": source_rows,
+            "fact":        all_fact_metrics.get(fact_tables[0].get("name", ""), {}),
+            "facts":       all_fact_metrics,
+            "dimensions":  dim_metrics,
+            "loaded_at":   datetime.now(timezone.utc).isoformat(),
+            "dw_prefix":   user_prefix,
         }
         _persist_metrics(load_metrics, session_id)
-        
+
+        total_elapsed  = time.monotonic() - load_start
+        overall_emoji  = _yield_emoji(total_inserted, total_rejected)
+        overall_yield  = 100 * total_inserted / max(1, total_inserted + total_rejected)
+        overall_rate   = total_inserted / max(0.1, total_elapsed)
+
+        # ── Bannière de clôture ──────────────────────────────────────────────
+        exec_log.append("[Load] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         exec_log.append(
-            f"[Load] 🏁 ETL Complete — {len(fact_tables)} fact(s), "
-            f"{total_inserted} total inserted, {total_rejected} total rejected."
+            f"[Load] {overall_emoji} ETL TERMINÉ — "
+            f"{len(fact_tables)} fact(s) • "
+            f"✅ {total_inserted:,} rows chargés • "
+            f"⚠️ {total_rejected:,} rejets • "
+            f"📊 {overall_yield:.1f}% yield"
         )
-        
-        is_success = total_inserted > 0 or len(source_df) == 0
-        
+        exec_log.append(
+            f"[Load] ⚡ {overall_rate:,.0f} rows/s moyen • "
+            f"🕒 Durée {_format_duration(total_elapsed)} • "
+            f"📦 Préfixe [{user_prefix}] • "
+            f"🏁 {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}"
+        )
+        exec_log.append("[Load] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        is_success = total_inserted > 0 or source_rows == 0
+
         return {
-            "etl_status": "success" if is_success else "failed",
-            "etl_error": "" if is_success else "Fact loading failed: 0 rows inserted",
+            "etl_status":  "success" if is_success else "failed",
+            "etl_error":   "" if is_success else "Fact loading failed: 0 rows inserted",
             "load_metrics": load_metrics,
-            "execution_log": exec_log
+            "execution_log": exec_log,
         }
+
     except Exception as e:
         logger.error(f"[Load] Failed: {e}")
         return {
             "etl_status": "failed",
-            "etl_error": f"Loading failed: {e}",
-            "execution_log": exec_log + [f"[Load] ❌ Failed: {e}"]
+            "etl_error":  f"Loading failed: {e}",
+            "execution_log": exec_log + [f"[Load] 💥 Crash: {e}"],
         }
