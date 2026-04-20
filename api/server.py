@@ -151,6 +151,65 @@ async def export_dbt_project(session_id: str, user: dict = Depends(get_optional_
         headers={"Content-Disposition": f"attachment; filename=dbt_project_{session_id}.zip"}
     )
 
+@app.get("/api/export-xlsx")
+async def export_xlsx(session_id: str, user: dict = Depends(get_optional_user)):
+    """Export Excel multi-feuilles (Overview + DDL + 1 feuille par table FACT/DIM).
+    Format universellement exploitable par Power BI, Excel, Tableau."""
+    state = etl_service.get_pipeline_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    try:
+        xlsx_path = export_service.generate_xlsx_report(state, session_id)
+        return FileResponse(
+            xlsx_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=f"rapport_{session_id}.xlsx",
+        )
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"openpyxl non installé: {e}")
+    except Exception as e:
+        logger.exception("[export-xlsx] erreur")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/export-csv")
+async def export_csv_bundle(session_id: str, user: dict = Depends(get_optional_user)):
+    """Export ZIP contenant un .csv par table (UTF-8-SIG, compatible Excel/PowerBI)."""
+    from fastapi.responses import Response
+    state = etl_service.get_pipeline_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    try:
+        zip_bytes = export_service.generate_csv_bundle(state, session_id)
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename=csv_bundle_{session_id}.zip"},
+        )
+    except Exception as e:
+        logger.exception("[export-csv] erreur")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/export-powerbi")
+async def export_powerbi(session_id: str, user: dict = Depends(get_optional_user)):
+    """Export bundle Power BI : connection.pqt + README + schema.sql + manifest."""
+    from fastapi.responses import Response
+    state = etl_service.get_pipeline_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session introuvable")
+    try:
+        zip_bytes = export_service.generate_powerbi_template(state, session_id)
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename=powerbi_bundle_{session_id}.zip"},
+        )
+    except Exception as e:
+        logger.exception("[export-powerbi] erreur")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class EmailNotifyRequest(BaseModel):
     session_id: str
     email: str

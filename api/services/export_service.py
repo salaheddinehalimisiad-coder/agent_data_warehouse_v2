@@ -629,3 +629,381 @@ def generate_json_report(state: dict, session_id: str) -> dict:
             "node_durations": state.get("node_durations", {}),
         },
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Exports BI (Power BI, Tableau, Excel) — ajoutés v5.0
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _iter_result_tables(state: dict):
+    """
+    Yields (name, rows) pour chaque table exportable trouvée dans le state.
+
+    Sources consultées (dans l'ordre) :
+      1. state['query_results']   → [{name, rows: [dict]}, ...]
+      2. state['etl_samples']     → {table_name: [dict]}
+      3. state['tables_preview']  → {table_name: [dict]}
+    Une table est toujours au format list[dict] (rows).
+    """
+    # (1) query_results
+    for qr in state.get("query_results", []) or []:
+        if isinstance(qr, dict):
+            name = qr.get("name") or qr.get("table") or qr.get("label") or "query"
+            rows = qr.get("rows") or qr.get("data") or []
+            if rows and isinstance(rows, list):
+                yield str(name), rows
+
+    # (2) etl_samples
+    samples = state.get("etl_samples") or {}
+    if isinstance(samples, dict):
+        for name, rows in samples.items():
+            if rows and isinstance(rows, list):
+                yield str(name), rows
+
+    # (3) tables_preview
+    preview = state.get("tables_preview") or {}
+    if isinstance(preview, dict):
+        for name, rows in preview.items():
+            if rows and isinstance(rows, list):
+                yield str(name), rows
+
+
+def _sanitize_sheet_name(name: str) -> str:
+    """Excel : 31 chars max, pas de ':' '\\' '/' '?' '*' '[' ']'."""
+    bad = ':\\/?*[]'
+    clean = "".join(c for c in str(name) if c not in bad).strip() or "sheet"
+    return clean[:31]
+
+
+def generate_xlsx_report(state: dict, session_id: str) -> str:
+    """
+    Génère un fichier .xlsx multi-feuilles prêt pour Power BI / Excel.
+      - Feuille "Overview" : métadonnées pipeline + DQ score
+      - Feuille "DDL"      : T-SQL complet
+      - 1 feuille par table de résultat (FACT_*, DIM_* ou query)
+    Retourne le chemin absolu du fichier créé.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    os.makedirs("outputs", exist_ok=True)
+    xlsx_path = os.path.abspath(f"outputs/{session_id}_report.xlsx")
+
+    wb = Workbook()
+
+    # ── Overview ─────────────────────────────────────────────────────────────
+    ws = wb.active
+    ws.title = "Overview"
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="6366F1")
+
+    ws.append(["Métrique", "Valeur"])
+    for c in ws[1]:
+        c.font = header_font
+        c.fill = header_fill
+        c.alignment = Alignment(horizontal="center")
+
+    meta_rows = [
+        ("Session ID", session_id),
+        ("Généré le", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+        ("User prefix", state.get("user_prefix") or ""),
+        ("Statut ETL", state.get("etl_status") or ""),
+        ("Mode ETL", state.get("etl_mode") or ""),
+        ("DQ score", state.get("dq_score") or ""),
+        ("Version modèle", state.get("logical_model_version") or 0),
+        ("Critic approuvé", str(state.get("critic_approved"))),
+        ("Healings", len(state.get("heal_history", []) or [])),
+    ]
+    for row in meta_rows:
+        ws.append(row)
+    ws.column_dimensions["A"].width = 22
+    ws.column_dimensions["B"].width = 60
+
+    # ── DDL ───────────────────────────────────────────────────────────────────
+    ddl = state.get("sql_ddl") or ""
+    if ddl:
+        ws_ddl = wb.create_sheet("DDL")
+        for line in str(ddl).splitlines():
+            ws_ddl.append([line])
+        ws_ddl.column_dimensions["A"].width = 120
+
+    # ── Tables de résultat ───────────────────────────────────────────────────
+    used = set()
+    n_tables = 0
+    for name, rows in _iter_result_tables(state):
+        title = _sanitize_sheet_name(name)
+        # dédup
+        base = title
+        i = 2
+        while title in used or title.lower() in ("overview", "ddl"):
+            title = f"{base[:27]}_{i}"
+            i += 1
+        used.add(title)
+
+        ws_t = wb.create_sheet(title)
+
+        # Normaliser rows : [dict]
+        first = rows[0] if rows else {}
+        if isinstance(first, dict):
+            cols = list(first.keys())
+        elif isinstance(first, (list, tuple)):
+            cols = [f"col_{i+1}" for i in range(len(first))]
+        else:
+            cols = ["value"]
+
+        ws_t.append(cols)
+        for c in ws_t[1]:
+            c.font = header_font
+            c.fill = header_fill
+
+        for r in rows[:10000]:  # cap 10k lignes par feuille
+            if isinstance(r, dict):
+                ws_t.append([_coerce_cell(r.get(c)) for c in cols])
+            elif isinstance(r, (list, tuple)):
+                ws_t.append([_coerce_cell(v) for v in r])
+            else:
+                ws_t.append([_coerce_cell(r)])
+        for col_idx, col_name in enumerate(cols, start=1):
+            ws_t.column_dimensions[chr(64 + col_idx)].width = min(
+                max(12, len(str(col_name)) + 2), 40
+            )
+        n_tables += 1
+
+    if n_tables == 0:
+        ws_empty = wb.create_sheet("No_Data")
+        ws_empty.append(["Aucune table de résultat n'a été trouvée dans le pipeline."])
+        ws_empty.append(["Relancez le pipeline jusqu'à l'étape ETL/Analyse pour générer des données."])
+
+    wb.save(xlsx_path)
+    logger.info(f"[Export] XLSX généré : {xlsx_path} ({n_tables} tables)")
+    return xlsx_path
+
+
+def _coerce_cell(v):
+    """Convertit les valeurs complexes en string pour Excel."""
+    if v is None:
+        return ""
+    if isinstance(v, (str, int, float, bool)):
+        return v
+    if isinstance(v, (list, dict, tuple, set)):
+        import json as _json
+        try:
+            return _json.dumps(v, ensure_ascii=False, default=str)[:32000]
+        except Exception:
+            return str(v)[:32000]
+    return str(v)[:32000]
+
+
+def generate_csv_bundle(state: dict, session_id: str) -> bytes:
+    """
+    Génère un .zip contenant un .csv par table + un manifest.json.
+    Retourne les bytes du zip (pour Response directe).
+
+    Formats CSV compatibles Power BI / Tableau / Excel :
+      - encodage UTF-8-SIG (BOM) pour Excel Windows
+      - séparateur ','
+      - ligne de header
+    """
+    import io
+    import csv
+    import json as _json
+    import zipfile
+
+    buf = io.BytesIO()
+    manifest = {
+        "session_id": session_id,
+        "generated_at": datetime.now().isoformat(),
+        "user_prefix": state.get("user_prefix"),
+        "tables": [],
+    }
+    n_tables = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, rows in _iter_result_tables(state):
+            fname = "".join(c if c.isalnum() or c in "_-" else "_" for c in str(name))[:80] or "table"
+            csv_buf = io.StringIO()
+            first = rows[0] if rows else {}
+            if isinstance(first, dict):
+                cols = list(first.keys())
+                writer = csv.DictWriter(csv_buf, fieldnames=cols, extrasaction="ignore")
+                writer.writeheader()
+                for r in rows:
+                    if isinstance(r, dict):
+                        writer.writerow({k: _coerce_cell(r.get(k)) for k in cols})
+            else:
+                writer = csv.writer(csv_buf)
+                for r in rows:
+                    if isinstance(r, (list, tuple)):
+                        writer.writerow([_coerce_cell(v) for v in r])
+                    else:
+                        writer.writerow([_coerce_cell(r)])
+            # UTF-8-SIG pour qu'Excel ouvre correctement sans mojibake
+            data = "\ufeff" + csv_buf.getvalue()
+            zf.writestr(f"{fname}.csv", data.encode("utf-8"))
+            manifest["tables"].append({"name": name, "file": f"{fname}.csv", "rows": len(rows)})
+            n_tables += 1
+
+        # DDL + manifest
+        ddl = state.get("sql_ddl") or ""
+        if ddl:
+            zf.writestr("_schema.sql", str(ddl))
+        zf.writestr("_manifest.json", _json.dumps(manifest, indent=2, ensure_ascii=False))
+
+        if n_tables == 0:
+            zf.writestr("README.txt",
+                        "Aucune table de résultat dans ce pipeline.\n"
+                        "Relancez l'analyse pour générer des données exploitables.\n")
+
+    logger.info(f"[Export] CSV bundle : {n_tables} tables, {buf.tell()} bytes")
+    return buf.getvalue()
+
+
+def generate_powerbi_template(state: dict, session_id: str) -> bytes:
+    """
+    Bundle Power BI : produit un zip contenant :
+      - connection.pqt              → M-query pour Get Data → SQL Server
+      - POWERBI_CONNECT.md          → instructions étape par étape
+      - schema.sql                  → DDL complet pour documentation
+      - tables_manifest.json        → liste des tables FACT/DIM détectées
+    Retourne les bytes du zip.
+    """
+    import io
+    import json as _json
+    import zipfile
+
+    logical = state.get("logical_model") or {}
+    facts = logical.get("fact_tables") or ([logical.get("fact_table")] if logical.get("fact_table") else [])
+    dims = logical.get("dimension_tables") or []
+    db_name = state.get("target_database") or state.get("restored_db_name") or "agent_dw"
+    user_prefix = state.get("user_prefix") or ""
+
+    # Noms de tables (après prefix si applicable)
+    def _tn(t):
+        if isinstance(t, dict):
+            return t.get("name") or t.get("table_name") or ""
+        return str(t)
+
+    fact_names = [_tn(f) for f in facts if _tn(f)]
+    dim_names = [_tn(d) for d in dims if _tn(d)]
+    all_tables = fact_names + dim_names
+
+    # ── Power Query M script (connexion + import FACT + DIM) ─────────────────
+    m_lines = [
+        "// Power Query M — Antigravity BI Auto-Generated Connection",
+        f"// Session : {session_id}",
+        f"// Généré le {datetime.now().isoformat()}",
+        "//",
+        "// INSTRUCTIONS :",
+        "//   1. Power BI Desktop → Accueil → Transformer les données → Éditeur avancé",
+        "//   2. Créer une nouvelle requête vide, coller ce script",
+        "//   3. Adapter Server et Database aux valeurs de VOTRE SQL Server",
+        "",
+        "let",
+        '    Server = "localhost,1433",',
+        f'    Database = "{db_name}",',
+        "    Source = Sql.Database(Server, Database, [CreateNavigationProperties=true])",
+        "in",
+        "    Source",
+    ]
+    pqt_content = "\n".join(m_lines)
+
+    # ── README détaillé ──────────────────────────────────────────────────────
+    readme = f"""# Connexion Power BI ↔ Antigravity BI Data Warehouse
+
+**Session :** `{session_id}`
+**Base cible :** `{db_name}`
+**User prefix :** `{user_prefix}`
+
+## 1. Prérequis
+
+- **Power BI Desktop** installé (gratuit, https://aka.ms/pbidesktop)
+- Accès réseau au SQL Server qui héberge le DW (par défaut : `localhost,1433`
+  en Docker compose, ou l'IP du serveur)
+- Credentials SQL Server avec droits de `SELECT` sur la base `{db_name}`
+
+## 2. Connexion rapide (recommandée)
+
+1. Ouvrir **Power BI Desktop**
+2. **Accueil → Obtenir les données → SQL Server**
+3. Saisir :
+   - **Serveur** : `localhost,1433`  (ou `<ip_serveur>,1433`)
+   - **Base de données** : `{db_name}`
+4. Choisir **Import** (chargement en mémoire) ou **DirectQuery** (temps réel)
+5. Authentification : **Base de données** → user/mdp SQL Server
+6. Dans le navigateur, sélectionner les tables :
+"""
+    for f in fact_names:
+        readme += f"   - ✅ `{f}` (table de faits)\n"
+    for d in dim_names:
+        readme += f"   - ✅ `{d}` (dimension)\n"
+
+    readme += f"""
+## 3. Connexion avancée via Power Query (fichier `connection.pqt`)
+
+Le fichier `connection.pqt` inclus contient un script M prêt à coller :
+
+1. Dans Power BI Desktop → **Accueil → Transformer les données**
+2. **Accueil → Nouvelle source → Requête vide**
+3. **Accueil → Éditeur avancé** → coller le contenu de `connection.pqt`
+4. Adapter `Server` et `Database` si nécessaire
+
+## 4. Modèle de données (Star Schema)
+
+Le pipeline Antigravity BI a généré un schéma en étoile / constellation :
+
+- **{len(fact_names)} table(s) de faits** (FACT_*)
+- **{len(dim_names)} dimension(s)** (DIM_*)
+
+Power BI détectera automatiquement les relations via les **Surrogate Keys**
+(`*_sk` ou `{user_prefix}*_SK`). Si ce n'est pas le cas, créer manuellement
+les relations dans **Modélisation → Gérer les relations**.
+
+## 5. DAX de démarrage (optionnel)
+
+```dax
+// Mesure : nombre total de lignes de faits
+Total Lines = COUNTROWS({fact_names[0] if fact_names else 'FACT_TABLE'})
+
+// Mesure : dernière date chargée
+Last Load = MAX({fact_names[0] if fact_names else 'FACT_TABLE'}[LOAD_DATE])
+```
+
+## 6. Fichiers inclus dans ce bundle
+
+| Fichier | Description |
+|---------|-------------|
+| `connection.pqt` | Script Power Query M pour connexion automatique |
+| `POWERBI_CONNECT.md` | Ce guide |
+| `schema.sql` | DDL T-SQL complet (documentation) |
+| `tables_manifest.json` | Liste structurée des tables FACT/DIM |
+
+## 7. Autres outils BI
+
+Le DW est exposé en standard SQL Server → compatible avec :
+- **Tableau** (Connexion → Microsoft SQL Server)
+- **Excel** (Données → Obtenir les données → Depuis SQL Server)
+- **Looker Studio** (via connecteur JDBC / ODBC)
+- **Qlik Sense** (Connecteur SQL Server natif)
+
+---
+
+_Généré automatiquement par Antigravity BI v5.0 — {datetime.now().strftime("%Y-%m-%d %H:%M")}_
+"""
+
+    manifest = {
+        "session_id": session_id,
+        "user_prefix": user_prefix,
+        "target_database": db_name,
+        "generated_at": datetime.now().isoformat(),
+        "fact_tables": fact_names,
+        "dimension_tables": dim_names,
+        "all_tables": all_tables,
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("connection.pqt", pqt_content)
+        zf.writestr("POWERBI_CONNECT.md", readme)
+        zf.writestr("schema.sql", str(state.get("sql_ddl") or "-- DDL non disponible"))
+        zf.writestr("tables_manifest.json", _json.dumps(manifest, indent=2, ensure_ascii=False))
+    logger.info(f"[Export] PowerBI bundle : {len(all_tables)} tables, {buf.tell()} bytes")
+    return buf.getvalue()

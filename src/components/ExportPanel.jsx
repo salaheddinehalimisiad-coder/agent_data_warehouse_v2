@@ -5,7 +5,8 @@ import {
   Download, FileText, Mail, Check,
   Loader2, X, ChevronRight, AlertTriangle,
   Database, Code2, ShieldCheck, Box, Zap,
-  Send, Sparkles, Hash, Wind, Package, DatabaseZap
+  Send, Sparkles, Hash, Wind, Package, DatabaseZap,
+  FileSpreadsheet, BarChart3, FileArchive
 } from 'lucide-react';
 import { usePipelineStore } from '../store/pipelineStore';
 import { apiClient } from '../api/client';
@@ -60,7 +61,9 @@ export default function ExportPanel({ onClose }) {
   const [success, setSuccess]       = useState(null);
   const [error, setError]           = useState('');
 
-  const canExport = !!sessionId && ['complete', 'awaiting_review', 'error'].includes(pipelineStatus);
+  // Un session_id suffit pour exporter — le backend renvoie ce qu'il a dans le state.
+  // Seules les cartes ETL-spécifiques restent bridées par `etlStatus`.
+  const canExport = !!sessionId;
 
   const flashSuccess = (key) => {
     setSuccess(key);
@@ -211,6 +214,48 @@ export default function ExportPanel({ onClose }) {
     flashSuccess('sql');
   };
 
+  // ── BI exports (XLSX / CSV bundle / Power BI template) ───────────────────
+  const _downloadBlobEndpoint = async (endpoint, key, filename, errLabel) => {
+    if (!sessionId) return;
+    setLoading(key); setError('');
+    try {
+      const base = import.meta.env.VITE_API_URL || '';
+      const resp = await fetch(`${base}/api/${endpoint}?session_id=${sessionId}`, {
+        headers: apiClient.getHeaders(),
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Status ${resp.status}: ${text}`);
+      }
+      const blob = await resp.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      flashSuccess(key);
+    } catch (e) {
+      setError(`${errLabel}: ${e.message}`);
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleDownloadXlsx = () =>
+    _downloadBlobEndpoint('export-xlsx', 'xlsx',
+      `rapport_${userPrefix}_${sessionId?.substring(0,8)}.xlsx`,
+      'Excel Export Fault');
+
+  const handleDownloadCsvBundle = () =>
+    _downloadBlobEndpoint('export-csv', 'csv',
+      `csv_bundle_${userPrefix}_${sessionId?.substring(0,8)}.zip`,
+      'CSV Bundle Fault');
+
+  const handleDownloadPowerBI = () =>
+    _downloadBlobEndpoint('export-powerbi', 'powerbi',
+      `powerbi_bundle_${userPrefix}_${sessionId?.substring(0,8)}.zip`,
+      'Power BI Bundle Fault');
+
   const handleDownloadMockData = () => {
     if (!mockDataSql) return;
     const blob = new Blob([mockDataSql], { type: 'text/sql' });
@@ -287,13 +332,31 @@ export default function ExportPanel({ onClose }) {
              <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Master Artifacts</span>
           </div>
 
-          <ExportCard 
+          <ExportCard
             label="Neural Intelligence PDF" sublabel="Complete DDL + Quality Audit"
             icon={FileText} colorCls="rose"
             onClick={handleDownloadPdf} disabled={!canExport} loading={loading === 'pdf'} success={success === 'pdf'}
           />
 
-          <ExportCard 
+          <ExportCard
+            label="Excel Multi-Sheet" sublabel="Power BI / Tableau Ready (.xlsx)"
+            icon={FileSpreadsheet} colorCls="emerald"
+            onClick={handleDownloadXlsx} disabled={!canExport} loading={loading === 'xlsx'} success={success === 'xlsx'}
+          />
+
+          <ExportCard
+            label="CSV Bundle" sublabel="UTF-8 BOM · 1 file per table (.zip)"
+            icon={FileArchive} colorCls="cyan"
+            onClick={handleDownloadCsvBundle} disabled={!canExport} loading={loading === 'csv'} success={success === 'csv'}
+          />
+
+          <ExportCard
+            label="Power BI Connect Pack" sublabel="Power Query M + DAX guide (.zip)"
+            icon={BarChart3} colorCls="amber"
+            onClick={handleDownloadPowerBI} disabled={!canExport} loading={loading === 'powerbi'} success={success === 'powerbi'}
+          />
+
+          <ExportCard
             label="Structural JSON" sublabel="Raw Metadata Synthesis"
             icon={Hash} colorCls="indigo"
             onClick={handleDownloadJson} disabled={!canExport} loading={loading === 'json'} success={success === 'json'}
