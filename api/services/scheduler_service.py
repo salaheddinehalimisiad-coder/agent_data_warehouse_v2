@@ -11,11 +11,14 @@ import logging
 import os
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
-JOBS_FILE = "outputs/scheduler_jobs.json"
+# Ancré à la racine du projet (remonte de api/services/ → racine)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+JOBS_FILE = str(_PROJECT_ROOT / "outputs" / "scheduler_jobs.json")
 
 # ── Scheduler singleton ──────────────────────────────────────────────────────
 _scheduler = None

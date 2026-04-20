@@ -422,7 +422,8 @@ QUESTION UTILISATEUR:
                 viz_resp = llm.invoke(viz_prompt)
                 chart_config = json.loads(extract_text(viz_resp))
                 if chart_config.get("type") == "none": chart_config = None
-            except:
+            except (json.JSONDecodeError, ValueError, AttributeError, TypeError) as e:
+                logger.warning(f"[Query] Chart config parsing failed: {e}")
                 chart_config = None
 
         return {
