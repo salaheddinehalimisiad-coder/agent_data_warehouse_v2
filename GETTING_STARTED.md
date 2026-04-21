@@ -1,4 +1,4 @@
-# Guide de lancement — Antigravity BI v5.0
+# Guide de lancement — Agent BI v5.0
 
 > Agent Data Warehouse piloté par LangGraph — du CSV à la Star Schema SQL Server 2022 en quelques minutes.
 
@@ -271,7 +271,7 @@ Quand tu ouvres `http://localhost:5173` pour la première fois avec le design v5
 | Élément | À quoi ça ressemble | Si c'est absent… |
 |---|---|---|
 | Logo carré violet avec halo | Carré 9×9 px en dégradé violet→indigo→cyan, avec un petit point vert qui pulse (c'est le healthcheck) | Ton fichier `src/index.css` n'est pas à jour ou Tailwind n'a pas recompilé — redémarre `npm run dev` |
-| Titre "Antigravity **BI**" | Le mot "BI" en gradient violet/cyan | Même cause que ci-dessus |
+| Titre "Agent **BI**" | Le mot "BI" en gradient violet/cyan | Même cause que ci-dessus |
 | Sous-titre "v5.0 · Premium Dark" | En police JetBrains Mono, gris clair | Cache du navigateur — fais `Ctrl+F5` |
 | Bouton "New Pipeline" | Gradient violet avec shine blanc qui traverse au survol | La classe `.btn-primary` n'est pas à jour — reload le CSS |
 

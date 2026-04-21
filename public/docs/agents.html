@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Les 16 agents · Agent BI</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/docs/assets/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/docs/index.html"><img src="/logo.png" alt="Agent BI" class="logo" /><span class="brand-name">Agent BI</span><span class="badge">Docs</span></a>
+    <div class="topbar-search"><input id="search-input" type="search" placeholder="Rechercher (Ctrl+K)…" /></div>
+    <nav class="topbar-links"><a href="/" class="btn ghost">Retour à l'app</a></nav>
+    <button id="menu-toggle" class="menu-btn" aria-label="Menu">☰</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="nav-section"><div class="nav-title">Démarrer</div><ul class="nav"><li><a href="index.html">Accueil</a></li><li><a href="getting-started.html">Installation &amp; démarrage</a></li><li><a href="frontend.html">Interface &amp; expérience</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Concepts</div><ul class="nav"><li><a href="architecture.html">Architecture</a></li><li><a href="agents.html">Les 16 agents</a></li><li><a href="api.html">API &amp; intégration</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Production</div><ul class="nav"><li><a href="security.html">Sécurité</a></li><li><a href="deployment.html">Déploiement</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
+    </aside>
+
+    <main class="content">
+      <article>
+        <div class="eyebrow">Concepts · Agents</div>
+        <h1>Les 16 agents spécialisés</h1>
+        <p class="lede">Un agent = un rôle métier clair, un prompt maîtrisé, un contrat d'entrée/sortie typé. En équipe, ils couvrent l'intégralité du cycle <em>source → data warehouse → BI</em>.</p>
+
+        <figure>
+          <img src="assets/img/agents-graph.svg" alt="Graphe des agents" />
+          <figcaption>Les 16 agents orbitent autour de l'Orchestrateur qui tient l'état et déclenche les transitions.</figcaption>
+        </figure>
+
+        <h2>Principes de conception</h2>
+        <ul>
+          <li><strong>Un rôle = un prompt.</strong> Chaque agent a son propre fichier de prompt, versionné, testé par des évaluations.</li>
+          <li><strong>Communication par état.</strong> Les agents ne se parlent pas directement : ils lisent et écrivent dans le <code>State</code> global.</li>
+          <li><strong>Déterminisme contrôlé.</strong> Les décisions critiques (ex. clés primaires) sont prises via code ; le LLM propose, le code tranche.</li>
+          <li><strong>Budget cognitif.</strong> Chaque agent a un quota de tokens — s'il est dépassé, l'Auditeur déclenche un mode dégradé.</li>
+        </ul>
+
+        <h2>Catalogue des agents</h2>
+
+        <div class="agent-grid">
+          <div class="agent-card">
+            <div class="agent-num">01</div>
+            <h3>Ingestion</h3>
+            <p>Détecte le format (xlsx, csv, JDBC), lit avec le bon parseur, infère l'encodage, construit un <em>DataFrame</em> canonique.</p>
+            <div class="agent-meta">Entrée : fichier / URL · Sortie : DataFrame + métadonnées source</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">02</div>
+            <h3>Profileur</h3>
+            <p>Calcule types, distributions, cardinalités, ratios de nuls et repère les colonnes candidates à devenir clés ou mesures.</p>
+            <div class="agent-meta">Entrée : DataFrame · Sortie : <code>ProfileReport</code></div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">03</div>
+            <h3>Nettoyeur</h3>
+            <p>Harmonise les formats (dates, nombres, unités), déduplique, comble les nuls via règles ou suggestions LLM.</p>
+            <div class="agent-meta">Entrée : DataFrame + profil · Sortie : DataFrame nettoyé + journal</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">04</div>
+            <h3>Normaliseur</h3>
+            <p>Porte le dataset en <strong>3<sup>e</sup> forme normale</strong> (Codd). Identifie les dépendances fonctionnelles et éclate les tables.</p>
+            <div class="agent-meta">Entrée : DataFrame + profil · Sortie : schéma 3NF</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">05</div>
+            <h3>Modeleur</h3>
+            <p>Transforme le 3NF en <strong>schéma en étoile</strong> : identifie faits et dimensions, détecte les hiérarchies (SCD Type 2).</p>
+            <div class="agent-meta">Entrée : 3NF · Sortie : StarSchema (DDL incluse)</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">06</div>
+            <h3>Chargeur</h3>
+            <p>Exécute les DDL, charge les dimensions (MERGE), puis les faits (INSERT en lot) sur SQL Server.</p>
+            <div class="agent-meta">Entrée : StarSchema + données · Sortie : <code>LoadResult[]</code></div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">07</div>
+            <h3>Analyste</h3>
+            <p>Propose des KPIs pertinents à partir du domaine, construit les requêtes et alimente le tableau de bord.</p>
+            <div class="agent-meta">Entrée : StarSchema · Sortie : liste de KPIs + SQL</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">08</div>
+            <h3>Narrateur NL→SQL</h3>
+            <p>Reçoit une question en français (« Top 5 produits par marge sur 2025 ») et produit un SQL valide + graphe.</p>
+            <div class="agent-meta">Entrée : question · Sortie : SQL + résultat + visualisation</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">09</div>
+            <h3>Auditeur</h3>
+            <p>Vérifie la qualité à chaque étape (complétude, cohérence, respect des contraintes) et peut déclencher un retour en arrière.</p>
+            <div class="agent-meta">Entrée : tout état · Sortie : rapport de qualité</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">10</div>
+            <h3>Gardien</h3>
+            <p>Intercepte les exceptions, orchestre les <em>retries</em> exponentiels, bascule vers un plan dégradé si besoin.</p>
+            <div class="agent-meta">Entrée : erreur · Sortie : décision (retry/fallback/abort)</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">11</div>
+            <h3>Historien</h3>
+            <p>Trace la lignée des données (colonne source ↔ colonne cible) et conserve une trace auditable des transformations.</p>
+            <div class="agent-meta">Entrée : opérations · Sortie : graphe de lignée</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">12</div>
+            <h3>Sécurisateur</h3>
+            <p>Applique les RBAC, masque les colonnes sensibles (PII), signe les artefacts exportés.</p>
+            <div class="agent-meta">Entrée : policy + état · Sortie : état sécurisé</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">13</div>
+            <h3>Exporteur</h3>
+            <p>Génère PDF / PowerPoint / HTML / Excel / Power BI à partir de l'étoile et des KPIs sélectionnés.</p>
+            <div class="agent-meta">Entrée : sélection · Sortie : artefacts téléchargeables</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">14</div>
+            <h3>Catalogueur</h3>
+            <p>Alimente un catalogue de métadonnées (dictionnaire de données) consommable par les équipes BI.</p>
+            <div class="agent-meta">Entrée : StarSchema · Sortie : JSON catalogue</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">15</div>
+            <h3>Planificateur</h3>
+            <p>Organise les rafraîchissements futurs : fréquence, fenêtre, dépendances, notifications.</p>
+            <div class="agent-meta">Entrée : préférences · Sortie : plan cron</div>
+          </div>
+          <div class="agent-card">
+            <div class="agent-num">16</div>
+            <h3>Guide UX</h3>
+            <p>Fournit des explications contextuelles à l'utilisateur (tooltips, infobulles) et propose les bonnes actions suivantes.</p>
+            <div class="agent-meta">Entrée : contexte UI · Sortie : messages &amp; actions</div>
+          </div>
+        </div>
+
+        <h2>Exécution : l'Orchestrateur</h2>
+        <p>L'orchestrateur n'est pas un agent — c'est le <em>chef d'orchestre</em>. Il maintient l'état, décide de l'ordre, arbitre les conflits entre agents. Son graphe est <strong>cyclique</strong> : un pipeline normal suit 1 → 2 → … → 13, mais l'Auditeur peut renvoyer à 3 ou 5 si la qualité est insuffisante.</p>
+
+        <pre><code>wf = StateGraph(PipelineState)
+wf.add_node("ingestion", ingestion_agent)
+wf.add_node("profiler",  profiler_agent)
+# …
+wf.add_conditional_edges(
+  "auditor",
+  lambda s: "cleaner" if s["quality"] < 0.85 else "modeler",
+  {"cleaner": "cleaner", "modeler": "modeler"},
+)</code></pre>
+
+        <div class="callout tip"><strong>Lecture recommandée.</strong> Les prompts de chaque agent sont dans <code>api/agents/*/prompt.txt</code>. Ils sont courts, explicites et testés par des <em>évaluations</em> <code>eval_*.py</code> (régression prompts).</div>
+
+        <nav class="pager">
+          <a class="pager-prev" href="architecture.html">← Architecture</a>
+          <a class="pager-next" href="frontend.html">Interface →</a>
+        </nav>
+      </article>
+    </main>
+
+    <aside id="toc" class="toc"></aside>
+  </div>
+
+  <footer class="site-footer"><div class="footer-inner"><span>© 2026 Agent BI</span><span class="footer-links"><a href="faq.html">FAQ</a> · <a href="/">App</a></span></div></footer>
+  <script src="assets/docs.js" defer></script>
+</body>
+</html>

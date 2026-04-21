@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FAQ · Agent BI</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/docs/assets/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/docs/index.html"><img src="/logo.png" alt="Agent BI" class="logo" /><span class="brand-name">Agent BI</span><span class="badge">Docs</span></a>
+    <div class="topbar-search"><input id="search-input" type="search" placeholder="Rechercher (Ctrl+K)…" /></div>
+    <nav class="topbar-links"><a href="/" class="btn ghost">Retour à l'app</a></nav>
+    <button id="menu-toggle" class="menu-btn" aria-label="Menu">☰</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="nav-section"><div class="nav-title">Démarrer</div><ul class="nav"><li><a href="index.html">Accueil</a></li><li><a href="getting-started.html">Installation &amp; démarrage</a></li><li><a href="frontend.html">Interface &amp; expérience</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Concepts</div><ul class="nav"><li><a href="architecture.html">Architecture</a></li><li><a href="agents.html">Les 16 agents</a></li><li><a href="api.html">API &amp; intégration</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Production</div><ul class="nav"><li><a href="security.html">Sécurité</a></li><li><a href="deployment.html">Déploiement</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
+    </aside>
+
+    <main class="content">
+      <article>
+        <div class="eyebrow">Aide · FAQ</div>
+        <h1>Questions fréquentes</h1>
+        <p class="lede">Les réponses aux interrogations les plus courantes sur Agent BI — usage, limites, extensions.</p>
+
+        <h2>Usage général</h2>
+
+        <h3>Puis-je connecter d'autres SGBD que SQL Server ?</h3>
+        <p>Oui à la lecture (MySQL, PostgreSQL, Oracle, Snowflake) : l'agent Ingestion utilise SQLAlchemy pour lire presque toutes les sources JDBC/ODBC. En revanche, le chargement du <em>warehouse</em> cible par défaut SQL Server car la couche DDL utilise T-SQL (MERGE, SCD Type 2). Un adaptateur PostgreSQL est prévu dans la roadmap.</p>
+
+        <h3>Quelle taille de fichier est supportée ?</h3>
+        <p>Les tests passent jusqu'à 2 Go d'Excel ou 10 Go de CSV sur une machine à 16 Go de RAM. Au-delà, il est préférable de passer par le connecteur SGBD pour éviter les lectures en mémoire.</p>
+
+        <h3>Quelle langue comprend l'agent NL→SQL ?</h3>
+        <p>Français, anglais et arabe par défaut. D'autres langues sont possibles en ajustant le prompt système, mais les résultats sont meilleurs en français et anglais (corpus d'entraînement plus riche sur le SQL).</p>
+
+        <h2>Modélisation</h2>
+
+        <h3>Le modeleur peut-il générer un <em>snowflake</em> et pas seulement une étoile ?</h3>
+        <p>Oui, via l'option <code>model_style: "snowflake"</code> du payload <code>/api/start</code>. Le mode par défaut reste l'étoile car il offre les meilleures performances analytiques pour 90 % des cas.</p>
+
+        <h3>Et les dimensions lentement changeantes (SCD) ?</h3>
+        <p>L'option <code>enable_scd2: true</code> active le <strong>type 2</strong> sur les dimensions détectées comme historisables (par ex. adresse client). La DDL injecte <code>ValidFrom</code>, <code>ValidTo</code>, <code>IsCurrent</code> et le chargeur gère l'historisation via MERGE.</p>
+
+        <h3>Comment exclure une colonne sensible ?</h3>
+        <p>Dans la vue <em>Schémas</em>, ouvrez une table, cliquez sur la colonne puis <em>Exclure</em>. L'exclusion est persistée dans la config du pipeline et sera appliquée automatiquement à la prochaine exécution.</p>
+
+        <h2>LLM &amp; coûts</h2>
+
+        <h3>Combien coûte un pipeline ?</h3>
+        <p>En moyenne, 0,12 USD pour un dataset de 100 k lignes / 20 colonnes, tous agents compris. Les coûts sont dominés par le modeleur et l'analyste. Un cache de prompts réduit de 30 % le coût des runs répétés sur une même source.</p>
+
+        <h3>Puis-je utiliser un autre LLM ?</h3>
+        <p>Oui. Le wrapper <code>llm_client.py</code> est abstrait ; une implémentation OpenAI GPT-4 et une implémentation locale (Ollama + Llama 3) sont disponibles dans la branche expérimentale. Attention : la qualité des décisions de modélisation est supérieure avec Claude Sonnet 4.5 dans nos évaluations.</p>
+
+        <h2>Performance</h2>
+
+        <h3>Pourquoi le pipeline semble-t-il "attendre" entre les étapes ?</h3>
+        <p>Les étapes cognitives (profileur, modeleur, analyste) appellent le LLM — la latence est incompressible (2 à 8 s par appel). Le chargeur, lui, est limité par SQL Server. Surveillez la <em>console live</em> : chaque étape publie sa durée, vous saurez immédiatement où se situe le goulet.</p>
+
+        <h3>Comment accélérer les chargements ?</h3>
+        <ul>
+          <li>Activer <code>bulk_insert: true</code> (utilise BCP sous le capot) dans <code>/api/start</code>.</li>
+          <li>Créer des index <em>columnstore</em> sur les tables de faits.</li>
+          <li>Partitionner les faits par année / mois pour les très gros volumes.</li>
+        </ul>
+
+        <h2>Dépannage</h2>
+
+        <h3>La console reste vide après <em>Lancer</em>.</h3>
+        <p>Ouvrez la devtools (onglet Network) et vérifiez <code>/api/pipeline-stream</code> : statut <code>200</code> attendu. Si 401, le JWT a expiré (reconnectez-vous). Si 404, le backend n'a pas démarré ou l'URL du proxy est mauvaise.</p>
+
+        <h3>Erreur "ODBC Driver not found".</h3>
+        <p>Installez le driver Microsoft ODBC 18 for SQL Server (<a href="https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server">documentation Microsoft</a>). Sur Debian/Ubuntu :
+        </p>
+        <pre><code>curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+sudo apt update
+sudo ACCEPT_EULA=Y apt install -y msodbcsql18</code></pre>
+
+        <h3>Comment réinitialiser un pipeline bloqué ?</h3>
+        <p>Rechargez la page (la session SSE sera refermée). Côté serveur, la tâche en cours est annulée au bout de 10 min d'inactivité ; vous pouvez aussi appeler <code>POST /api/cancel?session=…</code>.</p>
+
+        <h2>Contribution</h2>
+
+        <h3>Comment proposer un nouvel agent ?</h3>
+        <p>Fork, créez un dossier <code>api/agents/monagent/</code> avec <code>agent.py</code>, <code>prompt.txt</code>, <code>tests/</code>. Ajoutez-le au graphe dans <code>api/agents/__init__.py</code>. Ouvrez une PR : notre CI lance les évaluations automatiques.</p>
+
+        <h3>Où signaler un bug ?</h3>
+        <p>Sur GitHub, avec un minimum d'informations : version, source utilisée, logs SSE (console navigateur), et étapes de reproduction. Les traces côté serveur se trouvent dans <code>api/logs/agentbi.log</code>.</p>
+
+        <nav class="pager">
+          <a class="pager-prev" href="deployment.html">← Déploiement</a>
+          <a class="pager-next" href="index.html">Retour à l'accueil →</a>
+        </nav>
+      </article>
+    </main>
+
+    <aside id="toc" class="toc"></aside>
+  </div>
+
+  <footer class="site-footer"><div class="footer-inner"><span>© 2026 Agent BI</span><span class="footer-links"><a href="index.html">Docs</a> · <a href="/">App</a></span></div></footer>
+  <script src="assets/docs.js" defer></script>
+</body>
+</html>

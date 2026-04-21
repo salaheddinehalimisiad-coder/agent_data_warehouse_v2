@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Déploiement · Agent BI</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/docs/assets/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/docs/index.html"><img src="/logo.png" alt="Agent BI" class="logo" /><span class="brand-name">Agent BI</span><span class="badge">Docs</span></a>
+    <div class="topbar-search"><input id="search-input" type="search" placeholder="Rechercher (Ctrl+K)…" /></div>
+    <nav class="topbar-links"><a href="/" class="btn ghost">Retour à l'app</a></nav>
+    <button id="menu-toggle" class="menu-btn" aria-label="Menu">☰</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="nav-section"><div class="nav-title">Démarrer</div><ul class="nav"><li><a href="index.html">Accueil</a></li><li><a href="getting-started.html">Installation &amp; démarrage</a></li><li><a href="frontend.html">Interface &amp; expérience</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Concepts</div><ul class="nav"><li><a href="architecture.html">Architecture</a></li><li><a href="agents.html">Les 16 agents</a></li><li><a href="api.html">API &amp; intégration</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Production</div><ul class="nav"><li><a href="security.html">Sécurité</a></li><li><a href="deployment.html">Déploiement</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
+    </aside>
+
+    <main class="content">
+      <article>
+        <div class="eyebrow">Production · Déploiement</div>
+        <h1>Déploiement</h1>
+        <p class="lede">Agent BI se déploie en deux conteneurs : <strong>api</strong> (FastAPI + agents) et <strong>web</strong> (Nginx + front statique). SQL Server peut être externe (Azure SQL recommandé) ou conteneurisé pour les environnements de dev.</p>
+
+        <h2>Topologie de référence</h2>
+        <ul>
+          <li><strong>Reverse proxy</strong> : Nginx (TLS, HSTS, compression, cache statique).</li>
+          <li><strong>Web</strong> : Nginx servant <code>dist/</code> généré par Vite.</li>
+          <li><strong>API</strong> : <code>uvicorn</code> (<code>--workers 2</code> minimum) derrière le proxy.</li>
+          <li><strong>Base</strong> : SQL Server managé (Azure SQL DB, RDS SQL Server, etc.).</li>
+          <li><strong>Observabilité</strong> : Prometheus scrape <code>/metrics</code> ; Grafana pour les dashboards.</li>
+        </ul>
+
+        <h2>Docker Compose (démarrage rapide)</h2>
+        <pre><code># docker-compose.yml (extrait)
+services:
+  api:
+    build: ./api
+    env_file: .env.deploy
+    ports: ["8000:8000"]
+    volumes:
+      - agentbi_uploads:/data/uploads
+    restart: unless-stopped
+
+  web:
+    build: ./
+    ports: ["80:80"]
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  agentbi_uploads:</code></pre>
+
+        <p>Commande de lancement :</p>
+        <pre><code>docker compose --env-file .env.deploy up --build -d
+docker compose logs -f api</code></pre>
+
+        <div class="callout tip"><strong>Builds multi-étapes.</strong> Le <code>Dockerfile</code> du front est <em>multi-stage</em> : étape <em>builder</em> (Node 20 → <code>npm run build</code>), étape <em>runtime</em> (Nginx copie <code>dist/</code>). L'image finale pèse ~40 Mo.</p></div>
+
+        <h2>Variables d'environnement clés</h2>
+        <table>
+          <thead><tr><th>Variable</th><th>Obligatoire</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>ANTHROPIC_API_KEY</code></td><td>oui</td><td>Clé Claude Sonnet 4.5</td></tr>
+            <tr><td><code>SQL_SERVER_HOST</code>, <code>_PORT</code>, <code>_DB</code>, <code>_USER</code>, <code>_PASSWORD</code></td><td>oui</td><td>Connexion SQL Server</td></tr>
+            <tr><td><code>JWT_SECRET</code></td><td>oui</td><td>≥ 32 octets aléatoires</td></tr>
+            <tr><td><code>JWT_ISSUER</code></td><td>non</td><td>défaut <code>agent-bi</code></td></tr>
+            <tr><td><code>CORS_ORIGINS</code></td><td>oui</td><td>Liste séparée par virgules</td></tr>
+            <tr><td><code>RATE_LIMIT_RPS</code></td><td>non</td><td>défaut 60</td></tr>
+            <tr><td><code>LOG_LEVEL</code></td><td>non</td><td><code>INFO</code> / <code>DEBUG</code></td></tr>
+          </tbody>
+        </table>
+
+        <h2>Nginx : proxy &amp; SSE</h2>
+        <p>Attention au buffering : désactivez-le sur la route SSE, sinon les événements arrivent en paquets tardifs.</p>
+        <pre><code>location /api/pipeline-stream {
+  proxy_pass http://api:8000;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_buffering off;
+  proxy_cache off;
+  proxy_read_timeout 3600s;
+}</code></pre>
+
+        <h2>Kubernetes (résumé)</h2>
+        <ul>
+          <li>1 Deployment pour l'API (<code>replicas: 2</code>, HPA sur CPU et RPS).</li>
+          <li>1 Deployment pour le web (statique, <code>replicas: 2</code>).</li>
+          <li>Service <code>ClusterIP</code> + Ingress (NGINX / Traefik) avec <em>sticky sessions</em> pour SSE.</li>
+          <li>Secrets montés via <em>External Secrets Operator</em> ou CSI driver.</li>
+          <li>ConfigMap pour les paramètres non sensibles.</li>
+        </ul>
+
+        <h2>Mises à jour (zero-downtime)</h2>
+        <ol>
+          <li>Build des nouvelles images avec tag <code>vX.Y.Z</code>.</li>
+          <li>Rolling update côté API (<code>maxSurge: 1</code>, <code>maxUnavailable: 0</code>).</li>
+          <li>Le web est invalidé côté CDN après déploiement.</li>
+          <li>Vérification via <code>/api/health</code> et <code>/api/version</code>.</li>
+        </ol>
+
+        <h2>CI/CD</h2>
+        <p>Le workflow GitHub Actions (<code>.github/workflows/ci.yml</code>) lance :</p>
+        <ul>
+          <li><strong>Python</strong> : <code>pytest</code>, <code>mypy</code>, <code>ruff</code>.</li>
+          <li><strong>Node</strong> : <code>npm run build</code>, <code>npm test</code>, <code>eslint</code>.</li>
+          <li><strong>Docker</strong> : <code>buildx</code> multi-arch, push sur GHCR.</li>
+        </ul>
+
+        <h2>Sauvegarde &amp; restauration</h2>
+        <p>Planifiez au moins une sauvegarde complète quotidienne + journaux des transactions toutes les 15 min. Testez la restauration sur un environnement de <em>staging</em> chaque trimestre — une sauvegarde non testée n'existe pas.</p>
+
+        <div class="callout warn"><strong>RTO &amp; RPO.</strong> À moins d'exigences particulières, viser RTO &lt; 1 h et RPO &lt; 15 min couvre la majorité des besoins BI.</div>
+
+        <nav class="pager">
+          <a class="pager-prev" href="security.html">← Sécurité</a>
+          <a class="pager-next" href="faq.html">FAQ →</a>
+        </nav>
+      </article>
+    </main>
+
+    <aside id="toc" class="toc"></aside>
+  </div>
+
+  <footer class="site-footer"><div class="footer-inner"><span>© 2026 Agent BI</span><span class="footer-links"><a href="faq.html">FAQ</a> · <a href="/">App</a></span></div></footer>
+  <script src="assets/docs.js" defer></script>
+</body>
+</html>

@@ -405,7 +405,7 @@ def _generate_pdf_fpdf2(state: dict, session_id: str) -> str:
     pdf.set_font("Helvetica", "I", 7)
     pdf.set_text_color(*gray)
     pdf.cell(0, 5,
-             f"Rapport généré par Antigravity BI v6.0 — {generated_at}",
+             f"Rapport généré par Agent BI v6.0 — {generated_at}",
              new_x="LMARGIN", new_y="NEXT", align="C")
 
     pdf.output(pdf_path)
@@ -579,7 +579,7 @@ def _generate_pdf_reportlab(state: dict, session_id: str) -> str:
     story.append(Spacer(1, 0.5*cm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#e2e8f0")))
     story.append(Paragraph(
-        f"<font size=8 color='#94a3b8'>Rapport généré par Antigravity BI v6.0 — {generated_at}</font>",
+        f"<font size=8 color='#94a3b8'>Rapport généré par Agent BI v6.0 — {generated_at}</font>",
         ParagraphStyle("Footer", parent=body_style, alignment=TA_CENTER)
     ))
 
@@ -888,7 +888,7 @@ def generate_powerbi_template(state: dict, session_id: str) -> bytes:
 
     # ── Power Query M script (connexion + import FACT + DIM) ─────────────────
     m_lines = [
-        "// Power Query M — Antigravity BI Auto-Generated Connection",
+        "// Power Query M — Agent BI Auto-Generated Connection",
         f"// Session : {session_id}",
         f"// Généré le {datetime.now().isoformat()}",
         "//",
@@ -907,7 +907,7 @@ def generate_powerbi_template(state: dict, session_id: str) -> bytes:
     pqt_content = "\n".join(m_lines)
 
     # ── README détaillé ──────────────────────────────────────────────────────
-    readme = f"""# Connexion Power BI ↔ Antigravity BI Data Warehouse
+    readme = f"""# Connexion Power BI ↔ Agent BI Data Warehouse
 
 **Session :** `{session_id}`
 **Base cible :** `{db_name}`
@@ -948,7 +948,7 @@ Le fichier `connection.pqt` inclus contient un script M prêt à coller :
 
 ## 4. Modèle de données (Star Schema)
 
-Le pipeline Antigravity BI a généré un schéma en étoile / constellation :
+Le pipeline Agent BI a généré un schéma en étoile / constellation :
 
 - **{len(fact_names)} table(s) de faits** (FACT_*)
 - **{len(dim_names)} dimension(s)** (DIM_*)
@@ -986,7 +986,7 @@ Le DW est exposé en standard SQL Server → compatible avec :
 
 ---
 
-_Généré automatiquement par Antigravity BI v5.0 — {datetime.now().strftime("%Y-%m-%d %H:%M")}_
+_Généré automatiquement par Agent BI v5.0 — {datetime.now().strftime("%Y-%m-%d %H:%M")}_
 """
 
     manifest = {

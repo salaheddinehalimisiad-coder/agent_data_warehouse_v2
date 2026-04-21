@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API &amp; intégration · Agent BI</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/docs/assets/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/docs/index.html"><img src="/logo.png" alt="Agent BI" class="logo" /><span class="brand-name">Agent BI</span><span class="badge">Docs</span></a>
+    <div class="topbar-search"><input id="search-input" type="search" placeholder="Rechercher (Ctrl+K)…" /></div>
+    <nav class="topbar-links"><a href="/" class="btn ghost">Retour à l'app</a></nav>
+    <button id="menu-toggle" class="menu-btn" aria-label="Menu">☰</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="nav-section"><div class="nav-title">Démarrer</div><ul class="nav"><li><a href="index.html">Accueil</a></li><li><a href="getting-started.html">Installation &amp; démarrage</a></li><li><a href="frontend.html">Interface &amp; expérience</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Concepts</div><ul class="nav"><li><a href="architecture.html">Architecture</a></li><li><a href="agents.html">Les 16 agents</a></li><li><a href="api.html">API &amp; intégration</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Production</div><ul class="nav"><li><a href="security.html">Sécurité</a></li><li><a href="deployment.html">Déploiement</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
+    </aside>
+
+    <main class="content">
+      <article>
+        <div class="eyebrow">Référence · API</div>
+        <h1>API &amp; intégration</h1>
+        <p class="lede">Agent BI expose une API REST classique pour les actions ponctuelles, et un flux <strong>Server-Sent Events</strong> pour la console live. Tout passe par un token JWT (<code>Authorization: Bearer &lt;token&gt;</code>).</p>
+
+        <h2>Authentification</h2>
+        <h3><code>POST /api/auth/register</code></h3>
+        <pre><code>{
+  "email": "alice@example.com",
+  "password": "…"
+}</code></pre>
+        <p>Crée un compte. Retour : <code>201</code> + <code>{user_id, email}</code>.</p>
+
+        <h3><code>POST /api/auth/login</code></h3>
+        <pre><code>{
+  "email": "alice@example.com",
+  "password": "…"
+}</code></pre>
+        <p>Retourne un JWT signé (HS256) : <code>{"access_token": "eyJ…", "token_type": "bearer", "expires_in": 86400}</code>.</p>
+
+        <div class="callout note">Le token porte les claims <code>sub</code>, <code>iss=agent-bi</code>, <code>exp</code>, <code>roles</code>. Toute requête au-delà de <em>login/register</em> exige l'en-tête <code>Authorization</code>.</div>
+
+        <h2>Pipeline</h2>
+        <h3><code>POST /api/upload</code></h3>
+        <p>Multipart form-data ; champ <code>file</code>. Retour : <code>{ "upload_id": "...", "kind": "xlsx" | "csv" }</code>.</p>
+
+        <h3><code>POST /api/start</code></h3>
+        <pre><code>{
+  "source_type": "upload" | "sqlserver",
+  "upload_id": "uuid",              // si upload
+  "sql": { "host": "...", "db": "..." }, // si sgbd
+  "options": { "target": "star", "enable_scd2": true }
+}</code></pre>
+        <p>Retour immédiat : <code>{"session_id": "uuid", "status": "started"}</code>. Le pipeline s'exécute en tâche de fond ; la progression est diffusée via SSE.</p>
+
+        <h3><code>GET /api/pipeline-stream?session=…</code></h3>
+        <p>Flux <em>text/event-stream</em>. Exemples d'événements :</p>
+        <pre><code>event: log
+data: {"level":"info","step":"ingestion","message":"12 400 lignes chargées"}
+
+event: progress
+data: {"percent": 32, "step": "modeling"}
+
+event: done
+data: {"success": true, "star_schema": {...}}</code></pre>
+
+        <div class="callout tip"><strong>Reconnexion sûre.</strong> Si le client se déconnecte puis revient, les messages manqués sont <em>rejoués</em> depuis le buffer serveur (deque par session, capacité 500).</div>
+
+        <h2>Requête en langage naturel</h2>
+        <h3><code>POST /api/query</code></h3>
+        <pre><code>{
+  "session_id": "uuid",
+  "question": "Top 5 produits par marge en 2025"
+}</code></pre>
+        <p>Retour :</p>
+        <pre><code>{
+  "sql": "SELECT p.Nom, SUM(f.Marge) AS m FROM Fact_Ventes f …",
+  "rows": [ {"Nom": "Produit A", "m": 128430}, … ],
+  "chart": { "type": "bar", "x": "Nom", "y": "m" }
+}</code></pre>
+
+        <h2>Exports</h2>
+        <h3><code>POST /api/export/{format}</code></h3>
+        <p><code>format</code> ∈ <code>pdf | pptx | html | xlsx | powerbi</code>. Corps :</p>
+        <pre><code>{
+  "session_id": "uuid",
+  "include": ["schema", "kpis", "top-queries"]
+}</code></pre>
+        <p>Retour : <code>{"url": "/files/exports/abc123.pdf"}</code>. Les fichiers sont signés et expirent au bout de 24 h.</p>
+
+        <h2>Santé &amp; versions</h2>
+        <pre><code>GET /api/health
+→ {"status": "ok", "uptime_s": 124356, "version": "1.0.0"}
+
+GET /api/version
+→ {"agent_bi": "1.0.0", "llm": "claude-sonnet-4-5"}</code></pre>
+
+        <h2>Codes d'erreur</h2>
+        <table>
+          <thead><tr><th>Code</th><th>Signification</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td>401</td><td>JWT absent / expiré</td><td>Rafraîchir via login</td></tr>
+            <tr><td>403</td><td>Rôle insuffisant</td><td>Demander un rôle plus élevé</td></tr>
+            <tr><td>404</td><td>Session inconnue</td><td>Lancer un nouveau pipeline</td></tr>
+            <tr><td>409</td><td>Conflit (pipeline déjà en cours)</td><td>Attendre ou annuler</td></tr>
+            <tr><td>429</td><td>Rate limit</td><td>Backoff exponentiel</td></tr>
+            <tr><td>502</td><td>LLM indisponible</td><td>Réessayer ; fallback auto côté serveur</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Webhooks (optionnel)</h2>
+        <p>Pour intégrer Agent BI à un ordonnanceur externe, configurez <code>WEBHOOK_URL</code> dans <code>.env</code>. À la fin de chaque pipeline, une requête <code>POST</code> est envoyée avec le payload <code>{session_id, success, duration_ms, star_schema_hash}</code>, signée HMAC-SHA256 via <code>WEBHOOK_SECRET</code>.</p>
+
+        <h2>Clients officiels</h2>
+        <ul>
+          <li><strong>JavaScript</strong> : <code>@agent-bi/client</code> — wrap fetch + EventSource, gestion automatique du JWT.</li>
+          <li><strong>Python</strong> : <code>agent_bi_client</code> — basé sur <code>httpx</code> et <code>sseclient</code>.</li>
+        </ul>
+
+        <pre><code>import { AgentBI } from "@agent-bi/client";
+const client = new AgentBI({ token });
+const session = await client.start({ upload_id });
+client.onLog(session.id, (e) =&gt; console.log(e));
+await client.done(session.id);</code></pre>
+
+        <nav class="pager">
+          <a class="pager-prev" href="frontend.html">← Interface</a>
+          <a class="pager-next" href="security.html">Sécurité →</a>
+        </nav>
+      </article>
+    </main>
+
+    <aside id="toc" class="toc"></aside>
+  </div>
+
+  <footer class="site-footer"><div class="footer-inner"><span>© 2026 Agent BI</span><span class="footer-links"><a href="faq.html">FAQ</a> · <a href="/">App</a></span></div></footer>
+  <script src="assets/docs.js" defer></script>
+</body>
+</html>

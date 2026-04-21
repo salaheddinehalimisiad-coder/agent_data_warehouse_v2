@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Architecture · Agent BI</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/docs/assets/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/docs/index.html"><img src="/logo.png" alt="Agent BI" class="logo" /><span class="brand-name">Agent BI</span><span class="badge">Docs</span></a>
+    <div class="topbar-search"><input id="search-input" type="search" placeholder="Rechercher (Ctrl+K)…" /></div>
+    <nav class="topbar-links"><a href="/" class="btn ghost">Retour à l'app</a></nav>
+    <button id="menu-toggle" class="menu-btn" aria-label="Menu">☰</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="nav-section"><div class="nav-title">Démarrer</div><ul class="nav"><li><a href="index.html">Accueil</a></li><li><a href="getting-started.html">Installation &amp; démarrage</a></li><li><a href="frontend.html">Interface &amp; expérience</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Concepts</div><ul class="nav"><li><a href="architecture.html">Architecture</a></li><li><a href="agents.html">Les 16 agents</a></li><li><a href="api.html">API &amp; intégration</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Production</div><ul class="nav"><li><a href="security.html">Sécurité</a></li><li><a href="deployment.html">Déploiement</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
+    </aside>
+
+    <main class="content">
+      <article>
+        <div class="eyebrow">Concepts · Architecture</div>
+        <h1>Architecture technique</h1>
+        <p class="lede">Agent BI est construit autour d'une règle simple : <strong>une couche, un rôle, un contrat</strong>. Comprendre ces contrats permet de modifier n'importe quelle pièce sans casser le reste.</p>
+
+        <figure>
+          <img src="assets/img/architecture.svg" alt="Architecture" />
+          <figcaption>Les quatre couches : interface, API, orchestration, données &amp; LLM.</figcaption>
+        </figure>
+
+        <h2>Vue macroscopique</h2>
+        <p>De haut en bas : le <strong>front React</strong> propose une UX guidée qui ne sait rien du métier ; l'<strong>API FastAPI</strong> expose des endpoints REST et SSE ; l'<strong>orchestrateur LangGraph</strong> coordonne les 16 agents spécialisés ; la couche <strong>données</strong> abstrait la persistance (SQL Server, datalake, cache) ; enfin la couche <strong>LLM</strong> isole la communication avec Claude.</p>
+
+        <div class="callout note"><strong>Pourquoi cette séparation ?</strong> Parce qu'un LLM peut être remplacé, un SGBD peut migrer, une UI peut être redesignée &mdash; mais la logique métier, elle, doit rester stable. Isoler chaque couche permet de faire évoluer les composants au rythme imposé par leur propre cycle de vie.</p></div>
+
+        <h2>Frontend : React + Zustand</h2>
+        <p>L'application Vite/React utilise <strong>Zustand</strong> comme store global (et non Redux) pour deux raisons : une API minimale (quelques lignes par slice) et des sélecteurs sans boilerplate. Le store <code>pipelineStore.js</code> expose trois domaines : <em>session</em> (JWT, utilisateur), <em>pipeline</em> (id de run, étapes, progression) et <em>stream</em> (logs SSE rolling-buffered).</p>
+        <p>La navigation repose sur un état <code>appView</code> (<em>landing</em>, <em>auth</em>, <em>dashboard</em>). L'<strong>auth gate</strong> dans <code>App.jsx</code> garantit que l'entrée dans <em>dashboard</em> exige un token valide ; toute expiration ramène automatiquement l'utilisateur à la landing.</p>
+
+        <h3>Streaming live</h3>
+        <p>Le front ouvre une connexion <code>EventSource</code> sur <code>/api/pipeline-stream?session=…</code>. Nous attendons explicitement <code>onopen</code> avant d'émettre <code>/api/start</code>, ce qui supprime la race condition qui faisait disparaître les premiers logs. Une <em>promise</em> de readiness est injectée dans le store puis résolue à l'ouverture du canal.</p>
+
+        <figure>
+          <img src="assets/img/sse-flow.svg" alt="Flux SSE" />
+          <figcaption>Le buffer côté serveur rejoue les événements manqués si la connexion arrive tardivement.</figcaption>
+        </figure>
+
+        <h2>API : FastAPI + SSE</h2>
+        <p>FastAPI combine trois atouts : annotations Pydantic pour la validation, <code>async</code> natif pour les I/O, et dépendances injectables (JWT, DB, SSE). Le fichier <code>api/routes/pipeline.py</code> expose les routes publiques :</p>
+
+        <pre><code># Endpoints principaux
+POST /api/start              # démarre un pipeline (BackgroundTasks)
+GET  /api/pipeline-stream    # flux SSE (buffer + live)
+POST /api/query              # langage naturel → SQL + résultats
+POST /api/upload             # dépôt de fichier Excel/CSV
+POST /api/export/{format}    # pdf | pptx | html | xlsx
+POST /api/auth/login         # JWT
+POST /api/auth/register      # création de compte</code></pre>
+
+        <p>Le service <code>sse.py</code> implémente une file asyncio par session, plus un tampon circulaire (deque de 500 messages) qui conserve les premiers événements si le client n'est pas encore connecté. À la connexion du client, on <em>draine</em> le tampon puis on entre dans la boucle live.</p>
+
+        <div class="callout tip"><strong>Détail critique.</strong> Chaque tâche d'arrière-plan s'enregistre avec <code>task.add_done_callback(_observe)</code> : toute exception est capturée et renvoyée au front sous forme d'événement <em>error</em>. Plus de silence en production.</div>
+
+        <h2>Orchestration : LangGraph</h2>
+        <p>LangGraph permet de construire des <em>StateGraphs</em> cycliques : à la différence d'un pipeline linéaire, un agent peut re-déclencher un prédécesseur (par ex. l'<em>Auditeur</em> renvoie au <em>Nettoyeur</em> si la qualité n'est pas au rendez-vous). L'état global est un <code>TypedDict</code> partagé ; les mises à jour passent par des <em>reducers</em> pour éviter les conflits de merge.</p>
+
+        <pre><code>state: dict = {
+  "dataset": DataFrame,
+  "profile": ProfileReport,
+  "schema_3nf": List[Table],
+  "schema_star": StarSchema,
+  "loads": List[LoadResult],
+  "kpis": List[KPI],
+  "issues": List[Issue],
+  "metadata": PipelineMeta,
+}</code></pre>
+
+        <p>Le <em>streaming</em> s'active via <code>wf.astream(state, stream_mode="updates")</code> : à chaque transition, l'orchestrateur pousse un événement SSE (étape, progression, message). Les pannes partielles sont gérées par des <em>retry policies</em> et un <em>fallback</em> vers un plan dégradé prédéfini.</p>
+
+        <h2>Données &amp; LLM</h2>
+        <p>Côté persistance, trois zones coexistent : le <em>staging</em> (tables brutes 3NF), le <em>warehouse</em> (schéma en étoile), le <em>datalake</em> (fichiers bruts conservés pour l'auditabilité). Côté LLM, un wrapper <code>anthropic_client.py</code> centralise les appels à Claude Sonnet 4.5 avec cache de prompts et limite de tokens.</p>
+
+        <figure>
+          <img src="assets/img/star-schema.svg" alt="Schéma en étoile" />
+          <figcaption>Exemple de sortie : un fait <em>Ventes</em> entouré de ses dimensions.</figcaption>
+        </figure>
+
+        <h2>Patrons transverses</h2>
+        <ol>
+          <li><strong>Idempotence.</strong> Chaque agent peut être rejoué sans effet de bord grâce à des clés déterministes (hash de l'entrée + version de prompt).</li>
+          <li><strong>Observabilité.</strong> Logs structurés, corrélés par <code>session_id</code>, exportés vers SSE et, en option, vers un collecteur externe.</li>
+          <li><strong>Backpressure.</strong> Les files asyncio sont bornées ; un agent trop rapide ne peut pas inonder la UI.</li>
+          <li><strong>Dégradé contrôlé.</strong> Un plan de secours permet de livrer une étoile canonique si Claude échoue ou coûte trop.</li>
+        </ol>
+
+        <h2>Déploiement de référence</h2>
+        <p>Le <code>docker-compose.yml</code> fourni démontre une topologie à deux services (<em>api</em>, <em>web</em>) derrière un reverse proxy Nginx. Un ajout trivial permet d'intercaler un <em>load balancer</em> en amont et plusieurs instances API en aval &mdash; les sessions SSE s'épinglent via <code>ip_hash</code>.</p>
+
+        <nav class="pager">
+          <a class="pager-prev" href="getting-started.html">← Installation</a>
+          <a class="pager-next" href="agents.html">Les 16 agents →</a>
+        </nav>
+      </article>
+    </main>
+
+    <aside id="toc" class="toc"></aside>
+  </div>
+
+  <footer class="site-footer"><div class="footer-inner"><span>© 2026 Agent BI</span><span class="footer-links"><a href="faq.html">FAQ</a> · <a href="/">App</a></span></div></footer>
+  <script src="assets/docs.js" defer></script>
+</body>
+</html>

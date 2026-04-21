@@ -109,12 +109,33 @@ def _persist(session_id: str) -> None:
 # ─── Lancement ────────────────────────────────────────────────────────────────
 
 async def run_pipeline(session_id: str, config: dict) -> None:
-    """Point d'entrée appelé par FastAPI BackgroundTask."""
+    """Point d'entrée appelé par FastAPI BackgroundTask.
+
+    FIX v3.2 — on attache un callback `done` à la tâche pour que toute
+    exception qui remonterait en dehors du try/except de _run_inner_impl
+    soit tracée et rapportée via SSE, au lieu d'être avalée silencieusement.
+    """
     existing = _pipeline_tasks.get(session_id)
     if existing and not existing.done():
         existing.cancel()
+
     task = asyncio.create_task(_run_inner(session_id, config))
     _pipeline_tasks[session_id] = task
+
+    def _observe(t: asyncio.Task) -> None:
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.exception(f"[Pipeline] Tâche {session_id} a échoué", exc_info=exc)
+            try:
+                sse = _get_sse()
+                sse.log_event(session_id, f"❌ Erreur interne : {exc}", level="error")
+                sse.pipeline_complete(session_id, False, {"error": str(exc)})
+            except Exception:
+                pass
+
+    task.add_done_callback(_observe)
 
 
 async def _run_inner(session_id: str, config: dict) -> None:

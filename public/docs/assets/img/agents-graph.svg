@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" width="100%" role="img" aria-label="Graphe des 16 agents">
+  <defs>
+    <linearGradient id="bgG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#0e1426"/></linearGradient>
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#4338ca"/>
+    </radialGradient>
+    <marker id="arG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="680" fill="url(#bgG)"/>
+  <text x="600" y="40" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="800" fill="#e8ebff">Les 16 agents spécialisés</text>
+  <text x="600" y="64" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="#94a3b8">Orchestrés par un StateGraph cyclique · communication via un état partagé</text>
+
+  <!-- Center -->
+  <g transform="translate(600,360)" font-family="Inter, system-ui, sans-serif">
+    <circle r="86" fill="url(#core)" stroke="#a78bfa"/>
+    <text text-anchor="middle" y="-6" font-size="16" font-weight="800" fill="#fff">Orchestrateur</text>
+    <text text-anchor="middle" y="14" font-size="12" fill="#ddd6fe">StateGraph</text>
+    <text text-anchor="middle" y="32" font-size="11" fill="#ddd6fe">LangGraph</text>
+  </g>
+
+  <!-- Agent nodes around the core -->
+  <g font-family="Inter, system-ui, sans-serif" font-size="11" fill="#e5e7eb">
+
+    <!-- 1 -->
+    <g transform="translate(120,150)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">1 · Ingestion</text><text x="12" y="40">Excel / CSV / SGBD</text></g>
+    <!-- 2 -->
+    <g transform="translate(310,90)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">2 · Profileur</text><text x="12" y="40">Types, nuls, cardinalité</text></g>
+    <!-- 3 -->
+    <g transform="translate(510,90)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">3 · Nettoyeur</text><text x="12" y="40">Dédup, formats, unités</text></g>
+    <!-- 4 -->
+    <g transform="translate(710,90)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">4 · Normaliseur</text><text x="12" y="40">3NF / Codd</text></g>
+    <!-- 5 -->
+    <g transform="translate(910,150)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">5 · Modeleur</text><text x="12" y="40">Faits &amp; dimensions</text></g>
+    <!-- 6 -->
+    <g transform="translate(980,250)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">6 · Chargeur</text><text x="12" y="40">SQL Server DW</text></g>
+    <!-- 7 -->
+    <g transform="translate(1010,360)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">7 · Analyste</text><text x="12" y="40">KPIs, dashboards</text></g>
+    <!-- 8 -->
+    <g transform="translate(980,470)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">8 · Narrateur</text><text x="12" y="40">NL → SQL</text></g>
+    <!-- 9 -->
+    <g transform="translate(910,570)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">9 · Auditeur</text><text x="12" y="40">Qualité &amp; cohérence</text></g>
+    <!-- 10 -->
+    <g transform="translate(710,620)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">10 · Gardien</text><text x="12" y="40">Erreurs &amp; retries</text></g>
+    <!-- 11 -->
+    <g transform="translate(510,620)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">11 · Historien</text><text x="12" y="40">Lignée des données</text></g>
+    <!-- 12 -->
+    <g transform="translate(310,620)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">12 · Sécurisateur</text><text x="12" y="40">RBAC &amp; secrets</text></g>
+    <!-- 13 -->
+    <g transform="translate(120,570)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">13 · Exporteur</text><text x="12" y="40">PDF · PPT · HTML</text></g>
+    <!-- 14 -->
+    <g transform="translate(50,470)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">14 · Catalogueur</text><text x="12" y="40">Métadonnées</text></g>
+    <!-- 15 -->
+    <g transform="translate(20,360)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">15 · Planificateur</text><text x="12" y="40">Rafraîchissements</text></g>
+    <!-- 16 -->
+    <g transform="translate(50,250)"><rect width="170" height="54" rx="10" fill="#11182b" stroke="#334155"/><text x="12" y="22" font-weight="700" fill="#c7d2fe">16 · Guide</text><text x="12" y="40">UX &amp; conseils</text></g>
+  </g>
+
+  <!-- Connectors from core (600,360) to each agent midpoint -->
+  <g stroke="#475569" stroke-width="1.5" fill="none" opacity="0.7">
+    <line x1="600" y1="360" x2="205" y2="177"/>
+    <line x1="600" y1="360" x2="395" y2="117"/>
+    <line x1="600" y1="360" x2="595" y2="117"/>
+    <line x1="600" y1="360" x2="795" y2="117"/>
+    <line x1="600" y1="360" x2="995" y2="177"/>
+    <line x1="600" y1="360" x2="1065" y2="277"/>
+    <line x1="600" y1="360" x2="1095" y2="387"/>
+    <line x1="600" y1="360" x2="1065" y2="497"/>
+    <line x1="600" y1="360" x2="995" y2="597"/>
+    <line x1="600" y1="360" x2="795" y2="647"/>
+    <line x1="600" y1="360" x2="595" y2="647"/>
+    <line x1="600" y1="360" x2="395" y2="647"/>
+    <line x1="600" y1="360" x2="205" y2="597"/>
+    <line x1="600" y1="360" x2="135" y2="497"/>
+    <line x1="600" y1="360" x2="105" y2="387"/>
+    <line x1="600" y1="360" x2="135" y2="277"/>
+  </g>
+</svg>

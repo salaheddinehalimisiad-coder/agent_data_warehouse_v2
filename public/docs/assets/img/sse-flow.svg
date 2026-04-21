@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 400" width="100%" role="img" aria-label="Flux SSE temps réel">
+  <defs>
+    <linearGradient id="bgSE" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#0e1426"/></linearGradient>
+    <marker id="arSE" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#22d3ee"/></marker>
+  </defs>
+  <rect width="1000" height="400" fill="url(#bgSE)"/>
+  <text x="500" y="36" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="800" fill="#e8ebff">Flux SSE — temps réel sans perte</text>
+
+  <g font-family="Inter, system-ui, sans-serif" fill="#fff">
+    <g transform="translate(60,100)">
+      <rect width="180" height="90" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="90" y="30" text-anchor="middle" font-size="13" font-weight="700" fill="#a5f3fc">Navigateur</text>
+      <text x="90" y="52" text-anchor="middle" font-size="11" fill="#cbd5e1">EventSource</text>
+      <text x="90" y="70" text-anchor="middle" font-size="11" fill="#94a3b8">onmessage / onopen</text>
+    </g>
+    <g transform="translate(320,100)">
+      <rect width="180" height="90" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="90" y="30" text-anchor="middle" font-size="13" font-weight="700" fill="#a5f3fc">FastAPI SSE</text>
+      <text x="90" y="52" text-anchor="middle" font-size="11" fill="#cbd5e1">/api/pipeline-stream</text>
+      <text x="90" y="70" text-anchor="middle" font-size="11" fill="#94a3b8">asyncio.Queue</text>
+    </g>
+    <g transform="translate(580,100)">
+      <rect width="180" height="90" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="90" y="30" text-anchor="middle" font-size="13" font-weight="700" fill="#a5f3fc">Buffer</text>
+      <text x="90" y="52" text-anchor="middle" font-size="11" fill="#cbd5e1">Deque par session</text>
+      <text x="90" y="70" text-anchor="middle" font-size="11" fill="#94a3b8">replay au connect</text>
+    </g>
+    <g transform="translate(820,100)">
+      <rect width="140" height="90" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="70" y="30" text-anchor="middle" font-size="13" font-weight="700" fill="#a5f3fc">Orchestrateur</text>
+      <text x="70" y="52" text-anchor="middle" font-size="11" fill="#cbd5e1">LangGraph</text>
+      <text x="70" y="70" text-anchor="middle" font-size="11" fill="#94a3b8">astream()</text>
+    </g>
+
+    <g stroke="#22d3ee" stroke-width="2" fill="none" marker-end="url(#arSE)">
+      <path d="M240 145 L320 145"/>
+      <path d="M500 145 L580 145"/>
+      <path d="M760 145 L820 145"/>
+    </g>
+
+    <!-- Lower event stream illustration -->
+    <g transform="translate(60,240)">
+      <rect width="900" height="120" rx="12" fill="#0f162b" stroke="#24304f"/>
+      <text x="18" y="28" font-size="12" font-weight="700" fill="#a5f3fc">Exemple de flux d'événements</text>
+      <g font-family="JetBrains Mono, ui-monospace, monospace" font-size="11" fill="#cbd5e1">
+        <text x="18" y="52">event: log    data: {"step": "ingestion", "message": "Excel chargé (12 400 lignes)"}</text>
+        <text x="18" y="72">event: progress  data: {"percent": 18, "step": "profilage"}</text>
+        <text x="18" y="92">event: log    data: {"step": "modeling", "message": "3 faits · 7 dimensions détectés"}</text>
+        <text x="18" y="112">event: done    data: {"success": true, "duration_ms": 42130}</text>
+      </g>
+    </g>
+  </g>
+</svg>

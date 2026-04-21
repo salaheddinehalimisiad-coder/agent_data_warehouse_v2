@@ -135,15 +135,24 @@ async def pipeline_stream(
     except Exception:
         raise HTTPException(status_code=401, detail="Token invalide ou expiré")
 
-    queue = sse_service.get_or_create_queue(session_id)
+    # IMPORTANT : on enregistre la queue AVANT de rejouer le buffer afin de
+    # garantir qu'aucun événement émis entre les deux ne soit perdu.
+    queue  = sse_service.get_or_create_queue(session_id)
+    backlog = sse_service.drain_buffer(session_id)
 
     async def event_generator():
         import json
+        # 1) État courant (si session déjà en cours au moment de la connexion)
         current_state = etl_service.get_pipeline_state(session_id)
         if current_state:
             payload = {k: v for k, v in current_state.items() if k != "messages"}
-            yield f"data: {json.dumps({'type': 'initial_state', 'data': payload})}\n\n"
+            yield f"data: {json.dumps({'type': 'initial_state', 'data': payload}, default=str)}\n\n"
 
+        # 2) Historique des événements émis avant la connexion du client
+        for msg in backlog:
+            yield msg
+
+        # 3) Flux temps réel
         try:
             while True:
                 try:
@@ -421,19 +430,22 @@ QUESTION UTILISATEUR:
                 llm = get_llm(temperature=0)
                 viz_resp = llm.invoke(viz_prompt)
                 chart_config = json.loads(extract_text(viz_resp))
-                if chart_config.get("type") == "none": chart_config = None
-            except:
+                if not isinstance(chart_config, dict) or chart_config.get("type") in (None, "none", ""):
+                    chart_config = None
+            except Exception as viz_err:
+                logger.warning(f"[Query] Visualisation automatique ignorée : {viz_err}")
                 chart_config = None
 
         return {
-            "success": True,
-            "sql": generated_sql,
-            "columns": columns,
-            "rows": rows,
-            "total_rows": len(rows),
-            "chart": chart_config
+            "sql":          generated_sql,
+            "rows":         rows,
+            "columns":      columns,
+            "row_count":    len(rows),
+            "chart_config": chart_config,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Query Error: {e}")
-
+        logger.error(f"[Query] Erreur : {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")

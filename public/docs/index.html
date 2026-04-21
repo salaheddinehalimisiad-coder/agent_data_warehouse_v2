@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent BI · Documentation</title>
+  <meta name="description" content="Documentation officielle d'Agent BI : framework multi-agents pour la conception de data warehouses et l'automatisation ETL." />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/docs/assets/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/docs/index.html">
+      <img src="/logo.png" alt="Agent BI" class="logo" />
+      <span class="brand-name">Agent BI</span>
+      <span class="badge">Docs</span>
+    </a>
+    <div class="topbar-search">
+      <input id="search-input" type="search" placeholder="Rechercher (Ctrl+K)…" />
+    </div>
+    <nav class="topbar-links">
+      <a href="/" class="btn ghost">Retour à l'app</a>
+      <a href="https://github.com" class="btn primary" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </nav>
+    <button id="menu-toggle" class="menu-btn" aria-label="Menu">☰</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="nav-section">
+        <div class="nav-title">Démarrer</div>
+        <ul class="nav">
+          <li><a href="index.html">Accueil</a></li>
+          <li><a href="getting-started.html">Installation &amp; démarrage</a></li>
+          <li><a href="frontend.html">Interface &amp; expérience</a></li>
+        </ul>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">Concepts</div>
+        <ul class="nav">
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="agents.html">Les 16 agents</a></li>
+          <li><a href="api.html">API &amp; intégration</a></li>
+        </ul>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">Production</div>
+        <ul class="nav">
+          <li><a href="security.html">Sécurité</a></li>
+          <li><a href="deployment.html">Déploiement</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="content">
+      <article>
+        <section class="hero">
+          <div class="hero-text">
+            <div class="eyebrow">Documentation · v1.0</div>
+            <h1>Agent BI</h1>
+            <p class="lede">Un framework multi-agents qui conçoit vos data warehouses et automatise vos pipelines ETL, en langage naturel, de l'extraction jusqu'aux tableaux de bord.</p>
+            <div class="hero-cta">
+              <a class="btn primary" href="getting-started.html">Démarrer en 5 minutes →</a>
+              <a class="btn ghost" href="architecture.html">Voir l'architecture</a>
+            </div>
+          </div>
+          <div class="hero-illustration">
+            <img src="/doc_hero_intro.png" alt="Interface Agent BI" onerror="this.style.display='none'"/>
+          </div>
+        </section>
+
+        <h2>Pourquoi Agent BI ?</h2>
+        <p>Les projets décisionnels échouent rarement à cause des algorithmes : ils échouent parce que la <strong>compréhension métier</strong>, la <strong>modélisation dimensionnelle</strong> et l'<strong>industrialisation ETL</strong> consomment un temps disproportionné. Agent BI part d'une hypothèse simple : ces trois étapes peuvent être <em>assistées</em>, pas remplacées, par un collectif d'agents spécialisés qui collaborent sous la supervision d'un orchestrateur.</p>
+
+        <div class="callout note">
+          <strong>En une phrase.</strong> Vous chargez une source (Excel, CSV ou SGBD), Agent BI propose un modèle en étoile, charge le data warehouse et vous livre des KPIs &mdash; le tout, traçable et modifiable à chaque étape.
+        </div>
+
+        <h2>Les quatre promesses</h2>
+        <div class="cards">
+          <div class="card">
+            <div class="card-icon">⚡</div>
+            <h3>Rapidité</h3>
+            <p>Ingestion, profilage, nettoyage, modélisation et chargement en quelques minutes, pas quelques semaines.</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">🧠</div>
+            <h3>Intelligence</h3>
+            <p>Claude Sonnet 4.5 pilote les décisions de modélisation ; chaque agent se concentre sur un domaine métier clair.</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">🛡️</div>
+            <h3>Robustesse</h3>
+            <p>Retries, fallback, audits, lignée des données, flux SSE tamponné : tout est observable, rien n'est perdu.</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">🎯</div>
+            <h3>Pragmatisme</h3>
+            <p>Vous gardez la main : schémas modifiables, SQL exportable, exports PDF/PPT/HTML pour vos parties prenantes.</p>
+          </div>
+        </div>
+
+        <h2>Une architecture, un coup d'œil</h2>
+        <figure>
+          <img src="assets/img/architecture.svg" alt="Architecture globale Agent BI" />
+          <figcaption>Vue d'ensemble : front React, API FastAPI, orchestration LangGraph, couche données et LLM.</figcaption>
+        </figure>
+        <p>Chaque couche a une responsabilité claire. Le front ne connaît que l'API. L'API ne connaît pas les LLMs. L'orchestrateur encapsule la logique métier des agents. Résultat : on peut <strong>remplacer un composant sans toucher aux autres</strong>.</p>
+
+        <h2>Parcours recommandé</h2>
+        <ol>
+          <li>Commencez par <a href="getting-started.html">Installation &amp; démarrage</a> pour lancer l'app en local.</li>
+          <li>Lisez <a href="architecture.html">Architecture</a> pour comprendre les couches.</li>
+          <li>Parcourez <a href="agents.html">Les 16 agents</a> pour voir qui fait quoi.</li>
+          <li>Explorez <a href="frontend.html">l'interface</a> et <a href="api.html">l'API</a>.</li>
+          <li>Préparez la production avec <a href="security.html">Sécurité</a> et <a href="deployment.html">Déploiement</a>.</li>
+        </ol>
+
+        <div class="callout tip">
+          <strong>Astuce.</strong> Chaque page possède une table des matières à droite, générée automatiquement &mdash; pratique sur les longs chapitres.
+        </div>
+
+        <nav class="pager">
+          <span></span>
+          <a class="pager-next" href="getting-started.html">Installation &amp; démarrage →</a>
+        </nav>
+      </article>
+    </main>
+
+    <aside id="toc" class="toc"></aside>
+  </div>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span>© 2026 Agent BI · Mini-projet Master · Agent-Assisted Data Warehouse Design &amp; ETL Automation</span>
+      <span class="footer-links"><a href="faq.html">FAQ</a> · <a href="security.html">Sécurité</a> · <a href="/" >App</a></span>
+    </div>
+  </footer>
+  <script src="assets/docs.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sécurité · Agent BI</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/docs/assets/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/docs/index.html"><img src="/logo.png" alt="Agent BI" class="logo" /><span class="brand-name">Agent BI</span><span class="badge">Docs</span></a>
+    <div class="topbar-search"><input id="search-input" type="search" placeholder="Rechercher (Ctrl+K)…" /></div>
+    <nav class="topbar-links"><a href="/" class="btn ghost">Retour à l'app</a></nav>
+    <button id="menu-toggle" class="menu-btn" aria-label="Menu">☰</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="nav-section"><div class="nav-title">Démarrer</div><ul class="nav"><li><a href="index.html">Accueil</a></li><li><a href="getting-started.html">Installation &amp; démarrage</a></li><li><a href="frontend.html">Interface &amp; expérience</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Concepts</div><ul class="nav"><li><a href="architecture.html">Architecture</a></li><li><a href="agents.html">Les 16 agents</a></li><li><a href="api.html">API &amp; intégration</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Production</div><ul class="nav"><li><a href="security.html">Sécurité</a></li><li><a href="deployment.html">Déploiement</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
+    </aside>
+
+    <main class="content">
+      <article>
+        <div class="eyebrow">Production · Sécurité</div>
+        <h1>Sécurité</h1>
+        <p class="lede">Agent BI manipule potentiellement des données sensibles. Nous appliquons une défense en profondeur : authentification, autorisation, isolation, journalisation, et traitement prudent des payloads LLM.</p>
+
+        <h2>Authentification</h2>
+        <p>L'authentification repose sur <strong>JWT</strong> signés HS256. Les mots de passe sont stockés avec <strong>bcrypt</strong> (coût 12). Les tokens portent <code>iss=agent-bi</code> et expirent après 24 h par défaut. Un <em>refresh token</em> optionnel peut être activé côté serveur pour prolonger la session sans re-login.</p>
+
+        <div class="callout danger"><strong>Changer les secrets.</strong> Le <code>JWT_SECRET</code> fourni dans <code>.env.example</code> est un placeholder. En production, utilisez au minimum 32 octets aléatoires (<code>openssl rand -hex 32</code>) et stockez-le dans un <em>secret manager</em> (AWS Secrets Manager, Azure Key Vault, Doppler…).</p></div>
+
+        <h2>Autorisation (RBAC)</h2>
+        <p>Trois rôles par défaut : <code>viewer</code> (consultation), <code>analyst</code> (lancer des pipelines, NL→SQL), <code>admin</code> (gestion des utilisateurs, exports, secrets). Les endpoints critiques sont protégés par dépendance FastAPI :</p>
+        <pre><code>@router.post("/api/export/{format}")
+def export(format: str, user: User = Depends(require_role("analyst"))):
+    ...</code></pre>
+
+        <h2>Protection des données</h2>
+        <ul>
+          <li><strong>Masquage PII.</strong> Le Sécurisateur applique des règles regex (emails, téléphones, numéros de carte) ; les valeurs sensibles ne sont jamais envoyées au LLM.</li>
+          <li><strong>Chiffrement au repos.</strong> SQL Server TDE activable ; fichiers uploadés stockés dans un volume chiffré.</li>
+          <li><strong>Chiffrement en transit.</strong> Nginx termine TLS 1.3 ; HSTS 1 an ; cookies <code>Secure</code> + <code>SameSite=Lax</code>.</li>
+          <li><strong>Anonymisation.</strong> Un mode <em>démo</em> hashe automatiquement les colonnes détectées comme PII lors des exports.</li>
+        </ul>
+
+        <h2>Prompt injection &amp; LLM safety</h2>
+        <p>Les agents reçoivent leurs instructions depuis des fichiers de prompt <strong>versionnés</strong> et <strong>non modifiables via l'UI</strong>. Les données utilisateur sont envoyées en <em>content</em>, jamais en instructions. Un validateur post-LLM vérifie :</p>
+        <ul>
+          <li>que le SQL généré ne contient pas <code>DROP</code>, <code>TRUNCATE</code>, <code>DELETE</code> sans clause ;</li>
+          <li>que les identifiants cités existent réellement dans le schéma ;</li>
+          <li>que les quantificateurs restent dans les bornes (<code>LIMIT 10 000</code> max par défaut).</li>
+        </ul>
+
+        <div class="callout note"><strong>Liste blanche.</strong> En option, vous pouvez restreindre le SQL généré à un ensemble de vues pré-autorisées, ce qui neutralise la quasi-totalité des risques d'injection.</div>
+
+        <h2>Journalisation &amp; audit</h2>
+        <p>Chaque appel API est journalisé avec <code>session_id</code>, <code>user_id</code>, <code>endpoint</code>, <code>status</code>, <code>duration_ms</code>. Les logs sont au format JSON pour être ingérés par ELK / Loki / Datadog. L'historien conserve la lignée des données : on sait, pour chaque colonne du DW, d'où elle vient et quelles transformations elle a subies.</p>
+
+        <h2>Rate limiting</h2>
+        <p>Par IP et par utilisateur : 60 rps en <em>steady state</em>, <em>burst</em> à 120. Les endpoints coûteux (<code>/api/query</code>, <code>/api/export/*</code>) ont leur propre quota (10 requêtes/minute). Dépassement → <code>429 Too Many Requests</code>.</p>
+
+        <h2>CORS</h2>
+        <p>La configuration CORS par défaut n'autorise que les origines listées dans <code>CORS_ORIGINS</code> (<em>allowlist</em>). Les requêtes <code>OPTIONS</code> sont traitées par FastAPI ; aucun wildcard <code>*</code> en production.</p>
+
+        <h2>Conformité</h2>
+        <ul>
+          <li><strong>RGPD.</strong> Endpoint <code>DELETE /api/users/me</code> pour la suppression définitive des données utilisateur (droit à l'effacement).</li>
+          <li><strong>SOC 2 friendly.</strong> Logs immuables, contrôle d'accès, sauvegardes chiffrées, rotation des secrets documentée.</li>
+        </ul>
+
+        <h2>Check-list avant production</h2>
+        <ol>
+          <li>Remplacer <code>JWT_SECRET</code> et tous les secrets du <code>.env</code>.</li>
+          <li>Activer HTTPS (certificat valide + redirection 80 → 443).</li>
+          <li>Configurer un <em>backup</em> automatique de la base (au moins quotidien, rétention 30 j).</li>
+          <li>Restreindre les IP d'admin (VPN ou allowlist réseau).</li>
+          <li>Monter un tableau de bord d'observabilité (Grafana + alertes).</li>
+          <li>Tester la restauration à partir d'une sauvegarde.</li>
+        </ol>
+
+        <nav class="pager">
+          <a class="pager-prev" href="api.html">← API</a>
+          <a class="pager-next" href="deployment.html">Déploiement →</a>
+        </nav>
+      </article>
+    </main>
+
+    <aside id="toc" class="toc"></aside>
+  </div>
+
+  <footer class="site-footer"><div class="footer-inner"><span>© 2026 Agent BI</span><span class="footer-links"><a href="faq.html">FAQ</a> · <a href="/">App</a></span></div></footer>
+  <script src="assets/docs.js" defer></script>
+</body>
+</html>

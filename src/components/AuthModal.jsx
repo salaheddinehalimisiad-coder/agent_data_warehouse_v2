@@ -19,13 +19,28 @@ export default function AuthModal({ isOpen, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Validation côté client pour éviter un aller-retour et fournir un message clair
+  const validateClientSide = () => {
+    if (!email || !password) {
+      return 'Veuillez remplir tous les champs obligatoires.';
+    }
+    if (mode === 'register') {
+      if (password.length < 8) return 'Le mot de passe doit faire au moins 8 caractères.';
+      const hasUpper = /[A-Z]/.test(password);
+      const hasLower = /[a-z]/.test(password);
+      const hasDigit = /[0-9]/.test(password);
+      if (!hasUpper || !hasLower || !hasDigit) {
+        return 'Le mot de passe doit contenir au moins une majuscule, une minuscule et un chiffre.';
+      }
+    }
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!email || !password) { 
-      setError('Veuillez remplir tous les champs obligatoires.'); 
-      return; 
-    }
+    const clientErr = validateClientSide();
+    if (clientErr) { setError(clientErr); return; }
 
     setLoading(true);
     try {
@@ -167,6 +182,11 @@ export default function AuthModal({ isOpen, onClose }) {
                          {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
                     </div>
+                    {mode === 'register' && (
+                      <p className="text-[11px] text-zinc-500 mt-2 ml-1">
+                        Min 8 caractères, avec au moins <span className="font-semibold">une majuscule</span>, <span className="font-semibold">une minuscule</span> et <span className="font-semibold">un chiffre</span>.
+                      </p>
+                    )}
                   </div>
 
                   {mode === 'register' && (

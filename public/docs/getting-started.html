@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Installation &amp; démarrage · Agent BI</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/docs/assets/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/docs/index.html"><img src="/logo.png" alt="Agent BI" class="logo" /><span class="brand-name">Agent BI</span><span class="badge">Docs</span></a>
+    <div class="topbar-search"><input id="search-input" type="search" placeholder="Rechercher (Ctrl+K)…" /></div>
+    <nav class="topbar-links"><a href="/" class="btn ghost">Retour à l'app</a></nav>
+    <button id="menu-toggle" class="menu-btn" aria-label="Menu">☰</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="nav-section"><div class="nav-title">Démarrer</div><ul class="nav"><li><a href="index.html">Accueil</a></li><li><a href="getting-started.html">Installation &amp; démarrage</a></li><li><a href="frontend.html">Interface &amp; expérience</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Concepts</div><ul class="nav"><li><a href="architecture.html">Architecture</a></li><li><a href="agents.html">Les 16 agents</a></li><li><a href="api.html">API &amp; intégration</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Production</div><ul class="nav"><li><a href="security.html">Sécurité</a></li><li><a href="deployment.html">Déploiement</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
+    </aside>
+
+    <main class="content">
+      <article>
+        <div class="eyebrow">Guide de démarrage</div>
+        <h1>Installation &amp; démarrage</h1>
+        <p class="lede">Lancez Agent BI sur votre poste en moins de cinq minutes. Nous décrivons deux chemins : <strong>local</strong> (Node + Python) pour le développement, et <strong>Docker</strong> pour une mise en route sans dépendances.</p>
+
+        <h2>Pré-requis</h2>
+        <ul>
+          <li><strong>Node.js</strong> ≥ 18 (pour le front Vite/React)</li>
+          <li><strong>Python</strong> ≥ 3.10 (pour l'API FastAPI et les agents)</li>
+          <li><strong>SQL Server</strong> 2019+ (ou Azure SQL) — une base vide suffit ; Agent BI crée les objets nécessaires.</li>
+          <li><strong>Clé API Anthropic</strong> (Claude Sonnet 4.5) — indispensable pour les agents cognitifs.</li>
+          <li><em>Optionnel</em> : Docker 24+ et Docker Compose pour le chemin conteneurisé.</li>
+        </ul>
+
+        <div class="callout note"><strong>Pourquoi SQL Server ?</strong> Parce que le pilote <code>pyodbc</code> + T-SQL offre une très bonne couverture des constructions dimensionnelles (<code>MERGE</code>, <code>SCD Type 2</code>, <code>COLUMNSTORE</code>). Le support d'autres SGBD est prévu via adaptateurs.</div>
+
+        <h2>1. Cloner et configurer</h2>
+        <pre><code>git clone https://github.com/votre-org/agent-bi.git
+cd agent-bi
+cp .env.example .env
+# Éditez .env : clés API, credentials SQL Server, JWT_SECRET…</code></pre>
+
+        <p>Les variables essentielles :</p>
+        <table>
+          <thead><tr><th>Variable</th><th>Rôle</th><th>Exemple</th></tr></thead>
+          <tbody>
+            <tr><td><code>ANTHROPIC_API_KEY</code></td><td>Clé Claude</td><td><code>sk-ant-…</code></td></tr>
+            <tr><td><code>SQL_SERVER_HOST</code></td><td>Hôte SQL Server</td><td><code>localhost</code></td></tr>
+            <tr><td><code>SQL_SERVER_DB</code></td><td>Base cible</td><td><code>AgentBI_DW</code></td></tr>
+            <tr><td><code>JWT_SECRET</code></td><td>Signature des tokens</td><td>32+ caractères aléatoires</td></tr>
+            <tr><td><code>JWT_ISSUER</code></td><td>Émetteur logique</td><td><code>agent-bi</code></td></tr>
+          </tbody>
+        </table>
+
+        <h2>2. Lancer en local</h2>
+        <h3>Backend</h3>
+        <pre><code>cd api
+python -m venv .venv
+source .venv/bin/activate       # Windows : .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000</code></pre>
+
+        <h3>Frontend</h3>
+        <pre><code>cd ..
+npm install
+npm run dev                      # http://localhost:5173</code></pre>
+
+        <div class="callout tip"><strong>Astuce.</strong> Le dev-server Vite proxy automatiquement <code>/api</code> et <code>/docs</code> vers le backend. Rien d'autre à configurer.</div>
+
+        <h2>3. Premier pipeline</h2>
+        <ol>
+          <li>Ouvrez <a href="http://localhost:5173">http://localhost:5173</a>.</li>
+          <li>Créez un compte (page de connexion) — l'app est <strong>toujours</strong> authentifiée.</li>
+          <li>Cliquez sur <em>Nouveau pipeline</em>, sélectionnez une source (Excel démo inclus).</li>
+          <li>Observez la console live : chaque agent s'annonce en temps réel via SSE.</li>
+          <li>À la fin, le schéma en étoile s'affiche ; le dashboard est accessible dans l'onglet <em>Analyse</em>.</li>
+        </ol>
+
+        <figure>
+          <img src="assets/img/pipeline.svg" alt="Étapes du pipeline" />
+          <figcaption>Chaque étape émet des logs et une progression en pourcentage.</figcaption>
+        </figure>
+
+        <h2>4. Chemin Docker (alternative)</h2>
+        <pre><code>docker compose --env-file .env.deploy up --build</code></pre>
+        <p>Deux services sont lancés : <code>api</code> (FastAPI, port 8000) et <code>web</code> (Nginx servant le front, port 80). Le volume <code>agentbi_uploads</code> persiste les fichiers déposés par l'utilisateur.</p>
+
+        <h2>5. Problèmes fréquents</h2>
+        <div class="callout warn"><strong>Le pipeline n'avance pas.</strong> Vérifiez la console navigateur : un 401 indique un token JWT expiré ; un 500 sur <code>/api/start</code> indique généralement un mauvais <code>SQL_SERVER_HOST</code>.</div>
+        <div class="callout warn"><strong>Aucune source détectée.</strong> L'agent d'ingestion refuse les fichiers vides ou avec plus de 20 % de colonnes non typables. Nettoyez l'en-tête et réessayez.</div>
+        <div class="callout danger"><strong>Limite LLM atteinte.</strong> Si Claude rejette une requête pour quota, Agent BI bascule sur un plan dégradé : un schéma de secours est proposé et l'utilisateur peut relancer plus tard.</div>
+
+        <nav class="pager">
+          <a class="pager-prev" href="index.html">← Accueil</a>
+          <a class="pager-next" href="architecture.html">Architecture →</a>
+        </nav>
+      </article>
+    </main>
+
+    <aside id="toc" class="toc"></aside>
+  </div>
+
+  <footer class="site-footer"><div class="footer-inner"><span>© 2026 Agent BI</span><span class="footer-links"><a href="faq.html">FAQ</a> · <a href="/">App</a></span></div></footer>
+  <script src="assets/docs.js" defer></script>
+</body>
+</html>

@@ -4,10 +4,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Play, Terminal, LogOut, Database, ChevronLeft, ChevronRight,
   Settings, Activity, Sparkles, ShieldCheck, Star, GitMerge,
-  BrainCircuit, Zap, Sun, Moon, Book, Lock
+  BrainCircuit, Zap, Sun, Moon, Book, Lock, Home, User
 } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
-import ToastNotifications from './components/ToastNotifications';
+import ToastNotifications, { addToast } from './components/ToastNotifications';
+import AgentBILogo from './components/AgentBILogo';
 
 // ── Strict/Light components (Eager Load) ────────────────────────
 import LandingPage       from './components/LandingPage';
@@ -25,6 +26,7 @@ const DataExplorer      = React.lazy(() => import('./components/DataExplorer'));
 const ExecutionLog      = React.lazy(() => import('./components/ExecutionLog'));
 const ExportPanel       = React.lazy(() => import('./components/ExportPanel'));
 const SettingsPage      = React.lazy(() => import('./components/SettingsPage'));
+const ProfilePage       = React.lazy(() => import('./components/ProfilePage'));
 const StarSchemaViewer  = React.lazy(() => import('./components/StarSchemaViewer'));
 const DataQualityPanel  = React.lazy(() => import('./components/DataQualityPanel'));
 const GovernancePanel   = React.lazy(() => import('./components/GovernancePanel'));
@@ -102,7 +104,7 @@ const LEFT_PANEL_TABS = [
 
 export default function App() {
   const {
-    pipelineStatus, executionLog, setAuth, authToken,
+    pipelineStatus, executionLog, setAuth, authToken, userId,
     userPrefix, logout, resetPipeline,
     healHistory, schemaDriftDetected, currentAgent,
     sessionId, dqScore, dqAlerts, logicalModel, pipelineProgress
@@ -114,6 +116,13 @@ export default function App() {
   const [showLog,         setShowLog]        = useState(false);
   const [showExport,      setShowExport]     = useState(false);
   const [showSettings,    setShowSettings]   = useState(false);
+  const [showProfile,     setShowProfile]    = useState(false);
+  const [avatarBust,      setAvatarBust]     = useState(Date.now());
+  const [hasAvatar,       setHasAvatar]      = useState(false);
+  const [profile,         setProfile]        = useState(null); // { full_name, email, … }
+  const [goodbyeUser,     setGoodbyeUser]    = useState(null); // nom affiché sur l'animation d'au revoir
+  const [welcomeUser,     setWelcomeUser]    = useState(null); // nom affiché sur l'animation de bienvenue
+  const welcomedRef       = useRef(false);
   const [activeMainView,  setActiveMainView] = useState('pipeline');
   const [leftCollapsed,   setLeftCollapsed]  = useState(true);
   const [rightCollapsed,  setRightCollapsed] = useState(false);
@@ -131,13 +140,96 @@ export default function App() {
     // Restore dark mode preference
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'light') setIsDarkMode(false);
+
+    // AUTH GATE — aucun jeton ? On bascule sur l'écran de login dédié.
+    // C'est la toute première chose que voit l'utilisateur à l'ouverture.
+    if (!token) {
+      setAppView('auth');
+      setShowAuth(true);
+    }
   }, []);
+
+  // Écoute la déconnexion forcée (token invalide/expiré) émise par apiClient.
+  useEffect(() => {
+    const onUnauthorized = () => {
+      logout();
+      setAppView('auth');
+      setShowAuth(true);
+    };
+    window.addEventListener('auth:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('auth:unauthorized', onUnauthorized);
+  }, [logout]);
+
+  // Si on quitte l'auth (déconnexion) pendant qu'on est sur le dashboard,
+  // on revient sur l'écran de login.
+  useEffect(() => {
+    if (!authToken && appView === 'dashboard') {
+      setAppView('auth');
+      setShowAuth(true);
+    }
+  }, [authToken, appView]);
+
+  // Après une connexion réussie depuis l'écran de login, on bascule sur la
+  // landing page (overview de l'app) puis on ferme le modal d'auth.
+  useEffect(() => {
+    if (authToken && appView === 'auth') {
+      setShowAuth(false);
+      setAppView('landing');
+    }
+  }, [authToken, appView]);
 
   useEffect(() => {
     localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
     document.documentElement.classList.toggle('light-mode', !isDarkMode);
     document.documentElement.classList.toggle('dark', isDarkMode);
   }, [isDarkMode]);
+
+  // Profil : charge les infos utilisateur + avatar à chaque changement de token.
+  useEffect(() => {
+    if (!authToken) {
+      setHasAvatar(false);
+      setProfile(null);
+      welcomedRef.current = false;
+      return;
+    }
+    let alive = true;
+    apiClient.getProfile()
+      .then(p => {
+        if (!alive) return;
+        setProfile(p || null);
+        setHasAvatar(!!p?.has_avatar);
+        setAvatarBust(Date.now());
+        // Splash « Bonjour <nom> » plein écran — même comportement que le splash
+        // de logout (centré, animé, 2.2s) pour une symétrie parfaite arrivée/départ.
+        if (!welcomedRef.current) {
+          welcomedRef.current = true;
+          const displayName = (p?.full_name || (p?.email ? p.email.split('@')[0] : '')) || userPrefix || 'utilisateur';
+          setWelcomeUser(displayName);
+          setTimeout(() => setWelcomeUser(null), 2200);
+        }
+      })
+      .catch(() => { if (alive) { setHasAvatar(false); setProfile(null); } });
+    return () => { alive = false; };
+  }, [authToken, userPrefix]);
+
+  // Quand on ferme la page profil, on rafraîchit la miniature (cache-bust).
+  const handleProfileClose = () => {
+    setShowProfile(false);
+    setAvatarBust(Date.now());
+    apiClient.getProfile().then(p => setHasAvatar(!!p?.has_avatar)).catch(() => {});
+  };
+
+  // Déconnexion avec animation "Au revoir <nom>" pleine page.
+  const handleLogout = () => {
+    const displayName = (profile?.full_name || (profile?.email ? profile.email.split('@')[0] : '')) || userPrefix || 'utilisateur';
+    setGoodbyeUser(displayName);
+    setTimeout(() => {
+      setGoodbyeUser(null);
+      logout();
+      setAppView('auth');
+      setShowAuth(true);
+    }, 2200);
+  };
 
   const isRunning        = ['starting', 'running'].includes(pipelineStatus);
   const isAwaitingReview = pipelineStatus === 'awaiting_review' || pipelineStatus === 'awaiting_dq_review';
@@ -239,10 +331,115 @@ export default function App() {
 
       <AnimatePresence>
         {showAuth && (
-          <AuthModal 
-            isOpen={showAuth} 
-            onClose={() => setShowAuth(false)} 
+          <AuthModal
+            isOpen={showAuth}
+            onClose={() => {
+              // Verrou : tant qu'on n'a pas de token valide, le modal ne peut
+              // pas être fermé. Force l'utilisateur à s'authentifier.
+              if (authToken) setShowAuth(false);
+            }}
           />
+        )}
+      </AnimatePresence>
+
+      {/* ── Splash "Au revoir" (animation de logout) ───────────────────────── */}
+      <AnimatePresence>
+        {goodbyeUser && (
+          <motion.div
+            key="goodbye"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[500] flex items-center justify-center backdrop-blur-xl"
+            style={{ background: 'rgba(6,8,17,0.85)' }}
+          >
+            <motion.div
+              initial={{ scale: 0.85, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+              className="flex flex-col items-center gap-4 px-10 py-8 rounded-3xl border shadow-2xl"
+              style={{ background: 'linear-gradient(140deg, rgba(79,70,229,0.25), rgba(147,51,234,0.18))', borderColor: 'rgba(255,255,255,0.08)' }}
+            >
+              <div className="relative drop-shadow-[0_8px_30px_rgba(139,92,246,0.35)]">
+                <AgentBILogo size={80} variant="hero" animated />
+              </div>
+              <motion.h2
+                initial={{ letterSpacing: '0.02em' }} animate={{ letterSpacing: '0.12em' }}
+                transition={{ duration: 1.4, ease: 'easeOut' }}
+                className="text-3xl md:text-4xl font-black tracking-widest text-white uppercase"
+              >
+                Good bye, <span className="gradient-text">{goodbyeUser}</span>
+              </motion.h2>
+              <p className="text-[12px] font-mono text-slate-400">À bientôt sur Agent BI ✨</p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Splash "Bonjour" (animation de login) ───────────────────────────── */}
+      {/* Même comportement que le splash goodbye : centré, 2.2s, même box. */}
+      <AnimatePresence>
+        {welcomeUser && (
+          <motion.div
+            key="welcome"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[500] flex items-center justify-center backdrop-blur-xl"
+            style={{ background: 'rgba(6,8,17,0.85)' }}
+          >
+            <motion.div
+              initial={{ scale: 0.85, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+              className="flex flex-col items-center gap-4 px-10 py-8 rounded-3xl border shadow-2xl"
+              style={{ background: 'linear-gradient(140deg, rgba(79,70,229,0.25), rgba(147,51,234,0.18))', borderColor: 'rgba(255,255,255,0.08)' }}
+            >
+              <div className="relative drop-shadow-[0_8px_30px_rgba(139,92,246,0.35)]">
+                <AgentBILogo size={80} variant="hero" animated />
+              </div>
+              <motion.h2
+                initial={{ letterSpacing: '0.02em' }} animate={{ letterSpacing: '0.12em' }}
+                transition={{ duration: 1.4, ease: 'easeOut' }}
+                className="text-3xl md:text-4xl font-black tracking-widest text-white uppercase"
+              >
+                Bonjour, <span className="gradient-text">{welcomeUser}</span>
+              </motion.h2>
+              <p className="text-[12px] font-mono text-slate-400">Content de vous revoir sur Agent BI ✨</p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Écran de Login (première page à l'ouverture, sans backend auth) ── */}
+      <AnimatePresence>
+        {appView === 'auth' && !authToken && (
+          <motion.div
+            key="auth-screen"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="absolute inset-0 z-[180] flex items-center justify-center"
+            style={{ background: 'radial-gradient(ellipse at center, rgba(79,70,229,0.18), rgba(6,8,17,0.95) 65%)' }}
+          >
+            <div className="flex flex-col items-center gap-6 text-center px-8">
+              <div className="relative drop-shadow-[0_10px_40px_rgba(139,92,246,0.4)]">
+                <AgentBILogo size={96} variant="hero" animated />
+              </div>
+              <div className="space-y-2">
+                <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white">
+                  Agent <span className="gradient-text">BI</span>
+                </h1>
+                <p className="text-[13px] text-slate-400 max-w-md">
+                  Plateforme ETL multi-agents. Connectez-vous ou créez un compte pour commencer.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAuth(true)}
+                className="btn btn-primary gap-2 px-6 py-2.5 text-[12px]"
+              >
+                <LogOut size={14} className="rotate-180" />
+                Se connecter / S'inscrire
+              </button>
+              <p className="text-[11px] font-mono text-slate-600 mt-2">v5.0 · Premium Dark</p>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -257,13 +454,18 @@ export default function App() {
         {appView === 'landing' && (
           <motion.div key="landing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[190]">
             <LandingPage
-              onEnterDashboard={() => setAppView('dashboard')}
-              onSelectSource={() => { 
-                setAppView('dashboard'); 
-                setShowConnection(true); 
+              onEnterDashboard={() => {
+                // Gate d'authentification : pas de token ? On ouvre l'auth.
+                if (!authToken) { setShowAuth(true); return; }
+                setAppView('dashboard');
+              }}
+              onSelectSource={() => {
+                if (!authToken) { setShowAuth(true); return; }
+                setAppView('dashboard');
+                setShowConnection(true);
               }}
               onAuthOpen={() => setShowAuth(true)}
-              onDocsOpen={() => setAppView('docs')}
+              onDocsOpen={() => window.open('/docs/index.html', '_blank', 'noopener,noreferrer')}
               isDarkMode={isDarkMode}
               setIsDarkMode={setIsDarkMode}
               user={authToken ? { token: authToken, prefix: userPrefix } : null}
@@ -298,10 +500,20 @@ export default function App() {
              </ErrorBoundary>
           </motion.div>
         )}
+
+        {showProfile && (
+          <motion.div key="profile" initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} className="absolute inset-0 z-[210]">
+             <ErrorBoundary>
+               <Suspense fallback={null}>
+                 <ProfilePage onBack={handleProfileClose} />
+               </Suspense>
+             </ErrorBoundary>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* ── Main Dashboard Layout ───────────────────────────────────────────── */}
-      {appView === 'dashboard' && !showSettings && (
+      {appView === 'dashboard' && !showSettings && !showProfile && (
         <div className="flex flex-col h-full" style={{ background: 'var(--bg-base)' }}>
           {/* Ambient glow — very subtle */}
           <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
@@ -314,21 +526,23 @@ export default function App() {
             className="relative flex items-center px-6 h-16 border-b shrink-0 z-40 backdrop-blur-xl"
             style={{ borderColor: 'var(--border-soft)', background: 'rgba(6,8,17,0.7)' }}
           >
-            {/* Brand — logo premium avec halo violet + dot live */}
-            <div className="flex items-center gap-3 mr-6">
-              <div
-                className="relative w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-grad-violet shadow-glow-violet"
-              >
-                <Sparkles size={16} className="text-white drop-shadow" strokeWidth={2.5} />
-                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400 animate-pulse-soft ring-2 ring-ink-950" />
+            {/* Brand — logo premium Agent BI + dot live */}
+            <button
+              onClick={() => setAppView('landing')}
+              className="flex items-center gap-3 mr-6 group transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              title="Retour à l'accueil"
+            >
+              <div className="relative shrink-0">
+                <AgentBILogo size={38} variant="mark" animated />
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 animate-pulse-soft ring-2 ring-ink-950" />
               </div>
-              <div className="leading-tight">
+              <div className="leading-tight text-left">
                 <h1 className="text-[14px] font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
-                  Antigravity <span className="gradient-text">BI</span>
+                  Agent <span className="gradient-text">BI</span>
                 </h1>
                 <p className="text-[10px] font-mono text-slate-500 leading-none mt-0.5">v5.0 · Premium Dark</p>
               </div>
-            </div>
+            </button>
 
             <div className="flex items-center gap-2.5">
               <StatusBadge status={pipelineStatus} />
@@ -386,7 +600,36 @@ export default function App() {
               </button>
 
               {authToken && (
-                <button onClick={logout} className="btn btn-ghost btn-icon" title="Sign out">
+                <button
+                  onClick={() => setShowProfile(true)}
+                  className="relative flex items-center gap-2 pl-1 pr-3 py-1 rounded-full border transition-all duration-300 hover:scale-[1.02] shadow-sm mx-1"
+                  style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-default)' }}
+                  title="Mon profil"
+                >
+                  <span className="relative w-7 h-7 rounded-full overflow-hidden flex items-center justify-center shrink-0" style={{ background: 'var(--bg-base)' }}>
+                    {hasAvatar && userId ? (
+                      <img
+                        src={apiClient.getAvatarUrl(userId, avatarBust)}
+                        alt="Avatar"
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                    ) : (
+                      <User size={14} className="text-slate-400" />
+                    )}
+                  </span>
+                  <span className="hidden md:flex flex-col items-start leading-tight">
+                    <span className="text-[11px] font-semibold text-slate-200 max-w-[140px] truncate">
+                      {profile?.full_name || (profile?.email ? profile.email.split('@')[0] : (userPrefix || 'Mon compte'))}
+                    </span>
+                    <span className="text-[9px] font-mono text-slate-500 max-w-[140px] truncate">
+                      {profile?.email || ''}
+                    </span>
+                  </span>
+                </button>
+              )}
+
+              {authToken && (
+                <button onClick={handleLogout} className="btn btn-ghost btn-icon" title="Se déconnecter">
                   <LogOut size={15} />
                 </button>
               )}
@@ -443,6 +686,17 @@ export default function App() {
               }}
             >
               <div className="flex flex-col py-6 gap-2 overflow-y-auto custom-scrollbar flex-1">
+                {/* ── Home — retour à la landing page ─────────────────────────── */}
+                <button
+                  onClick={() => setAppView('landing')}
+                  title="Accueil"
+                  className="flex items-center gap-3 mx-3 mb-2 px-3 py-3 rounded-xl transition-all font-medium whitespace-nowrap overflow-hidden shrink-0 text-indigo-300 hover:text-white hover:bg-indigo-500/20 border border-indigo-500/20 hover:border-indigo-400/40"
+                >
+                  <Home size={18} className="shrink-0" />
+                  {!leftCollapsed && <span className="text-[12px] uppercase tracking-widest font-black">Accueil</span>}
+                </button>
+                <div className="mx-3 my-1 border-t" style={{ borderColor: 'var(--border-subtle)' }} />
+
                 {LEFT_PANEL_TABS.map(tab => {
                   const Icon = tab.icon;
                   const isActive = activeMainView === tab.id;

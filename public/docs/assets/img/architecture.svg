@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 640" width="100%" role="img" aria-label="Architecture globale Agent BI">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#0e1426"/>
+    </linearGradient>
+    <linearGradient id="gIndigo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="gCyan" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0891b2"/><stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16a34a"/><stop offset="1" stop-color="#4ade80"/>
+    </linearGradient>
+    <linearGradient id="gAmber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#d97706"/><stop offset="1" stop-color="#fbbf24"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94a3b8"/>
+    </marker>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="640" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="600" y="44" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="800" fill="#e8ebff" text-anchor="middle">Architecture Agent BI — vue d'ensemble</text>
+  <text x="600" y="70" font-family="Inter, system-ui, sans-serif" font-size="13" fill="#94a3b8" text-anchor="middle">Frontend React · API FastAPI · Orchestration LangGraph · 16 agents spécialisés</text>
+
+  <!-- Frontend -->
+  <g transform="translate(40,110)">
+    <rect width="260" height="440" rx="16" fill="#0f162b" stroke="#1e2b4d" stroke-width="1"/>
+    <rect width="260" height="44" rx="16" fill="url(#gIndigo)" opacity="0.9"/>
+    <text x="20" y="28" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="800" fill="#fff">Frontend</text>
+    <text x="240" y="28" font-family="Inter, system-ui, sans-serif" font-size="11" fill="#e0e7ff" text-anchor="end">React · Vite · Zustand</text>
+
+    <g transform="translate(16,70)" font-family="Inter, system-ui, sans-serif" fill="#cbd5e1" font-size="12">
+      <rect width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/>
+      <text x="14" y="23">Landing &amp; Authentification</text>
+      <rect y="46" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/>
+      <text x="14" y="69">Sélection source (Excel / CSV / SGBD)</text>
+      <rect y="92" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/>
+      <text x="14" y="115">Live console (SSE)</text>
+      <rect y="138" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/>
+      <text x="14" y="161">Schémas 3NF → Étoile</text>
+      <rect y="184" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/>
+      <text x="14" y="207">Tableau de bord &amp; KPIs</text>
+      <rect y="230" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/>
+      <text x="14" y="253">Interrogation NL → SQL</text>
+      <rect y="276" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/>
+      <text x="14" y="299">Exports (PDF / PPT / HTML)</text>
+      <rect y="322" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/>
+      <text x="14" y="345">Documentation (/docs)</text>
+    </g>
+  </g>
+
+  <!-- API -->
+  <g transform="translate(340,110)">
+    <rect width="260" height="440" rx="16" fill="#0f162b" stroke="#1e2b4d" stroke-width="1"/>
+    <rect width="260" height="44" rx="16" fill="url(#gCyan)" opacity="0.9"/>
+    <text x="20" y="28" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="800" fill="#002030">API</text>
+    <text x="240" y="28" font-family="Inter, system-ui, sans-serif" font-size="11" fill="#e0f2fe" text-anchor="end">FastAPI · SSE · JWT</text>
+
+    <g transform="translate(16,70)" font-family="Inter, system-ui, sans-serif" fill="#cbd5e1" font-size="12">
+      <rect width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="23">/api/auth/login · register</text>
+      <rect y="46" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="69">/api/start · /api/upload</text>
+      <rect y="92" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="115">/api/pipeline-stream (SSE)</text>
+      <rect y="138" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="161">/api/query (NL → SQL)</text>
+      <rect y="184" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="207">/api/export/*</text>
+      <rect y="230" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="253">Middleware CORS · JWT</text>
+      <rect y="276" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="299">Rate limiting &amp; logs</text>
+      <rect y="322" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="345">Service SSE (buffer)</text>
+    </g>
+  </g>
+
+  <!-- Orchestration -->
+  <g transform="translate(640,110)">
+    <rect width="260" height="440" rx="16" fill="#0f162b" stroke="#1e2b4d" stroke-width="1"/>
+    <rect width="260" height="44" rx="16" fill="url(#gGreen)" opacity="0.9"/>
+    <text x="20" y="28" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="800" fill="#042f1a">Orchestration</text>
+    <text x="240" y="28" font-family="Inter, system-ui, sans-serif" font-size="11" fill="#ecfdf5" text-anchor="end">LangGraph · Python</text>
+
+    <g transform="translate(16,70)" font-family="Inter, system-ui, sans-serif" fill="#cbd5e1" font-size="12">
+      <rect width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="23">StateGraph cyclique</text>
+      <rect y="46" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="69">16 agents spécialisés</text>
+      <rect y="92" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="115">Reducers (merge sûr)</text>
+      <rect y="138" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="161">Retry &amp; fallback LLM</text>
+      <rect y="184" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="207">Checkpoints état</text>
+      <rect y="230" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="253">Streaming (astream)</text>
+      <rect y="276" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="299">Audit &amp; traces</text>
+      <rect y="322" width="228" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="345">Observabilité (callbacks)</text>
+    </g>
+  </g>
+
+  <!-- Data + LLM -->
+  <g transform="translate(940,110)">
+    <rect width="220" height="440" rx="16" fill="#0f162b" stroke="#1e2b4d" stroke-width="1"/>
+    <rect width="220" height="44" rx="16" fill="url(#gAmber)" opacity="0.9"/>
+    <text x="20" y="28" font-family="Inter, system-ui, sans-serif" font-size="14" font-weight="800" fill="#2a1900">Données &amp; LLM</text>
+
+    <g transform="translate(16,70)" font-family="Inter, system-ui, sans-serif" fill="#cbd5e1" font-size="12">
+      <rect width="188" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="23">SQL Server (staging)</text>
+      <rect y="46" width="188" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="69">Data warehouse en étoile</text>
+      <rect y="92" width="188" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="115">Datalake (fichiers bruts)</text>
+      <rect y="138" width="188" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="161">Claude Sonnet 4.5</text>
+      <rect y="184" width="188" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="207">Anthropic API</text>
+      <rect y="230" width="188" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="253">Prompts versionnés</text>
+      <rect y="276" width="188" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="299">Cache &amp; tokens</text>
+      <rect y="322" width="188" height="36" rx="8" fill="#11182b" stroke="#24304f"/><text x="14" y="345">Connecteurs SGBD</text>
+    </g>
+  </g>
+
+  <!-- Arrows -->
+  <g stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)">
+    <path d="M300 320 L340 320"/>
+    <path d="M600 320 L640 320"/>
+    <path d="M900 320 L940 320"/>
+  </g>
+  <g stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrow)" stroke-dasharray="4 3">
+    <path d="M340 360 L300 360"/>
+    <path d="M640 360 L600 360"/>
+    <path d="M940 360 L900 360"/>
+  </g>
+
+  <!-- Legend -->
+  <g transform="translate(40,580)" font-family="Inter, system-ui, sans-serif" font-size="11" fill="#94a3b8">
+    <text x="0" y="14">Flèche pleine = requête ·  Flèche pointillée = réponse / SSE</text>
+    <text x="1160" y="14" text-anchor="end" fill="#64748b">Schéma Agent BI · v1.0</text>
+  </g>
+</svg>

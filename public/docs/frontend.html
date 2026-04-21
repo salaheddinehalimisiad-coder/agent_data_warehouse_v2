@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interface &amp; expérience · Agent BI</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/docs/assets/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/docs/index.html"><img src="/logo.png" alt="Agent BI" class="logo" /><span class="brand-name">Agent BI</span><span class="badge">Docs</span></a>
+    <div class="topbar-search"><input id="search-input" type="search" placeholder="Rechercher (Ctrl+K)…" /></div>
+    <nav class="topbar-links"><a href="/" class="btn ghost">Retour à l'app</a></nav>
+    <button id="menu-toggle" class="menu-btn" aria-label="Menu">☰</button>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="nav-section"><div class="nav-title">Démarrer</div><ul class="nav"><li><a href="index.html">Accueil</a></li><li><a href="getting-started.html">Installation &amp; démarrage</a></li><li><a href="frontend.html">Interface &amp; expérience</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Concepts</div><ul class="nav"><li><a href="architecture.html">Architecture</a></li><li><a href="agents.html">Les 16 agents</a></li><li><a href="api.html">API &amp; intégration</a></li></ul></div>
+      <div class="nav-section"><div class="nav-title">Production</div><ul class="nav"><li><a href="security.html">Sécurité</a></li><li><a href="deployment.html">Déploiement</a></li><li><a href="faq.html">FAQ</a></li></ul></div>
+    </aside>
+
+    <main class="content">
+      <article>
+        <div class="eyebrow">Guide · Interface</div>
+        <h1>Interface &amp; expérience</h1>
+        <p class="lede">Le front d'Agent BI est volontairement sobre : un <strong>assistant</strong>, pas un tableau de bord saturé. On suit un fil guidé ; la complexité s'ouvre à la demande.</p>
+
+        <h2>Les écrans</h2>
+        <ol>
+          <li><strong>Landing.</strong> Présente le projet, propose <em>Se connecter</em> ou <em>Créer un compte</em>. Aucun accès au reste sans authentification (auth gate).</li>
+          <li><strong>Authentification.</strong> Email + mot de passe ; JWT stocké en <code>localStorage</code> ; expiration = 24 h (configurable).</li>
+          <li><strong>Accueil.</strong> Choix de la source (fichier ou SGBD) et historique des pipelines récents.</li>
+          <li><strong>Dashboard.</strong> Quatre onglets : <em>Pipeline</em> (live), <em>Schémas</em>, <em>Analyse</em>, <em>Exports</em>.</li>
+          <li><strong>Documentation.</strong> Ouvre <code>/docs</code> dans un nouvel onglet (ce site).</li>
+        </ol>
+
+        <figure>
+          <img src="/doc_hero_intro.png" alt="Écran d'accueil" onerror="this.style.display='none'"/>
+          <figcaption>L'accueil propose une sélection rapide et met en avant le dernier pipeline.</figcaption>
+        </figure>
+
+        <h2>La barre latérale</h2>
+        <p>La sidebar gauche condense les actions récurrentes : <strong>Accueil</strong> (retour landing), <strong>Pipeline</strong> (live), <strong>Schémas</strong>, <strong>Analyse NL→SQL</strong>, <strong>Exports</strong>, <strong>Documentation</strong>. Elle est <em>collapsible</em> : un clic réduit les libellés à de simples icônes.</p>
+
+        <div class="callout tip"><strong>Raccourci.</strong> <kbd>Cmd/Ctrl</kbd> + <kbd>\\</kbd> bascule la sidebar. <kbd>?</kbd> ouvre la liste des raccourcis.</div>
+
+        <h2>Live console (SSE)</h2>
+        <p>La console est bâtie autour d'un composant <code>&lt;StreamLog /&gt;</code> qui consomme le store <code>streamLogs</code>. Les lignes sont colorées par niveau (log, info, warn, error). Une barre de progression globale interpole entre les jalons publiés par l'orchestrateur.</p>
+
+        <pre><code>// Extrait simplifié
+const logs = usePipelineStore((s) => s.streamLogs);
+return (
+  &lt;div className="stream-log"&gt;
+    {logs.map((l) =&gt; &lt;Line key={l.id} level={l.level} text={l.text} /&gt;)}
+  &lt;/div&gt;
+);</code></pre>
+
+        <h2>Schémas visuels</h2>
+        <p>Le diagramme du <strong>schéma en étoile</strong> est rendu en SVG : les faits sont centraux (dégradé violet), les dimensions en périphérie (cyan). Un clic sur une table affiche ses colonnes et ses types ; un menu contextuel propose <em>Renommer</em>, <em>Exclure</em>, <em>Transformer</em>.</p>
+
+        <figure>
+          <img src="assets/img/star-schema.svg" alt="Schéma étoile" />
+          <figcaption>Le modèle est interactif : vous pouvez renommer ou retirer des colonnes avant le chargement.</figcaption>
+        </figure>
+
+        <h2>Analyse en langage naturel</h2>
+        <p>Dans l'onglet <em>Analyse</em>, tapez une question (« Chiffre d'affaires mensuel par région en 2025 »). L'agent <strong>Narrateur</strong> propose un SQL ; vous pouvez l'éditer puis l'exécuter. Les résultats sont rendus en tableau et automatiquement en graphique adapté (barre, ligne, camembert) grâce à Recharts.</p>
+
+        <h2>Exports</h2>
+        <p>Quatre formats sont disponibles :</p>
+        <table>
+          <thead><tr><th>Format</th><th>Usage</th></tr></thead>
+          <tbody>
+            <tr><td>PDF</td><td>Rapport synthétique imprimable.</td></tr>
+            <tr><td>PPTX</td><td>Présentation clé en main (modèle corporate).</td></tr>
+            <tr><td>HTML</td><td>Micro-site autonome avec tous les KPIs.</td></tr>
+            <tr><td>XLSX</td><td>Workbook pour l'équipe finance.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout note"><strong>Power BI.</strong> Un export <em>Power BI</em> produit un modèle <code>.pbit</code> avec les relations et mesures DAX, prêt à être ouvert dans Power BI Desktop.</div>
+
+        <h2>Thème</h2>
+        <p>L'UI suit un thème sombre à dominante indigo/violet avec accents cyan, inspiré des consoles développeur modernes. Les couleurs sont pilotées par variables CSS ; un thème clair est exposé via <code>data-theme="light"</code> sur <code>&lt;html&gt;</code>.</p>
+
+        <h2>Accessibilité</h2>
+        <ul>
+          <li>Contrastes AA vérifiés sur tous les composants texte/fond.</li>
+          <li>Navigation clavier complète (tous les éléments interactifs sont <code>tabindex</code>-friendly).</li>
+          <li>Support du <code>prefers-reduced-motion</code> pour désactiver les transitions.</li>
+          <li>Libellés ARIA systématiques sur les boutons icônes.</li>
+        </ul>
+
+        <nav class="pager">
+          <a class="pager-prev" href="agents.html">← Les agents</a>
+          <a class="pager-next" href="api.html">API →</a>
+        </nav>
+      </article>
+    </main>
+
+    <aside id="toc" class="toc"></aside>
+  </div>
+
+  <footer class="site-footer"><div class="footer-inner"><span>© 2026 Agent BI</span><span class="footer-links"><a href="faq.html">FAQ</a> · <a href="/">App</a></span></div></footer>
+  <script src="assets/docs.js" defer></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-# 🌌 Antigravity BI — Autonomous Agentic Data Warehouse
+# 🌌 Agent BI — Autonomous Agentic Data Warehouse
 
 <div align="center">
   <img src="https://img.shields.io/badge/Version-v5.0%20Premium%20Dark-8b5cf6.svg?style=for-the-badge" alt="Version"/>
@@ -11,7 +11,7 @@
 
 <br/>
 
-Antigravity BI (Agent Architect) est un système ETL de bout en bout propulsé par
+Agent BI (Agent Architect) est un système ETL de bout en bout propulsé par
 des **agents IA multi-modèles** orchestrés en **LangGraph cyclique**. Conçu pour
 révolutionner la modélisation de données (Kimball Star Schema / Constellation),
 il automatise la création de Data Warehouses d'entreprise, de l'ingestion d'un
@@ -277,5 +277,5 @@ npm run build                  # valide la compilation Tailwind + Vite
 ---
 
 <p align="center">
-Développé dans le cadre d'un pipeline MLOps de R&D avancée — <strong>Antigravity BI v5.0</strong>.
+Développé dans le cadre d'un pipeline MLOps de R&D avancée — <strong>Agent BI v5.0</strong>.
 </p>

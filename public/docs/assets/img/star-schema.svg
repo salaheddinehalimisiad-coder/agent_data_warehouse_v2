@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 560" width="100%" role="img" aria-label="Schéma en étoile généré">
+  <defs>
+    <linearGradient id="bgS" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#0e1426"/>
+    </linearGradient>
+    <linearGradient id="fact" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4338ca"/><stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="dim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0e7490"/><stop offset="1" stop-color="#0891b2"/>
+    </linearGradient>
+    <marker id="arrSS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  <rect width="1000" height="560" fill="url(#bgS)"/>
+  <text x="500" y="40" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="800" fill="#e8ebff">Exemple : schéma en étoile "Ventes"</text>
+
+  <!-- Fact -->
+  <g transform="translate(380,220)" font-family="Inter, system-ui, sans-serif" fill="#fff">
+    <rect width="240" height="150" rx="12" fill="url(#fact)" stroke="#4338ca"/>
+    <text x="120" y="28" text-anchor="middle" font-weight="800" font-size="14">Fact_Ventes</text>
+    <text x="14" y="56" font-size="12">· VenteID (PK)</text>
+    <text x="14" y="76" font-size="12">· DateID, ProduitID, ClientID, MagID</text>
+    <text x="14" y="96" font-size="12">· Quantite, MontantHT, Remise</text>
+    <text x="14" y="116" font-size="12">· CoutUnitaire, Marge</text>
+    <text x="14" y="136" font-size="11" fill="#c7d2fe">Mesures additives / semi-additives</text>
+  </g>
+
+  <!-- Dimensions -->
+  <g font-family="Inter, system-ui, sans-serif" fill="#fff">
+    <g transform="translate(60,60)">
+      <rect width="200" height="120" rx="12" fill="url(#dim)" stroke="#0891b2"/>
+      <text x="100" y="28" text-anchor="middle" font-weight="800" font-size="14">Dim_Date</text>
+      <text x="14" y="52" font-size="12">· DateID (PK)</text>
+      <text x="14" y="72" font-size="12">· Jour, Mois, Trimestre</text>
+      <text x="14" y="92" font-size="12">· Annee, Semaine, Férié</text>
+    </g>
+    <g transform="translate(740,60)">
+      <rect width="200" height="120" rx="12" fill="url(#dim)" stroke="#0891b2"/>
+      <text x="100" y="28" text-anchor="middle" font-weight="800" font-size="14">Dim_Produit</text>
+      <text x="14" y="52" font-size="12">· ProduitID (PK)</text>
+      <text x="14" y="72" font-size="12">· Nom, Catégorie, Marque</text>
+      <text x="14" y="92" font-size="12">· PrixCatalogue</text>
+    </g>
+    <g transform="translate(60,400)">
+      <rect width="200" height="120" rx="12" fill="url(#dim)" stroke="#0891b2"/>
+      <text x="100" y="28" text-anchor="middle" font-weight="800" font-size="14">Dim_Client</text>
+      <text x="14" y="52" font-size="12">· ClientID (PK)</text>
+      <text x="14" y="72" font-size="12">· Nom, Ville, Segment</text>
+      <text x="14" y="92" font-size="12">· DateCreation</text>
+    </g>
+    <g transform="translate(740,400)">
+      <rect width="200" height="120" rx="12" fill="url(#dim)" stroke="#0891b2"/>
+      <text x="100" y="28" text-anchor="middle" font-weight="800" font-size="14">Dim_Magasin</text>
+      <text x="14" y="52" font-size="12">· MagID (PK)</text>
+      <text x="14" y="72" font-size="12">· Nom, Ville, Région</text>
+      <text x="14" y="92" font-size="12">· TypeMagasin</text>
+    </g>
+  </g>
+
+  <!-- Connectors -->
+  <g stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#arrSS)">
+    <path d="M260 120 L380 240"/>
+    <path d="M740 120 L620 240"/>
+    <path d="M260 460 L380 340"/>
+    <path d="M740 460 L620 340"/>
+  </g>
+</svg>

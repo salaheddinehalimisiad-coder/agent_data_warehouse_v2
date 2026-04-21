@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-label="Agent BI">
+  <defs>
+    <linearGradient id="hFrame" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0"    stop-color="#6366F1"/>
+      <stop offset="0.55" stop-color="#8B5CF6"/>
+      <stop offset="1"    stop-color="#A855F7"/>
+    </linearGradient>
+    <linearGradient id="hBars" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#C4B5FD"/>
+    </linearGradient>
+    <radialGradient id="hHalo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#8B5CF6" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="hHexFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0B1020"/>
+      <stop offset="1" stop-color="#14142B"/>
+    </linearGradient>
+    <radialGradient id="hSpark" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="0.45" stop-color="#C4B5FD" stop-opacity="0.7"/>
+      <stop offset="1"    stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="hGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Ambient halo -->
+  <circle cx="64" cy="64" r="62" fill="url(#hHalo)"/>
+
+  <!-- Orbit ring (faint) -->
+  <circle cx="64" cy="64" r="56" fill="none" stroke="url(#hFrame)" stroke-width="0.8" stroke-opacity="0.2" stroke-dasharray="2 4"/>
+
+  <!-- Hex prism -->
+  <polygon points="64,10 111,37 111,91 64,118 17,91 17,37"
+           fill="url(#hHexFill)"
+           stroke="url(#hFrame)" stroke-width="3.2" stroke-linejoin="round" filter="url(#hGlow)"/>
+
+  <!-- Inner depth hex -->
+  <polygon points="64,24 97,43 97,85 64,104 31,85 31,43"
+           fill="none" stroke="url(#hFrame)" stroke-width="1" stroke-opacity="0.3" stroke-linejoin="round"/>
+
+  <!-- Baseline -->
+  <line x1="34" y1="88" x2="94" y2="88" stroke="url(#hFrame)" stroke-width="1.6" stroke-opacity="0.4" stroke-linecap="round"/>
+
+  <!-- 3 BI bars (ascending) -->
+  <rect x="38"  y="62"  width="8.8" height="26" rx="2.2" fill="url(#hBars)"/>
+  <rect x="59.6" y="44" width="8.8" height="44" rx="2.2" fill="url(#hBars)"/>
+  <rect x="81.2" y="54" width="8.8" height="34" rx="2.2" fill="url(#hBars)"/>
+
+  <!-- Neural connectors -->
+  <path d="M42.4 62 L64 44 L85.6 54"
+        fill="none" stroke="#C4B5FD" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.75"/>
+
+  <!-- Bar-top nodes -->
+  <circle cx="42.4" cy="62" r="3.2" fill="#E0E7FF"/>
+  <circle cx="64"   cy="44" r="4"   fill="#FFFFFF"/>
+  <circle cx="85.6" cy="54" r="3.2" fill="#E0E7FF"/>
+
+  <!-- AI spark (top) -->
+  <circle cx="64" cy="10" r="13" fill="url(#hSpark)"/>
+  <circle cx="64" cy="10" r="5"  fill="#FFFFFF"/>
+  <circle cx="64" cy="10" r="2"  fill="#A855F7"/>
+
+  <!-- Vertex agent dots -->
+  <circle cx="111" cy="37" r="3" fill="#A855F7"/>
+  <circle cx="111" cy="91" r="3" fill="#6366F1"/>
+  <circle cx="64"  cy="118" r="3" fill="#8B5CF6"/>
+  <circle cx="17"  cy="91" r="3" fill="#6366F1"/>
+  <circle cx="17"  cy="37" r="3" fill="#A855F7"/>
+</svg>

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" width="100%" role="img" aria-label="Pipeline ETL orchestré">
+  <defs>
+    <linearGradient id="bgP" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1220"/><stop offset="1" stop-color="#0e1426"/>
+    </linearGradient>
+    <linearGradient id="gStep" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#312e81"/><stop offset="1" stop-color="#1e293b"/>
+    </linearGradient>
+    <marker id="arrP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#a5b4fc"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="420" fill="url(#bgP)"/>
+  <text x="600" y="40" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="800" fill="#e8ebff" text-anchor="middle">Pipeline ETL orchestré</text>
+  <text x="600" y="64" font-family="Inter, system-ui, sans-serif" font-size="13" fill="#94a3b8" text-anchor="middle">Source → Profilage → Nettoyage → Modélisation → Chargement → KPIs</text>
+
+  <g font-family="Inter, system-ui, sans-serif" fill="#e5e7eb">
+    <!-- Step 1 -->
+    <g transform="translate(40,110)">
+      <rect width="170" height="100" rx="12" fill="url(#gStep)" stroke="#4338ca"/>
+      <text x="85" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#c7d2fe">1. Ingestion</text>
+      <text x="85" y="56" text-anchor="middle" font-size="11" fill="#cbd5e1">Excel · CSV · SGBD</text>
+      <text x="85" y="76" text-anchor="middle" font-size="11" fill="#94a3b8">Agent Ingestion</text>
+    </g>
+    <!-- Step 2 -->
+    <g transform="translate(230,110)">
+      <rect width="170" height="100" rx="12" fill="url(#gStep)" stroke="#4338ca"/>
+      <text x="85" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#c7d2fe">2. Profilage</text>
+      <text x="85" y="56" text-anchor="middle" font-size="11" fill="#cbd5e1">Types, nulls, stats</text>
+      <text x="85" y="76" text-anchor="middle" font-size="11" fill="#94a3b8">Profiler Agent</text>
+    </g>
+    <!-- Step 3 -->
+    <g transform="translate(420,110)">
+      <rect width="170" height="100" rx="12" fill="url(#gStep)" stroke="#4338ca"/>
+      <text x="85" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#c7d2fe">3. Nettoyage</text>
+      <text x="85" y="56" text-anchor="middle" font-size="11" fill="#cbd5e1">Dédoublonnage, formats</text>
+      <text x="85" y="76" text-anchor="middle" font-size="11" fill="#94a3b8">Cleaner Agent</text>
+    </g>
+    <!-- Step 4 -->
+    <g transform="translate(610,110)">
+      <rect width="170" height="100" rx="12" fill="url(#gStep)" stroke="#4338ca"/>
+      <text x="85" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#c7d2fe">4. 3NF → Étoile</text>
+      <text x="85" y="56" text-anchor="middle" font-size="11" fill="#cbd5e1">Faits &amp; Dimensions</text>
+      <text x="85" y="76" text-anchor="middle" font-size="11" fill="#94a3b8">Modeler Agent</text>
+    </g>
+    <!-- Step 5 -->
+    <g transform="translate(800,110)">
+      <rect width="170" height="100" rx="12" fill="url(#gStep)" stroke="#4338ca"/>
+      <text x="85" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#c7d2fe">5. Chargement</text>
+      <text x="85" y="56" text-anchor="middle" font-size="11" fill="#cbd5e1">SQL Server DW</text>
+      <text x="85" y="76" text-anchor="middle" font-size="11" fill="#94a3b8">Loader Agent</text>
+    </g>
+    <!-- Step 6 -->
+    <g transform="translate(990,110)">
+      <rect width="170" height="100" rx="12" fill="url(#gStep)" stroke="#4338ca"/>
+      <text x="85" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#c7d2fe">6. KPIs &amp; BI</text>
+      <text x="85" y="56" text-anchor="middle" font-size="11" fill="#cbd5e1">Dashboards · NL→SQL</text>
+      <text x="85" y="76" text-anchor="middle" font-size="11" fill="#94a3b8">Analyst Agent</text>
+    </g>
+
+    <!-- Arrows -->
+    <g fill="none" stroke="#a5b4fc" stroke-width="2" marker-end="url(#arrP)">
+      <path d="M210 160 L230 160"/>
+      <path d="M400 160 L420 160"/>
+      <path d="M590 160 L610 160"/>
+      <path d="M780 160 L800 160"/>
+      <path d="M970 160 L990 160"/>
+    </g>
+  </g>
+
+  <!-- Supervision lane -->
+  <g font-family="Inter, system-ui, sans-serif">
+    <rect x="40" y="260" width="1120" height="100" rx="12" fill="#0f1a34" stroke="#1e2b55"/>
+    <text x="60" y="290" font-size="13" font-weight="700" fill="#a5f3fc">Supervision transverse</text>
+    <text x="60" y="316" font-size="11" fill="#cbd5e1">• Auditeur (qualité) · Gardien (erreurs &amp; retries) · Historien (lignée) · Orchestrateur (état global)</text>
+    <text x="60" y="338" font-size="11" fill="#cbd5e1">• Flux SSE temps réel vers l'interface : logs, étapes, % progression, métriques</text>
+    <text x="1100" y="290" text-anchor="end" font-size="11" fill="#94a3b8">retry · fallback · trace</text>
+  </g>
+</svg>

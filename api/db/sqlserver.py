@@ -43,10 +43,36 @@ def init_metadata_db() -> None:
                     email VARCHAR(255) UNIQUE NOT NULL,
                     password_hash VARCHAR(255) NOT NULL,
                     prefix VARCHAR(50) NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    full_name NVARCHAR(120) NULL,
+                    bio NVARCHAR(500) NULL,
+                    avatar_mime VARCHAR(60) NULL,
+                    avatar_bytes VARBINARY(MAX) NULL,
+                    last_login_at DATETIME NULL,
+                    last_login_ip VARCHAR(64) NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             END
         """)
+        # Migration idempotente : ajout des nouvelles colonnes profil si absentes.
+        for col, ddl in (
+            ("full_name",     "NVARCHAR(120) NULL"),
+            ("bio",           "NVARCHAR(500) NULL"),
+            ("avatar_mime",   "VARCHAR(60) NULL"),
+            ("avatar_bytes",  "VARBINARY(MAX) NULL"),
+            ("last_login_at", "DATETIME NULL"),
+            ("last_login_ip", "VARCHAR(64) NULL"),
+            ("updated_at",    "DATETIME NULL"),
+        ):
+            cursor.execute(
+                f"""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'users') AND name = N'{col}'
+                )
+                ALTER TABLE users ADD {col} {ddl};
+                """
+            )
         # Ensure default user 1 exists to avoid FK constraints for unauthenticated sessions
         cursor.execute("""
             IF NOT EXISTS (SELECT 1 FROM users WHERE id = 1)

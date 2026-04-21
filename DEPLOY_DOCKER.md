@@ -1,4 +1,4 @@
-# 🐳 Antigravity BI — Guide de déploiement Docker
+# 🐳 Agent BI — Guide de déploiement Docker
 
 **Public cible :** le PC du professeur (Windows 10/11, macOS ou Linux).
 **Temps estimé :** 15 à 25 minutes la première fois (build des images),
@@ -240,7 +240,7 @@ docker exec -it agent_dw_sqlserver /opt/mssql-tools18/bin/sqlcmd `
 
 Dans un navigateur : **http://localhost:8080**
 
-Tu dois voir le thème **Premium Dark v5.0**, le logo Antigravity BI en
+Tu dois voir le thème **Premium Dark v5.0**, le logo Agent BI en
 dégradé violet, et l'écran de login.
 
 ---

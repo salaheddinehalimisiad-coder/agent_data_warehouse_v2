@@ -154,11 +154,18 @@ export const usePipelineStore = create((set, get) => ({
 
     set({ ...INITIAL_PIPELINE_STATE, sessionId, pipelineStatus: 'starting' });
 
-    // Connecter le SSE AVANT le start (évite les events manqués)
-    const cleanup = _connectSSE(sessionId, authToken, set, get);
+    // Connecter le SSE AVANT /api/start.
+    // Depuis v3.2 le backend bufferise les events émis avant que le client
+    // soit branché, donc la course n'est plus critique, mais on attend tout
+    // de même `onopen` pour minimiser la latence ressentie.
+    const { cleanup, ready } = _connectSSE(sessionId, authToken, set, get);
     set({ _sseCleanup: cleanup });
 
-    await new Promise(r => setTimeout(r, 80));
+    // Attend l'ouverture effective (timeout défensif 1.5 s)
+    await Promise.race([
+      ready,
+      new Promise(r => setTimeout(r, 1500)),
+    ]);
 
     try {
       await apiClient.startPipeline({
@@ -289,8 +296,20 @@ function _connectSSE(sessionId, authToken, set, get) {
   let es    = null;
   let retryTimer = null;
 
+  // Promise résolue dès que la 1re connexion EventSource est établie.
+  let resolveReady;
+  const ready = new Promise((r) => { resolveReady = r; });
+  let firstOpen = true;
+
   function connect() {
     es = new EventSource(url, { withCredentials: true });
+
+    es.onopen = () => {
+      if (firstOpen) {
+        firstOpen = false;
+        resolveReady?.();
+      }
+    };
 
     es.onmessage = (e) => {
       try {
@@ -301,16 +320,19 @@ function _connectSSE(sessionId, authToken, set, get) {
 
     es.onerror = () => {
       es.close();
+      // On débloque `ready` quand même pour ne pas coincer /api/start
+      resolveReady?.();
       retryTimer = setTimeout(connect, 3000);
     };
   }
 
   connect();
 
-  return () => {
+  const cleanup = () => {
     clearTimeout(retryTimer);
     es?.close();
   };
+  return { cleanup, ready };
 }
 
 
