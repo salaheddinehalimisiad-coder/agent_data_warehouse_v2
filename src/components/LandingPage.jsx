@@ -7,6 +7,7 @@ import {
   Sun, Moon, ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import UseCaseFlow from './UseCaseFlow';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 40 },
@@ -477,32 +478,17 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
         </div>
       </section>
 
-      {/* 6. Section Complete & Connected */}
-      <section id="cases" className="relative w-full py-40 border-b transition-colors duration-500" style={{ background: 'var(--bg-base)', borderColor: 'var(--border-subtle)' }}>
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <h3 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-16 max-w-4xl mx-auto leading-tight tracking-tight text-zinc-900 dark:text-white">Connectez partout. <br/>Centralisez parfaitement.</h3>
-          <div className="relative w-full h-[450px] flex items-center justify-center my-10">
-             <div className="w-32 h-32 bg-white flex items-center justify-center rounded-3xl shadow-[0_0_80px_rgba(255,255,255,0.4)] z-20 relative">
-               <Cpu size={56} className="text-black" />
-               <div className="absolute inset-0 border-2 border-white rounded-3xl animate-ping opacity-20"></div>
-             </div>
-             <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1000 1000" preserveAspectRatio="none" style={{ zIndex: 10 }}>
-               <motion.path d="M 200,500 C 400,500 400,500 500,500" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="2" strokeDasharray="5,5" />
-               <motion.path d="M 800,500 C 600,500 600,500 500,500" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="2" strokeDasharray="5,5" />
-             </svg>
-             <div className="absolute left-[15%] top-1/2 -translate-y-1/2 flex flex-col gap-12 z-20">
-                <div className="w-20 h-20 bg-zinc-900 border border-zinc-700 rounded-3xl flex items-center justify-center text-white font-black text-xs shadow-2xl hover:scale-110 transition-transform">MYSQL</div>
-                <div className="w-20 h-20 bg-zinc-900 border border-zinc-700 rounded-3xl flex items-center justify-center text-white font-black text-xs shadow-2xl hover:scale-110 transition-transform">REDACT</div>
-                <div className="w-20 h-20 bg-zinc-900 border border-zinc-700 rounded-3xl flex items-center justify-center text-white font-black text-xs shadow-2xl hover:scale-110 transition-transform">API_V2</div>
-             </div>
-             <div className="absolute right-[15%] top-1/2 -translate-y-1/2 z-20 scale-125">
-                <div className="px-10 py-8 bg-gradient-to-br from-indigo-600 to-purple-800 rounded-[40px] shadow-[0_40px_100px_rgba(99,102,241,0.4)] border border-indigo-400/50 flex flex-col items-center">
-                   <Database size={40} className="text-white mb-4" />
-                   <span className="font-black text-xl italic tracking-tighter">DATA WAREHOUSE</span>
-                   <span className="text-[10px] text-indigo-200 mt-2 uppercase tracking-[0.3em] font-black italic">OPTIMIZED & NEURAL</span>
-                </div>
-             </div>
-          </div>
+      {/* 6. Section Cas d'utilisation — animated 6-stage pipeline */}
+      <section id="cases" className="relative w-full py-32 md:py-40 border-b transition-colors duration-500 overflow-hidden" style={{ background: 'var(--bg-base)', borderColor: 'var(--border-subtle)' }}>
+        {/* Animated backdrop */}
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-32 left-1/2 -translate-x-1/2 w-[900px] h-[900px] rounded-full opacity-30"
+               style={{ background: 'radial-gradient(closest-side, rgba(139,92,246,0.35), transparent 70%)' }}/>
+          <div className="absolute bottom-0 right-0 w-[600px] h-[600px] rounded-full opacity-20"
+               style={{ background: 'radial-gradient(closest-side, rgba(59,130,246,0.35), transparent 70%)' }}/>
+        </div>
+        <div className="relative">
+          <UseCaseFlow />
         </div>
       </section>
 
