@@ -1,83 +1,86 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="Agent BI">
   <defs>
-    <!-- Frame gradient (violet → indigo → purple) -->
-    <linearGradient id="frame" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#6366F1"/>
+    <!-- Brand gradient (indigo → violet → purple) -->
+    <linearGradient id="mBrand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0"    stop-color="#6366F1"/>
       <stop offset="0.55" stop-color="#8B5CF6"/>
-      <stop offset="1" stop-color="#A855F7"/>
+      <stop offset="1"    stop-color="#A855F7"/>
     </linearGradient>
 
-    <!-- Bars gradient (ascending glow) -->
-    <linearGradient id="bars" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0" stop-color="#4F46E5"/>
-      <stop offset="1" stop-color="#C4B5FD"/>
+    <!-- Chip fill -->
+    <linearGradient id="mChip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#14142B"/>
+      <stop offset="1" stop-color="#0B1020"/>
     </linearGradient>
 
-    <!-- Soft halo behind the mark -->
-    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#8B5CF6" stop-opacity="0.35"/>
+    <!-- AI core glow -->
+    <radialGradient id="mCore" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="1"/>
+      <stop offset="0.5"  stop-color="#C4B5FD" stop-opacity="0.75"/>
+      <stop offset="1"    stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Ambient halo behind the chip -->
+    <radialGradient id="mHalo" cx="0.5" cy="0.55" r="0.55">
+      <stop offset="0" stop-color="#8B5CF6" stop-opacity="0.38"/>
       <stop offset="1" stop-color="#8B5CF6" stop-opacity="0"/>
     </radialGradient>
 
-    <!-- Inner fill for the hex — very dark, high contrast -->
-    <linearGradient id="hexFill" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0B1020"/>
-      <stop offset="1" stop-color="#14142B"/>
-    </linearGradient>
-
-    <!-- Glow for the AI spark -->
-    <radialGradient id="sparkGlow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
-      <stop offset="0.55" stop-color="#C4B5FD" stop-opacity="0.55"/>
-      <stop offset="1" stop-color="#8B5CF6" stop-opacity="0"/>
-    </radialGradient>
+    <!-- Soft glow filter for the A skeleton -->
+    <filter id="mGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="0.7" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
   </defs>
 
   <!-- Ambient halo -->
-  <circle cx="32" cy="32" r="30" fill="url(#halo)"/>
+  <circle cx="32" cy="34" r="30" fill="url(#mHalo)"/>
 
-  <!-- Hexagonal prism: pointy-top, 6 vertices -->
-  <polygon points="32,5 55.5,18 55.5,46 32,59 8.5,46 8.5,18"
-           fill="url(#hexFill)"
-           stroke="url(#frame)"
-           stroke-width="2.4"
-           stroke-linejoin="round"/>
+  <!-- Rounded chip / agent frame -->
+  <rect x="4" y="4" width="56" height="56" rx="12" ry="12"
+        fill="url(#mChip)"
+        stroke="url(#mBrand)" stroke-width="2.2"/>
 
-  <!-- Inner faint hex (depth) -->
-  <polygon points="32,13 48.5,22 48.5,42 32,51 15.5,42 15.5,22"
-           fill="none"
-           stroke="url(#frame)"
-           stroke-width="0.8"
-           stroke-opacity="0.25"
-           stroke-linejoin="round"/>
+  <!-- Inner faint mesh frame (depth) -->
+  <rect x="9" y="9" width="46" height="46" rx="9" ry="9"
+        fill="none" stroke="url(#mBrand)" stroke-width="0.7" stroke-opacity="0.22"/>
 
-  <!-- Analytics baseline -->
-  <line x1="17" y1="44" x2="47" y2="44"
-        stroke="url(#frame)" stroke-width="1.2" stroke-opacity="0.35" stroke-linecap="round"/>
+  <!-- === Neural "A" (for Agent) === -->
+  <g filter="url(#mGlow)">
+    <!-- Left leg -->
+    <line x1="16" y1="50" x2="32" y2="16"
+          stroke="url(#mBrand)" stroke-width="3" stroke-linecap="round"/>
+    <!-- Right leg -->
+    <line x1="48" y1="50" x2="32" y2="16"
+          stroke="url(#mBrand)" stroke-width="3" stroke-linecap="round"/>
+    <!-- Crossbar -->
+    <line x1="22" y1="37" x2="42" y2="37"
+          stroke="url(#mBrand)" stroke-width="2.4" stroke-linecap="round"/>
+  </g>
 
-  <!-- Three ascending bars — BI/analytics ridge forming an implicit "A" -->
-  <rect x="19" y="31" width="4.4" height="13" rx="1.2" fill="url(#bars)"/>
-  <rect x="29.8" y="22" width="4.4" height="22" rx="1.2" fill="url(#bars)"/>
-  <rect x="40.6" y="27" width="4.4" height="17" rx="1.2" fill="url(#bars)"/>
+  <!-- Node mesh around the A (neural graph edges) -->
+  <g stroke="#C4B5FD" stroke-width="0.9" stroke-opacity="0.55" stroke-linecap="round">
+    <line x1="16" y1="50" x2="22" y2="37"/>
+    <line x1="48" y1="50" x2="42" y2="37"/>
+    <line x1="16" y1="50" x2="8"  y2="44"/>
+    <line x1="48" y1="50" x2="56" y2="44"/>
+    <line x1="22" y1="37" x2="12" y2="28"/>
+    <line x1="42" y1="37" x2="52" y2="28"/>
+  </g>
 
-  <!-- Neural connectors between bar tops (data flow) -->
-  <path d="M21.2 31 L32 22 L42.8 27" fill="none"
-        stroke="#C4B5FD" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.65"/>
+  <!-- Graph nodes -->
+  <circle cx="16" cy="50" r="2.6" fill="#E0E7FF" stroke="#6366F1" stroke-width="0.8"/>
+  <circle cx="48" cy="50" r="2.6" fill="#E0E7FF" stroke="#A855F7" stroke-width="0.8"/>
+  <circle cx="22" cy="37" r="2"   fill="#C4B5FD"/>
+  <circle cx="42" cy="37" r="2"   fill="#C4B5FD"/>
+  <!-- Peripheral agent nodes -->
+  <circle cx="8"  cy="44" r="1.6" fill="#6366F1"/>
+  <circle cx="56" cy="44" r="1.6" fill="#A855F7"/>
+  <circle cx="12" cy="28" r="1.4" fill="#8B5CF6"/>
+  <circle cx="52" cy="28" r="1.4" fill="#8B5CF6"/>
 
-  <!-- Bar-top nodes -->
-  <circle cx="21.2" cy="31" r="1.6" fill="#E0E7FF"/>
-  <circle cx="32"   cy="22" r="2.0" fill="#FFFFFF"/>
-  <circle cx="42.8" cy="27" r="1.6" fill="#E0E7FF"/>
-
-  <!-- AI spark orb on top — multi-agent core -->
-  <circle cx="32" cy="5" r="6" fill="url(#sparkGlow)"/>
-  <circle cx="32" cy="5" r="2.4" fill="#FFFFFF"/>
-  <circle cx="32" cy="5" r="1" fill="#A855F7"/>
-
-  <!-- Agent orbit dots on hex vertices -->
-  <circle cx="55.5" cy="18" r="1.5" fill="#A855F7"/>
-  <circle cx="55.5" cy="46" r="1.5" fill="#6366F1"/>
-  <circle cx="32"   cy="59" r="1.5" fill="#8B5CF6"/>
-  <circle cx="8.5"  cy="46" r="1.5" fill="#6366F1"/>
-  <circle cx="8.5"  cy="18" r="1.5" fill="#A855F7"/>
+  <!-- AI core orb at apex of the A (intelligence / thinking) -->
+  <circle cx="32" cy="16" r="8.5" fill="url(#mCore)"/>
+  <circle cx="32" cy="16" r="3.6" fill="#FFFFFF"/>
+  <circle cx="32" cy="16" r="1.6" fill="#A855F7"/>
 </svg>

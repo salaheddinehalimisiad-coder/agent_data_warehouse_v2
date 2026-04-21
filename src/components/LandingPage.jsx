@@ -117,7 +117,7 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
       <nav className="fixed top-0 inset-x-0 z-[100] w-full border-b backdrop-blur-2xl transition-colors duration-500" style={{ background: 'var(--bg-base)', opacity: 0.85, borderColor: 'var(--border-subtle)' }}>
         <div className="max-w-7xl mx-auto px-6 h-24 flex items-center justify-between">
           <div className="flex items-center cursor-pointer relative z-20" onClick={onEnterDashboard}>
-            <img src="/logo.png" alt="AUTOETL AI" className="h-16 md:h-20 lg:h-24 w-auto object-contain drop-shadow-[0_0_20px_rgba(59,130,246,0.4)] hover:scale-105 transition-all" />
+            <img src="/logo-hero.svg" alt="Agent BI" className="h-16 md:h-20 lg:h-24 w-auto object-contain drop-shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:scale-105 transition-all" />
           </div>
           <div className="hidden lg:flex items-center gap-10 text-sm font-semibold text-zinc-400 relative z-20">
             <button onClick={() => document.getElementById('platform')?.scrollIntoView({ behavior: 'smooth' })} className="hover:text-white transition-colors">Plateforme IA</button>
@@ -589,13 +589,13 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
       <footer className="w-full border-t py-12 transition-colors duration-500 bg-white dark:bg-[#0A0A0B] border-zinc-200 dark:border-white/5 text-zinc-500 dark:text-zinc-400">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between">
           <div className="flex items-center gap-3 mb-6 md:mb-0">
-            <img src="/logo.png" alt="AUTOETL" className="h-8 object-contain" />
-            <span className="text-sm font-semibold text-zinc-900 dark:text-white">Agentic DW</span>
+            <img src="/logo-mark.svg" alt="Agent BI" className="h-8 w-8 object-contain" />
+            <span className="text-sm font-semibold text-zinc-900 dark:text-white">Agent BI</span>
           </div>
           <div className="flex gap-8 text-sm font-medium">
             <a href="#" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Politique de Confidentialité</a>
             <a href="#" className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">Conditions d'Utilisation</a>
-            <span>© 2026 Agentic ETL</span>
+            <span>© 2026 Agent BI</span>
           </div>
         </div>
       </footer>
