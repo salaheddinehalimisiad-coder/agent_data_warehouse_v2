@@ -27,7 +27,9 @@ AGENT_LABELS = {
     "critic":           "🛡️ Critic",
     "human_review":     "👤 Human Review",
     "chat_modifier":    "💬 Chat Modifier",
-    "etl_generator":    "⚙️ ETL Generator",
+    "governance":       "🛡️ Governance",
+    "cdc_watermark":    "💧 CDC Watermark",
+    "etl_tsql_generator": "⚙️ ETL Generator",
     "etl_initializer":  "🏗️ ETL Initializer",
     "etl_extractor":    "📥 Extract Step",
     "etl_transformer":  "🔄 Transform Step",
@@ -35,6 +37,7 @@ AGENT_LABELS = {
     "etl_executor":     "🚀 ETL Executor",
     "healer":           "🔧 Healer",
     "lineage_tracker":  "🗺️ Lineage Tracker",
+    "query_generator":  "📊 Query Generator",
     "insight_generator":"📊 Insight Gen",
     "forecaster":       "📈 Forecaster",
     "cataloger":        "📚 Cataloger",
@@ -44,7 +47,7 @@ AGENT_LABELS = {
 }
 
 # Nœuds après lesquels on persiste en DB
-_PERSIST_AFTER = {"modeler", "etl_initializer", "etl_loader", "lineage_tracker", "human_review", "human_review_dq"}
+_PERSIST_AFTER = {"modeler", "etl_initializer", "etl_loader", "lineage_tracker", "human_review", "human_review_dq", "cdc_watermark", "etl_tsql_generator", "airflow_generator", "dbt_generator", "mock_generator"}
 
 
 def get_pipeline_state(session_id: str) -> dict:
@@ -85,13 +88,32 @@ def _get_sse():
 
 def _safe(data: dict) -> dict:
     """Sérialise les valeurs complexes (numpy, etc.) en types Python standard."""
+    import numpy as np
     out = {}
     for k, v in data.items():
-        try:
-            json.dumps(v, default=str)
-            out[k] = v
-        except Exception:
-            out[k] = str(v)
+        if isinstance(v, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+            out[k] = int(v)
+        elif isinstance(v, (np.floating, np.float64, np.float32, np.float16)):
+            out[k] = float(v)
+        elif isinstance(v, np.ndarray):
+            out[k] = v.tolist()
+        elif isinstance(v, dict):
+            out[k] = _safe(v)
+        elif isinstance(v, (list, tuple)):
+            out[k] = [_safe(item) if isinstance(item, dict) else item for item in v]
+        elif hasattr(v, '__dict__'):
+            # Handle objects with __dict__ by converting to string
+            try:
+                json.dumps(v, default=str)
+                out[k] = v
+            except Exception:
+                out[k] = str(v)
+        else:
+            try:
+                json.dumps(v, default=str)
+                out[k] = v
+            except Exception:
+                out[k] = str(v)
     return out
 
 
@@ -101,7 +123,10 @@ def _persist(session_id: str) -> None:
         from api.db.sqlserver import save_session_state
         state = _pipeline_states.get(session_id, {})
         user_id = state.get("user_id", 1)
-        save_session_state(session_id, user_id, state)
+        # Exclure les DataFrames (non sérialisables en JSON)
+        persistable = {k: v for k, v in state.items()
+                       if k not in ("source_df", "source_dfs")}
+        save_session_state(session_id, user_id, persistable)
     except Exception as e:
         logger.warning(f"[Persist] Échec sauvegarde {session_id} : {e}")
 
@@ -139,12 +164,12 @@ async def run_pipeline(session_id: str, config: dict) -> None:
 
 
 async def _run_inner(session_id: str, config: dict) -> None:
-    # PRO #7 : timeout global 30 minutes
+    # PRO #7 : timeout global 60 minutes (augmenté pour les modèles locaux lents)
     try:
-        await asyncio.wait_for(_run_inner_impl(session_id, config), timeout=1800)
+        await asyncio.wait_for(_run_inner_impl(session_id, config), timeout=3600)
     except asyncio.TimeoutError:
         sse = _get_sse()
-        sse.log_event(session_id, "⏰ Pipeline timeout (30 min) — arrêt forcé", level="error")
+        sse.log_event(session_id, "⏰ Pipeline timeout (60 min) — arrêt forcé", level="error")
         sse.pipeline_complete(session_id, False, {"error": "timeout"})
 
 
@@ -171,6 +196,7 @@ async def _run_inner_impl(session_id: str, config: dict) -> None:
         "logical_model_version": 0, "previous_sql_ddl": "",
         "sql_ddl": "", "logical_model": {}, "source_metadata": {},
         "schema_fingerprint": "", "critic_review": "", "etl_code": "",
+        "source_dfs": {},
         "hitl_comment": "",
         # Champs v3 / v4
         "dq_report": {}, "dq_score": 100, "dq_alerts": [],
@@ -197,8 +223,27 @@ async def _run_inner_impl(session_id: str, config: dict) -> None:
                     _merge(session_id, safe_out)
                     sse.broadcast(session_id, "state_update", {
                         "agent": node,
-                        "updates": {k: v for k, v in safe_out.items() if k not in ("messages", "source_df")},
+                        "updates": {k: v for k, v in safe_out.items() if k not in ("messages", "source_df", "source_dfs")},
                     })
+
+                # ── Validation output Modeler ────────────────────────────────────
+                if node == "modeler":
+                    current = _pipeline_states.get(session_id, {})
+                    lm = current.get("logical_model", {})
+                    has_fact = lm.get("fact_table") or lm.get("fact_tables")
+                    if not lm or not has_fact:
+                        sse.set_agent_status(session_id, "modeler", "error")
+                        sse.log_event(
+                            session_id,
+                            "❌ Schema Modeling FAILED — modèle vide/invalide, aucune fact_table générée",
+                            level="error",
+                        )
+                        sse.pipeline_complete(session_id, False, {
+                            "error": "modeling_failed",
+                            "reason": "Le modèle logique est vide ou ne contient aucune table de faits. "
+                                      "Vérifiez que l'Explorer a bien extrait les métadonnées source.",
+                        })
+                        return
 
                 sse.set_agent_status(session_id, node, "done")
                 sse.log_event(session_id, f"✅ {AGENT_LABELS.get(node, node)} terminé")
@@ -210,18 +255,22 @@ async def _run_inner_impl(session_id: str, config: dict) -> None:
                 # ── Pause d'interactivité : validation humaine ─────────────────────────────────────────
                 if node == "human_review":
                     current = _pipeline_states.get(session_id, {})
-                    sse.set_stage(session_id, "awaiting_human_review")
-                    sse.broadcast(session_id, "human_review_required", {
-                        "sql_ddl":               current.get("sql_ddl", ""),
-                        "critic_review":         current.get("critic_review", ""),
-                        "critic_approved":       current.get("critic_approved", False),
-                        "schema_drift_detected": current.get("schema_drift_detected", False),
-                        "schema_drift_details":  current.get("schema_drift_details", ""),
-                        "previous_sql_ddl":      current.get("previous_sql_ddl", ""),
-                        "logical_model_version": current.get("logical_model_version", 0),
-                        "logical_model":         current.get("logical_model", {}),
-                    })
-                    return
+                    # Skip pause if auto-approved (testing mode)
+                    if current.get("is_validated", False):
+                        sse.log_event(session_id, "👤 Human Review auto-approved - continuing pipeline")
+                    else:
+                        sse.set_stage(session_id, "awaiting_human_review")
+                        sse.broadcast(session_id, "human_review_required", {
+                            "sql_ddl":               current.get("sql_ddl", ""),
+                            "critic_review":         current.get("critic_review", ""),
+                            "critic_approved":       current.get("critic_approved", False),
+                            "schema_drift_detected": current.get("schema_drift_detected", False),
+                            "schema_drift_details":  current.get("schema_drift_details", ""),
+                            "previous_sql_ddl":      current.get("previous_sql_ddl", ""),
+                            "logical_model_version": current.get("logical_model_version", 0),
+                            "logical_model":         current.get("logical_model", {}),
+                        })
+                        return
                 
                 if node == "human_review_dq":
                     current = _pipeline_states.get(session_id, {})
@@ -316,8 +365,26 @@ async def _stream_continue(session_id: str, tc: dict) -> None:
                     _merge(session_id, safe_out)
                     sse.broadcast(session_id, "state_update", {
                         "agent": node,
-                        "updates": {k: v for k, v in safe_out.items() if k not in ("messages", "source_df")},
+                        "updates": {k: v for k, v in safe_out.items() if k not in ("messages", "source_df", "source_dfs")},
                     })
+
+                # ── Validation output Modeler (stream_continue) ────────────────
+                if node == "modeler":
+                    current = _pipeline_states.get(session_id, {})
+                    lm = current.get("logical_model", {})
+                    has_fact = lm.get("fact_table") or lm.get("fact_tables")
+                    if not lm or not has_fact:
+                        sse.set_agent_status(session_id, "modeler", "error")
+                        sse.log_event(
+                            session_id,
+                            "❌ Schema Modeling FAILED — modèle vide/invalide, aucune fact_table générée",
+                            level="error",
+                        )
+                        sse.pipeline_complete(session_id, False, {
+                            "error": "modeling_failed",
+                            "reason": "Le modèle logique est vide ou ne contient aucune table de faits.",
+                        })
+                        return
 
                 sse.set_agent_status(session_id, node, "done")
                 sse.log_event(session_id, f"✅ {AGENT_LABELS.get(node, node)} terminé")

@@ -5,7 +5,6 @@ Durcissement v4.2 :
   - Rate-limit léger en mémoire sur /login (5 tentatives / 5 min / IP, graceful
     sans dépendance externe). Peut être remplacé par slowapi.
   - `SCOPE_IDENTITY()` au lieu de `@@IDENTITY` (safe avec triggers, concurrence).
-  - Suppression du hack `if hashed_password == "null"`.
   - CSRF double-submit : cookie csrf_token posé à la connexion, à relire côté
     React et renvoyer dans le header X-CSRF-Token pour toutes les mutations.
   - Cookie `secure` piloté par COOKIE_SECURE env.

@@ -183,7 +183,7 @@ export default function DocumentationPage({ initialTab = 'intro' }) {
 
           <Section title="Le Processus Human-in-the-Loop (HITL)">
             <p>La confiance n'exclut pas le contrôle. Au nud <code>human_review</code>, l'exécution s'interrompt purement et simplement. Le thread backend libère la mémoire, mais sauvegarde l'état dans la base de données. L'interface utilisateur affiche alors le plan ("Dry Run") à l'ingénieur de données (DDL, tables affectées).</p>
-            <p>Une fois l'humain cliquant sur "Approuver", une requête est envoyée à FastAPI pour réveiller le graphe et poursuivre l'exécution vers <code>etl_generator</code>.</p>
+            <p>Une fois l'humain cliquant sur "Approuver", une requête est envoyée à FastAPI pour réveiller le graphe et poursuivre l'exécution vers <code>etl_tsql_generator</code>.</p>
           </Section>
         </div>
       )

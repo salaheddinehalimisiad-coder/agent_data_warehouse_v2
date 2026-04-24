@@ -49,7 +49,7 @@ const PIPELINE_STAGES = [
     subtitle: 'Code generation & logic mapping',
     icon: Settings2,
     color: 'emerald',
-    agents: ['etl_generator'],
+    agents: ['etl_tsql_generator'],
   },
   {
     id: 'etl_extract',

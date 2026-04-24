@@ -62,8 +62,9 @@ export default function ExportPanel({ onClose }) {
   const [error, setError]           = useState('');
 
   // Un session_id suffit pour exporter — le backend renvoie ce qu'il a dans le state.
-  // Seules les cartes ETL-spécifiques restent bridées par `etlStatus`.
+  // Les cartes sont activées dès que le pipeline est complet ou qu'on a un session_id.
   const canExport = !!sessionId;
+  const pipelineDone = pipelineStatus === 'complete' || etlStatus === 'success';
 
   const flashSuccess = (key) => {
     setSuccess(key);
@@ -203,12 +204,16 @@ export default function ExportPanel({ onClose }) {
   };
 
   const handleDownloadSql = () => {
-    if (!sqlDDL) return;
-    const blob = new Blob([sqlDDL], { type: 'text/sql' });
+    const ddl = sqlDDL;
+    if (!ddl) {
+      setError('SQL DDL not yet generated');
+      return;
+    }
+    const blob = new Blob([ddl], { type: 'text/sql' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `schema_${userPrefix}_${sessionId.substring(0,8)}.sql`;
+    a.download = `schema_${userPrefix}_${sessionId?.substring(0,8)}.sql`;
     a.click();
     URL.revokeObjectURL(url);
     flashSuccess('sql');
@@ -257,12 +262,15 @@ export default function ExportPanel({ onClose }) {
       'Power BI Bundle Fault');
 
   const handleDownloadMockData = () => {
-    if (!mockDataSql) return;
+    if (!mockDataSql) {
+      setError('Mock data not yet generated');
+      return;
+    }
     const blob = new Blob([mockDataSql], { type: 'text/sql' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `seed_${userPrefix}_${sessionId.substring(0,8)}.sql`;
+    a.download = `seed_${userPrefix}_${sessionId?.substring(0,8)}.sql`;
     a.click();
     URL.revokeObjectURL(url);
     flashSuccess('mock');
@@ -296,7 +304,7 @@ export default function ExportPanel({ onClose }) {
   };
 
   return (
-    <div className="bg-[#050507] border border-white/10 rounded-[40px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.8)] w-[360px] overflow-hidden flex flex-col relative group">
+    <div className="h-full overflow-y-auto p-6 custom-scrollbar">
       
       {/* Strategic Header */}
       <div className="px-8 py-6 border-b border-white/[0.06] bg-black/40 flex items-center justify-between shrink-0">
@@ -365,31 +373,31 @@ export default function ExportPanel({ onClose }) {
           <ExportCard 
             label="Logical Schema" sublabel="Raw SQL DDL Structure"
             icon={Database} colorCls="indigo"
-            onClick={handleDownloadSql} disabled={!canExport || !sqlDDL} loading={loading === 'sql'} success={success === 'sql'}
+            onClick={handleDownloadSql} disabled={!canExport || !pipelineDone} loading={loading === 'sql'} success={success === 'sql'}
           />
 
           <ExportCard 
             label="Airflow Orchestrator DAG" sublabel="Native Python Scheduling"
             icon={Wind} colorCls="cyan"
-            onClick={handleDownloadAirflow} disabled={!canExport || !airflowDag} loading={loading === 'airflow'} success={success === 'airflow'}
+            onClick={handleDownloadAirflow} disabled={!canExport || !pipelineDone} loading={loading === 'airflow'} success={success === 'airflow'}
           />
 
           <ExportCard 
             label="dbt Analytics Models" sublabel="SQL Transformation Project"
             icon={Package} colorCls="orange"
-            onClick={handleDownloadDbt} disabled={!canExport || !dbtProject} loading={loading === 'dbt'} success={success === 'dbt'}
+            onClick={handleDownloadDbt} disabled={!canExport || !pipelineDone} loading={loading === 'dbt'} success={success === 'dbt'}
           />
 
           <ExportCard 
             label="Mock Data Generator" sublabel="Seed SQL Scripts"
             icon={DatabaseZap} colorCls="pink"
-            onClick={handleDownloadMockData} disabled={!canExport || !mockDataSql} loading={loading === 'mock'} success={success === 'mock'}
+            onClick={handleDownloadMockData} disabled={!canExport || !pipelineDone} loading={loading === 'mock'} success={success === 'mock'}
           />
 
           <ExportCard 
             label="Pentaho KTR Engine" sublabel="Production ETL Runtime"
             icon={Code2} colorCls="emerald"
-            onClick={handleDownloadKtr} disabled={!canExport || etlStatus !== 'success'} loading={loading === 'ktr'} success={success === 'ktr'}
+            onClick={handleDownloadKtr} disabled={!canExport || !pipelineDone} loading={loading === 'ktr'} success={success === 'ktr'}
           />
         </div>
 

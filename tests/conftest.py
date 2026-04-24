@@ -7,7 +7,9 @@ import pytest
 os.environ.setdefault("DB_PASSWORD", "test_password")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-not-for-production")
 os.environ.setdefault("PASSWORD_SALT", "test-salt")
-os.environ.setdefault("GOOGLE_API_KEY", "test-key")
+os.environ.setdefault("BLAZE_API_KEY", "test-blaze-key")
+os.environ.setdefault("BLAZE_BASE_URL", "https://api.blaze.ai/v1")
+os.environ.setdefault("BLAZE_MODEL", "glm-5")
 os.environ.setdefault("OLLAMA_BASE_URL", "http://localhost:11434")
 os.environ.setdefault("ENVIRONMENT", "test")
 

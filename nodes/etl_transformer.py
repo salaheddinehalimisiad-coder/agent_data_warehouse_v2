@@ -12,32 +12,35 @@ def etl_transformer_node(state: AgentState) -> dict:
     - Loads dimensions into the DW.
     - Generates Surrogate Keys (SK) mapping.
     - Applies basic cleaning/remediation logic.
+    - Uses source_dfs (multi-table) when available, falls back to source_df.
     """
     logger.info("--- [ETL] STEP 2: TRANSFORM ---")
     logical_model = state.get("logical_model", {})
     dw_config    = state.get("dw_connection_config", {})
     source_df    = state.get("source_df")
+    source_dfs   = state.get("source_dfs", {})
     user_prefix  = state.get("user_prefix", "dw")
     exec_log     = state.get("execution_log", [])
-    
-    if source_df is None:
+
+    if source_df is None and not source_dfs:
         return {"etl_status": "failed", "etl_error": "No data to transform", "execution_log": exec_log + ["[Transform] ❌ No data"]}
 
     try:
         dw_engine = _build_engine(dw_config)
         _test_connection(dw_engine)
-        
+
         sk_maps = {}
         for dim in logical_model.get("dimension_tables", []):
             dim_name = dim.get("name")
             table_name = f"{user_prefix}_{dim_name}"
-            result = _load_dimension(dw_engine, table_name, dim, source_df)
+            result = _load_dimension(dw_engine, table_name, dim, source_df, source_dfs=source_dfs or None)
             sk_maps[dim_name] = result["sk_map"]
             exec_log.append(f"[Transform] ✅ Dimension {dim_name} processed ({result['metrics']['inserted']} new SKs)")
 
         exec_log.append("[Transform] ✅ Dimensions synchronized & SK maps generated.")
         return {
             "sk_maps": sk_maps,
+            "etl_status": "success",
             "execution_log": exec_log
         }
     except Exception as e:

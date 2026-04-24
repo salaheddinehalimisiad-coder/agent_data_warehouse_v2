@@ -7,8 +7,6 @@ networks:
     driver: bridge
 
 services:
-
-  # ── SQL Server 2022 ─────────────────────────────────────────────────────────
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: agent_dw_sqlserver
@@ -25,10 +23,8 @@ services:
     volumes:
       - sql_data:/var/opt/mssql/data
       - sql_log:/var/opt/mssql/log
-      # Volume partagé : le backend local Windows écrit ici, SQL Server lit d'ici
       - ./uploads/bak:/var/opt/mssql/backup
     healthcheck:
-      # CORRECTION : mssql-tools18 (pas mssql-tools) dans les images 2022 récentes
       test: [
         "CMD-SHELL",
         "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -No -C || exit 1"
@@ -36,9 +32,8 @@ services:
       interval: 15s
       timeout: 10s
       retries: 10
-      start_period: 30s   # SQL Server met ~20s à démarrer
+      start_period: 30s
 
-  # ── Backend FastAPI ──────────────────────────────────────────────────────────
   backend:
     build:
       context: .
@@ -52,16 +47,16 @@ services:
       DB_HOST: "sqlserver"
       DB_USER: "sa"
       DB_PASSWORD: "${DB_PASSWORD:-StrongP@ssw0rd!}"
-      # CORRECTION : chemin Linux dans le conteneur SQL Server
       SQLSERVER_BACKUP_MOUNT_DIR: "/var/opt/mssql/backup"
-      # CORRECTION : chemin Linux des fichiers de données SQL Server
       SQLSERVER_DATA_DIR: "/var/opt/mssql/data"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
+      BLAZE_API_KEY: "${BLAZE_API_KEY:-sk-blaze-wuAdOktbeX65NxuxmnLrimuMxrQGeTymxsSMpyxLEi1RWkOH}"
+      BLAZE_BASE_URL: "${BLAZE_BASE_URL:-https://api.blaze.ai/v1}"
+      BLAZE_MODEL: "${BLAZE_MODEL:-glm-5}"
     volumes:
-      # Volume partagé : le backend écrit ici, SQL Server lit depuis ce même volume
       - ./uploads/bak:/app/uploads/bak
       - ./outputs:/app/outputs
-      - .:/app  # Hot reload
+      - .:/app
     ports:
       - "8000:8000"
     depends_on:
@@ -73,14 +68,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    mem_limit: 2g
-
-  # ── Frontend (désactivé pour Mission 1 — décommenter plus tard) ─────────────
-  # frontend:
-  #   build:
-  #     context: .
-  #     dockerfile: docker/Dockerfile.frontend
-  #   ...
+    deploy:
+      resources:
+        limits:
+          memory: 2g
 
 volumes:
   sql_data:

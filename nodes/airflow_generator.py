@@ -19,7 +19,7 @@ def airflow_generator_node(state: AgentState) -> dict:
     if not logical_model:
         return {"execution_log": state.get("execution_log", []) + ["[Airflow] SKIP — Pas de modèle logique pour générer le DAG"]}
 
-    llm = get_llm(temperature=0)
+    llm = get_llm(temperature=0, task_type="code")
     
     prompt = f"""Tu es un Data Engineer Expert spécialisé en Apache Airflow.
 Ton objectif est de générer un DAG Airflow (`.py`) complètement fonctionnel pour orchestrer le pipeline ETL du Data Warehouse conçu.

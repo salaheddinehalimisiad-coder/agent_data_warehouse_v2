@@ -61,10 +61,12 @@ def healer_node(state: AgentState) -> dict:
 
     if not sql_ddl or not etl_error:
         return {
+            "etl_status": "failed",
+            "retry_count": retry_count + 1,
             "execution_log": state.get("execution_log", []) + ["[Healer] SKIP — rien à corriger"]
         }
 
-    llm = get_llm(temperature=0.2)
+    llm = get_llm(temperature=0.2, task_type="code")
     chain = HEALER_PROMPT | llm
 
     try:
@@ -78,6 +80,8 @@ def healer_node(state: AgentState) -> dict:
     except Exception as e:
         logger.error(f"[Healer] Erreur LLM : {e}")
         return {
+            "etl_status": "failed",
+            "retry_count": retry_count + 1,
             "execution_log": state.get("execution_log", []) + [f"[Healer] ERREUR LLM : {e}"]
         }
 
@@ -105,6 +109,8 @@ def healer_node(state: AgentState) -> dict:
     if not sql_part or "CREATE " not in sql_part.upper():
         logger.warning("[Healer] SQL corrigé invalide — conservation de l'original")
         return {
+            "etl_status": "failed",
+            "retry_count": retry_count + 1,
             "execution_log": state.get("execution_log", []) + [
                 f"[Healer] ⚠️ Correction n°{retry_count} échouée (SQL invalide)"
             ]

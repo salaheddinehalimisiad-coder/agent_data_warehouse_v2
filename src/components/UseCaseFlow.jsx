@@ -1,3 +1,4 @@
+// src/components/UseCaseFlow.jsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -8,25 +9,6 @@ import {
   Boxes, Network, MonitorCheck, Wand2, ArrowDown
 } from 'lucide-react';
 
-/**
- * UseCaseFlow — animated, fact-checked walkthrough of the 6-stage Agent BI pipeline.
- * Drops into the LandingPage at the #cases anchor.
- *
- * Verified against the codebase:
- *  - 12+ agent nodes under /nodes (explorer, modeler, critic, chat_modifier,
- *    etl_extractor, etl_transformer, etl_loader, etl_executor, healer,
- *    schema_drift_detector, cdc_watermark, lineage_tracker, cataloger,
- *    data_quality_agent, governance_agent, query_generator, insight_generator,
- *    forecaster, mock_generator, etl_tsql_generator)
- *  - Connecteurs réels: SQL Server (.bak/.sql/.bacpac via Docker bridge),
- *    CSV, Excel, REST API, SQLite (api/routes/backup.py + ConnectionModal.jsx)
- *  - Orchestration: LangGraph StateGraph + MemorySaver (main.py)
- *  - Backend: FastAPI + Pydantic + SQLAlchemy + pyodbc
- *  - Frontend: React 18 + Vite + Framer Motion + Zustand + @xyflow/react
- *  - LLMs: Ollama (local/cloud) + Google Gemini, fallback mock LLM
- */
-
-// ---------- STAGE DEFINITIONS (factual) -----------------------------------
 const STAGES = [
   {
     n: 1,
@@ -191,7 +173,6 @@ const STAGES = [
   },
 ];
 
-// ---------- TECH STACK (verified) -----------------------------------------
 const TECH_STACK = [
   { label: 'LangGraph', sub: 'Orchestration agents', tone: 'from-violet-500/20 to-indigo-500/10' },
   { label: 'Pydantic', sub: 'Validation stricte', tone: 'from-emerald-500/20 to-teal-500/10' },
@@ -201,18 +182,15 @@ const TECH_STACK = [
   { label: 'Ollama + Gemini', sub: 'LLM multi-provider', tone: 'from-rose-500/20 to-red-500/10' },
 ];
 
-// ---------- HELPERS -------------------------------------------------------
 function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
 
-// ---------- COMPONENT -----------------------------------------------------
 export default function UseCaseFlow() {
   const [active, setActive] = useState(0);
   const [playing, setPlaying] = useState(true);
-  const [pinned, setPinned] = useState(null); // user-clicked stage stays open
+  const [pinned, setPinned] = useState(null);
   const tickRef = useRef(null);
   const lastTickRef = useRef(Date.now());
 
-  // Auto-play: advance active stage every 4s while playing & nothing pinned
   useEffect(() => {
     if (!playing || pinned !== null) return;
     tickRef.current = setInterval(() => {
@@ -227,13 +205,9 @@ export default function UseCaseFlow() {
 
   return (
     <div className="relative w-full">
-      {/* === Header === */}
       <div className="text-center max-w-4xl mx-auto px-6 mb-12">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 mb-6">
-          <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
-          <span className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-300">Pipeline Agentique · 6 étapes</span>
-        </div>
-        <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-zinc-900 dark:text-white mb-5">
+        {/* MODIFICATION ICI : leading-[1.2] et py-2 rajoutés et badge supprimé */}
+        <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-zinc-900 dark:text-white mb-5 leading-[1.2] py-2">
           De la source brute au Data Warehouse,<br/>
           <span className="bg-gradient-to-r from-indigo-400 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">orchestré par des agents IA.</span>
         </h2>
@@ -242,12 +216,10 @@ export default function UseCaseFlow() {
           Cliquez sur une étape pour voir les détails, ou laissez l'animation défiler.
         </p>
 
-        {/* Controls */}
         <div className="mt-6 inline-flex items-center gap-2 px-1.5 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
           <button
             onClick={() => { setPlaying(p => !p); setPinned(null); }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider text-white hover:bg-white/10 transition"
-            aria-label={playing ? "Mettre en pause" : "Lancer"}
           >
             {playing ? <Pause size={12}/> : <Play size={12}/>}
             {playing ? 'Pause' : 'Lecture'}
@@ -255,14 +227,12 @@ export default function UseCaseFlow() {
           <button
             onClick={() => { setActive(0); setPinned(null); setPlaying(true); }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider text-zinc-300 hover:bg-white/10 transition"
-            aria-label="Recommencer"
           >
             <RotateCcw size={12}/> Replay
           </button>
         </div>
       </div>
 
-      {/* === Animated flow rail === */}
       <FlowRail
         stages={STAGES}
         activeIdx={displayedIdx}
@@ -272,7 +242,6 @@ export default function UseCaseFlow() {
         }}
       />
 
-      {/* === Detail panel === */}
       <AnimatePresence mode="wait">
         <motion.div
           key={stage.key}
@@ -286,7 +255,6 @@ export default function UseCaseFlow() {
         </motion.div>
       </AnimatePresence>
 
-      {/* === Tech stack band === */}
       <div className="max-w-6xl mx-auto px-6 mt-16">
         <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.04] to-white/[0.01] backdrop-blur-md p-6 md:p-8">
           <div className="flex items-center justify-between mb-5">
@@ -294,7 +262,7 @@ export default function UseCaseFlow() {
               <div className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-300 mb-1">Stack technique vérifiée</div>
               <div className="text-zinc-300 text-sm">Ce qui tourne réellement sous le capot d'Agent BI</div>
             </div>
-            <Sparkles size={18} className="text-indigo-300" />
+            {/* MODIFICATION ICI : Sparkles Icon Removed */}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {TECH_STACK.map((t) => (
@@ -310,19 +278,15 @@ export default function UseCaseFlow() {
   );
 }
 
-// ---------- FlowRail ------------------------------------------------------
 function FlowRail({ stages, activeIdx, onPick }) {
   return (
     <div className="relative max-w-7xl mx-auto px-6">
-      {/* Background animated grid */}
       <div className="absolute inset-0 opacity-[0.06] pointer-events-none"
            style={{
              backgroundImage: 'linear-gradient(to right, #fff 1px, transparent 1px), linear-gradient(to bottom, #fff 1px, transparent 1px)',
              backgroundSize: '40px 40px',
              maskImage: 'radial-gradient(ellipse at center, black 30%, transparent 75%)',
            }}/>
-
-      {/* Stage cards */}
       <div className="relative grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 z-10">
         {stages.map((s, i) => (
           <StageCard
@@ -335,8 +299,6 @@ function FlowRail({ stages, activeIdx, onPick }) {
           />
         ))}
       </div>
-
-      {/* SVG overlay for connectors + traveling particles (desktop only) */}
       <svg className="hidden lg:block absolute inset-0 w-full h-full pointer-events-none z-0" preserveAspectRatio="none">
         <defs>
           <linearGradient id="railGrad" x1="0" y1="0" x2="1" y2="0">
@@ -351,13 +313,9 @@ function FlowRail({ stages, activeIdx, onPick }) {
           </radialGradient>
         </defs>
       </svg>
-
-      {/* Traveling data particles between stages (continuous) */}
       <div className="hidden lg:flex absolute top-1/2 left-0 right-0 -translate-y-[60%] pointer-events-none z-0 px-6">
         <ParticleTrack />
       </div>
-
-      {/* Loop indicators */}
       <div className="hidden md:flex justify-center mt-6 gap-10 text-[10px] uppercase tracking-[0.2em] font-bold">
         <LoopBadge label="Boucle Critic ↔ Modifier (max 4)" color="#E879F9" />
         <LoopBadge label="Try · Heal · Retry (max 3)" color="#F43F5E" />
@@ -366,7 +324,6 @@ function FlowRail({ stages, activeIdx, onPick }) {
   );
 }
 
-// ---------- StageCard -----------------------------------------------------
 function StageCard({ stage, index, isActive, isPast, onClick }) {
   const Icon = stage.icon;
   return (
@@ -384,7 +341,6 @@ function StageCard({ stage, index, isActive, isPast, onClick }) {
       `}
       style={isActive ? { borderColor: stage.accent + '88' } : {}}
     >
-      {/* Aura when active */}
       {isActive && (
         <motion.div
           aria-hidden
@@ -394,8 +350,6 @@ function StageCard({ stage, index, isActive, isPast, onClick }) {
           transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
         />
       )}
-
-      {/* Step number & status */}
       <div className="relative flex items-start justify-between mb-3">
         <span className={`text-[10px] font-black uppercase tracking-[0.25em] ${isActive ? 'text-white' : 'text-zinc-500'}`}>
           N°{stage.n}
@@ -412,8 +366,6 @@ function StageCard({ stage, index, isActive, isPast, onClick }) {
           </motion.span>
         )}
       </div>
-
-      {/* Icon chip */}
       <div className={`relative w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-br ${stage.color} shadow-lg mb-3
         ${isActive ? 'ring-2 ring-white/40' : ''}`}>
         <Icon size={22} className="text-white drop-shadow-md"/>
@@ -427,16 +379,12 @@ function StageCard({ stage, index, isActive, isPast, onClick }) {
           />
         )}
       </div>
-
-      {/* Title */}
       <div className="relative">
         <div className={`text-[13px] font-black leading-snug mb-1 ${isActive ? 'text-white' : 'text-zinc-200 group-hover:text-white'}`}>
           {stage.title}
         </div>
         <div className="text-[11px] text-zinc-400 leading-snug">{stage.short}</div>
       </div>
-
-      {/* Mini agent chips */}
       <div className="relative mt-3 flex flex-wrap gap-1">
         {stage.subAgents.slice(0, 3).map((a) => (
           <span key={a} className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-zinc-300">
@@ -449,8 +397,6 @@ function StageCard({ stage, index, isActive, isPast, onClick }) {
           </span>
         )}
       </div>
-
-      {/* Click hint */}
       <div className="relative flex items-center justify-end mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
         <ChevronRight size={14} className="text-zinc-400"/>
       </div>
@@ -458,9 +404,7 @@ function StageCard({ stage, index, isActive, isPast, onClick }) {
   );
 }
 
-// ---------- ParticleTrack: dots flowing left→right --------------------
 function ParticleTrack() {
-  // Three dots with offset delays — simulate continuous data flow
   const dots = [0, 1, 2, 3, 4];
   return (
     <div className="relative w-full h-1">
@@ -488,7 +432,6 @@ function ParticleTrack() {
   );
 }
 
-// ---------- LoopBadge ----------------------------------------------------
 function LoopBadge({ label, color }) {
   return (
     <div className="inline-flex items-center gap-2 text-zinc-400">
@@ -503,16 +446,12 @@ function LoopBadge({ label, color }) {
   );
 }
 
-// ---------- DetailPanel --------------------------------------------------
 function DetailPanel({ stage }) {
   const Icon = stage.icon;
   return (
     <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.01] backdrop-blur-md overflow-hidden">
-      {/* Top stripe */}
       <div className="h-1 w-full" style={{ background: `linear-gradient(90deg, ${stage.accent}, transparent)` }}/>
-
       <div className="p-6 md:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
-        {/* Left: identity */}
         <div className="lg:col-span-4">
           <div className="flex items-center gap-3 mb-4">
             <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${stage.color} flex items-center justify-center shadow-lg`}>
@@ -526,15 +465,11 @@ function DetailPanel({ stage }) {
             </div>
           </div>
           <p className="text-sm text-zinc-300 leading-relaxed">{stage.detail.what}</p>
-
-          {/* I/O chips */}
           <div className="mt-5 space-y-2">
             <IoChip label="Entrée" value={stage.detail.io.in} accent="#94A3B8"/>
             <IoChip label="Sortie" value={stage.detail.io.out} accent={stage.accent}/>
           </div>
         </div>
-
-        {/* Middle: bullets */}
         <div className="lg:col-span-4">
           <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-400 mb-3">Comportement réel</div>
           <ul className="space-y-2.5">
@@ -552,8 +487,6 @@ function DetailPanel({ stage }) {
             ))}
           </ul>
         </div>
-
-        {/* Right: agents/sources grid */}
         <div className="lg:col-span-4">
           <div className="text-[10px] font-black uppercase tracking-[0.25em] text-zinc-400 mb-3">
             {stage.n === 1 ? 'Connecteurs supportés' : 'Agents & composants'}
@@ -577,8 +510,6 @@ function DetailPanel({ stage }) {
           </div>
         </div>
       </div>
-
-      {/* Bottom continue arrow */}
       <div className="px-6 md:px-8 pb-6 flex items-center justify-center">
         <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.25em] text-zinc-500">
           <ArrowDown size={12} className="animate-bounce"/>

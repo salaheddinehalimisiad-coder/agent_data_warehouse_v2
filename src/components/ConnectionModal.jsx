@@ -145,11 +145,9 @@ export default function ConnectionModal({ isOpen, onClose }) {
 
   const isVersionMismatch = () => {
     if (!restoreResult || restoreResult.success) return false;
-    const d = restoreResult.diagnostic;
-    if (!d) return false;
-    const bm = parseInt(String(d.backup_version || '').split('.')[0] || '0', 10);
-    const sm = parseInt(String(d.server_version || '').split('.')[0] || '0', 10);
-    return bm > 0 && sm > 0 && bm > sm;
+    // Proposer le pont Docker pour toute erreur de restauration .bak
+    // (pas seulement les incompatibilités de version)
+    return restoreResult.source_format === 'bak' && restoreResult.success === false;
   };
 
   const cancelBridge = () => {
@@ -292,9 +290,17 @@ export default function ConnectionModal({ isOpen, onClose }) {
     setError('');
     
     let finalSourceConfig;
-    if (source === 'csv' || source === 'bak') {
+    if (source === 'csv') {
       if (!sourceConfig.file_path) { setError('Please upload a file.'); setIsLaunching(false); return; }
       finalSourceConfig = { type: source, file_path: sourceConfig.file_path, filename: sourceConfig.filename };
+    } else if (source === 'bak') {
+      if (!sourceConfig.file_path) { setError('Please upload a file.'); setIsLaunching(false); return; }
+      finalSourceConfig = {
+        type: source,
+        file_path: sourceConfig.file_path,
+        filename: sourceConfig.filename,
+        restored_db: restoreResult?.restored_db || dwConfig.database || '',
+      };
     }
 
     try {

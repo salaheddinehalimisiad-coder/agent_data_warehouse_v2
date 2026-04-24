@@ -18,7 +18,7 @@ def dbt_generator_node(state: AgentState) -> dict:
     if not logical_model:
         return {"execution_log": state.get("execution_log", []) + ["[dbt] SKIP — Pas de modèle logique pour générer le projet dbt"]}
 
-    llm = get_llm(temperature=0)
+    llm = get_llm(temperature=0, task_type="code")
     
     prompt = f"""Tu es un Analytics Engineer Expert spécialisé en dbt (data build tool).
 Ton objectif est de générer la structure d'un projet dbt complet pour le Data Warehouse spécifié.

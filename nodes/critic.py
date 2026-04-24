@@ -7,7 +7,6 @@ from langchain_core.prompts import ChatPromptTemplate
 
 logger = logging.getLogger(__name__)
 
-
 CRITIC_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """Tu es un Expert Architecte Data Senior et Auditeur SQL.
 Ton rôle : auditer rigoureusement un DDL SQL pour Data Warehouse OLAP.
@@ -25,7 +24,6 @@ Ton rôle : auditer rigoureusement un DDL SQL pour Data Warehouse OLAP.
 1. Liste les points validés avec ✅
 2. Liste les problèmes détectés avec ❌ et leur correction recommandée
 3. Termine OBLIGATOIREMENT par une ligne de verdict au format EXACT :
-
 VERDICT: APPROVED
 ou
 VERDICT: NEEDS_REVISION - [raison principale en une phrase]
@@ -38,27 +36,70 @@ def critic_node(state: AgentState) -> dict:
     """
     Audite le DDL SQL et émet un verdict structuré.
     Si le LLM est indisponible, effectue un audit structurel automatique.
+    v2.1 — Ajout : validation du logical_model avant tout audit.
     """
     logger.info("--- AGENT CRITIQUE : Audit du modèle DDL ---")
 
     sql_ddl = state.get("sql_ddl", "")
-    if not sql_ddl or "-- Erreur" in sql_ddl:
+    logical_model = state.get("logical_model", {})
+
+    # ── Validation : refuser si le modèle est vide/invalide ─────────────────
+    if not logical_model or not logical_model.get("fact_table"):
+        logger.error(
+            f"[Critic] ❌ logical_model vide ou sans fact_table — REFUS automatique. "
+            f"clés={list(logical_model.keys()) if logical_model else 'None'}"
+        )
         return {
-            "critic_review": "❌ Aucun DDL valide fourni au Critique.",
             "critic_approved": False,
-            "execution_log": state.get("execution_log", []) + ["[Critic] SKIP — DDL absent"],
+            "critic_review": (
+                "❌ ÉCHEC CRITIQUE : Le modèle logique est vide ou ne contient aucune table de faits. "
+                "L'étape Schema Modeling a échoué — aucune validation possible."
+            ),
+            "execution_log": state.get("execution_log", []) + [
+                "[Critic] ❌ REFUS — logical_model vide/invalide, modeler a échoué"
+            ],
+        }
+
+    if not logical_model.get("dimension_tables"):
+        logger.warning("[Critic] ⚠️ Aucune dimension dans le modèle logique — REFUS")
+        return {
+            "critic_approved": False,
+            "critic_review": (
+                "❌ Le modèle logique ne contient aucune dimension. "
+                "Un Star Schema nécessite au minimum une table de faits et une dimension."
+            ),
+            "execution_log": state.get("execution_log", []) + [
+                "[Critic] ❌ REFUS — aucune dimension dans le modèle"
+            ],
+        }
+
+    if not sql_ddl or len(sql_ddl.strip()) < 50 or "-- ERREUR" in sql_ddl.upper() or "-- Erreur" in sql_ddl:
+        logger.warning(f"[Critic] ⚠️ DDL vide/erreur ({len(sql_ddl.strip()) if sql_ddl else 0} chars) — REFUS")
+        return {
+            "critic_approved": False,
+            "critic_review": (
+                "❌ Le DDL SQL généré est vide, en erreur ou insuffisant. "
+                "La modélisation n'a pas produit de script de création de tables valide."
+            ),
+            "execution_log": state.get("execution_log", []) + [
+                "[Critic] ❌ REFUS — DDL vide/insuffisant"
+            ],
         }
 
     # ── Tentative avec LLM ───────────────────────────────────────────────────
     try:
         llm = get_llm(temperature=0)
+        # Detect FakeChatModel to force auto-approval for algorithm-generated schemas
+        if hasattr(llm, '_llm_type') and llm._llm_type == "fake-chat-model":
+            logger.warning("[Critic] FakeChatModel détecté — audit structurel automatique forcé")
+            return _auto_structural_audit(state, sql_ddl)
+        
         chain = CRITIC_PROMPT | llm
         response = call_with_retry(chain, {"sql_ddl": sql_ddl})
         review_text = extract_text(response)
 
         verdict_match = re.search(
-            r"VERDICT:\s*(APPROVED|NEEDS_REVISION)",
-            review_text, re.IGNORECASE
+            r"VERDICT:\s*(APPROVED|NEEDS_REVISION)", review_text, re.IGNORECASE
         )
         is_approved = bool(verdict_match and verdict_match.group(1).upper() == "APPROVED")
         verdict_label = "✅ APPROVED" if is_approved else "⚠️ NEEDS_REVISION"
@@ -74,9 +115,8 @@ def critic_node(state: AgentState) -> dict:
 
     except Exception as e:
         logger.warning(f"[Critic] ⚠️ LLM indisponible ({type(e).__name__}) — audit structurel automatique")
-
-    # ── Fallback : Audit structurel automatique sans LLM ─────────────────────
-    return _auto_structural_audit(state, sql_ddl)
+        # ── Fallback : Audit structurel automatique sans LLM ─────────────────────
+        return _auto_structural_audit(state, sql_ddl)
 
 
 def _auto_structural_audit(state: AgentState, sql_ddl: str) -> dict:
@@ -127,7 +167,6 @@ def _auto_structural_audit(state: AgentState, sql_ddl: str) -> dict:
 
     # Auto-approve si score >= 4
     is_approved = score >= 4
-
     review_lines = [
         "## 🤖 Audit Structurel Automatique (Mode Sans-LLM)",
         "",
@@ -135,9 +174,8 @@ def _auto_structural_audit(state: AgentState, sql_ddl: str) -> dict:
         "",
         f"**Score structural : {score}/6**",
         "",
-        f"VERDICT: {'APPROVED' if is_approved else 'NEEDS_REVISION'}" + (
-            "" if is_approved else " - Score structural insuffisant, vérifier la structure DDL"
-        )
+        f"VERDICT: {'APPROVED' if is_approved else 'NEEDS_REVISION'}"
+        + ("" if is_approved else " - Score structural insuffisant, vérifier la structure DDL")
     ]
     review_text = "\n".join(review_lines)
     verdict_label = "✅ AUTO-APPROVED" if is_approved else "⚠️ NEEDS_REVISION"

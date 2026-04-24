@@ -21,7 +21,7 @@ export default function AgentBILogo({
   title = 'Agent BI',
 }) {
   // On génère des IDs uniques pour éviter les collisions si plusieurs instances
-  // du logo cohabitent sur la même page (gradients partagés = bug visuel).
+  // du logo cohabitent sur la même page (gradients partagés).
   const uid = `abi-${variant}-${size}`;
   const gFrame = `${uid}-frame`;
   const gBars  = `${uid}-bars`;

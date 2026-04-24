@@ -108,7 +108,7 @@ def query_generator_node(state: AgentState) -> dict:
 
 def _generate_via_llm(model: dict, prefix: str) -> Optional[List[Dict]]:
     """Génère les requêtes via LLM."""
-    llm = get_llm(temperature=0.1)
+    llm = get_llm(temperature=0.1, task_type="code")
     chain = QUERY_GEN_PROMPT | llm
 
     fact_tables = model.get("fact_tables", [])

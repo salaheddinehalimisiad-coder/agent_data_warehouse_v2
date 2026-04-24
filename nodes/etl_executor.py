@@ -97,8 +97,13 @@ def etl_executor_node(state: AgentState) -> dict:
     exec_log = exec_log + ["[ETL] ✅ Schéma DW créé / vérifié"]
 
     # ── Étape 2 : Lire les données source ────────────────────────────────────
+    source_dfs = state.get("source_dfs", {})
     try:
-        source_df = _read_source(source_config, dw_config)
+        if source_dfs:
+            # Multi-table: source_df déjà résolu par l'extracteur
+            source_df = state.get("source_df") or (list(source_dfs.values())[0] if source_dfs else None)
+        else:
+            source_df = _read_source(source_config, dw_config)
 
         # Application des directives du Healer (Strategic Remediation)
         clean_action = state.get("clean_action", "NONE")
@@ -133,7 +138,7 @@ def etl_executor_node(state: AgentState) -> dict:
         dim_name   = dim.get("name", "")
         table_name = f"{user_prefix}_{dim_name}"
         try:
-            result = _load_dimension(dw_engine, table_name, dim, source_df)
+            result = _load_dimension(dw_engine, table_name, dim, source_df, source_dfs=source_dfs or None)
             sk_maps[dim_name]     = result["sk_map"]
             dim_metrics[dim_name] = result["metrics"]
             exec_log = exec_log + [
@@ -162,7 +167,8 @@ def etl_executor_node(state: AgentState) -> dict:
         try:
             metrics = _load_fact(
                 dw_engine, table_name, fact, source_df,
-                sk_maps, user_prefix, session_id, clean_action
+                sk_maps, user_prefix, session_id, clean_action,
+                source_dfs=source_dfs or None,
             )
             all_fact_metrics[fact_name] = metrics
             exec_log = exec_log + [
@@ -218,15 +224,27 @@ def etl_executor_node(state: AgentState) -> dict:
 #  DIMENSIONS — SCD Type 1 + SCD Type 2
 # ═════════════════════════════════════════════════════════════════════════════
 
-def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict:
+def _load_dimension(engine, table_name: str, dim_model: dict, source_df, source_dfs: Dict[str, pd.DataFrame] = None) -> dict:
     """
     Charge une table de dimension avec support SCD Type 2 :
     - Identifie la colonne source correspondante
     - Déduplique les valeurs
     - SCD Type 2 : historise les changements d'attributs (valid_from/valid_to/is_current)
     - Retourne le sk_map {valeur_naturelle: sk_current}
+
+    Si source_dfs est fourni, résout le bon DataFrame pour cette dimension.
+    Sinon, utilise source_df (legacy mono-table).
     """
     from sqlalchemy import text
+
+    # Résoudre le DataFrame source pour cette dimension
+    if source_dfs:
+        resolved_df = _resolve_source_df(source_dfs, dim_model, fallback_df=source_df)
+    else:
+        resolved_df = source_df
+    if resolved_df is None or (isinstance(resolved_df, pd.DataFrame) and resolved_df.empty):
+        logger.warning(f"[ETL] Dim {dim_model.get('name', '?')}: pas de données source — sk_map vide")
+        return {"sk_map": {}, "metrics": {"inserted": 0, "existing": 0, "updated": 0}}
 
     dim_name = dim_model.get("name", "")
     columns  = dim_model.get("columns", [])
@@ -252,11 +270,11 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
     )
     compare_attr_names = [c["name"] for c in attr_cols if c["name"] != natural_key_col]
 
-    src_col_name = _find_source_col(natural_key_col, source_df.columns.tolist())
+    src_col_name = _find_source_col(natural_key_col, resolved_df.columns.tolist())
 
     src_attr_mapping: Dict[str, str] = {}
     for ac in attr_cols:
-        sc = _find_source_col(ac["name"], source_df.columns.tolist())
+        sc = _find_source_col(ac["name"], resolved_df.columns.tolist())
         if sc:
             src_attr_mapping[ac["name"]] = sc
 
@@ -266,7 +284,7 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
     updated  = 0
 
     if src_col_name:
-        unique_vals = source_df[src_col_name].dropna().unique().tolist()
+        unique_vals = resolved_df[src_col_name].dropna().unique().tolist()
 
         with engine.begin() as conn:
             for val in unique_vals:
@@ -289,8 +307,8 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                             old_attrs = {compare_attr_names[i]: row[i + 1]
                                          for i in range(len(compare_attr_names))}
 
-                            match_rows = source_df[
-                                source_df[src_col_name].astype(str).str.strip() == clean_val
+                            match_rows = resolved_df[
+                                resolved_df[src_col_name].astype(str).str.strip() == clean_val
                             ]
                             src_row = match_rows.iloc[-1] if len(match_rows) > 0 else None
                             new_attrs: Dict[str, str] = {}
@@ -345,8 +363,8 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
                             for dim_col in compare_attr_names:
                                 sc = src_attr_mapping.get(dim_col)
                                 if sc:
-                                    src_rows = source_df[
-                                        source_df[src_col_name].astype(str).str.strip() == clean_val
+                                    src_rows = resolved_df[
+                                        resolved_df[src_col_name].astype(str).str.strip() == clean_val
                                     ]
                                     if len(src_rows) > 0:
                                         insert_vals[dim_col] = str(src_rows.iloc[-1].get(sc, "")).strip()
@@ -408,7 +426,7 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df) -> dict
 
     # dim_date : chargement automatique depuis la source
     if "dim_date" in dim_name:
-        sk_map.update(_load_dim_date_from_source(engine, table_name, source_df))
+        sk_map.update(_load_dim_date_from_source(engine, table_name, resolved_df))
         inserted = len(sk_map)
 
     return {"sk_map": sk_map, "metrics": {"inserted": inserted, "existing": existing, "updated": updated}}
@@ -483,7 +501,8 @@ def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
 
 def _load_fact(engine, table_name: str, fact_model: dict, source_df,
                sk_maps: dict, prefix: str, session_id: str = "unknown",
-               clean_action: str = "NONE") -> dict:
+               clean_action: str = "NONE",
+               source_dfs: Dict[str, pd.DataFrame] = None) -> dict:
     """
     Charge la table de faits :
     - Résolution des SKs via sk_maps
@@ -492,7 +511,19 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
     - Redirige les rejets vers la table de quarantaine
     - Diffuse la progression via SSE (throttlé à 2 pulses/sec max)
     - Supporte IGNORE_REJECTS (dédup in-memory)
+
+    Si source_dfs est fourni, résout le bon DataFrame pour cette table de faits.
+    Sinon, utilise source_df (legacy mono-table).
     """
+
+    # Résoudre le DataFrame source pour cette table de faits
+    if source_dfs:
+        resolved_df = _resolve_source_df(source_dfs, fact_model, fallback_df=source_df)
+    else:
+        resolved_df = source_df
+    if resolved_df is None or (isinstance(resolved_df, pd.DataFrame) and resolved_df.empty):
+        logger.warning(f"[ETL] Fact {fact_model.get('name', '?')}: pas de données source — skip")
+        return {"inserted": 0, "rejected": 0, "reason": "No source data for this fact table"}
     try:
         from api.services.sse import broadcast
     except Exception:
@@ -511,12 +542,12 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
     if not met_cols:
         return {"inserted": 0, "rejected": 0, "reason": "Aucune métrique définie"}
 
-    total_rows = len(source_df)
+    total_rows = len(resolved_df)
     inserted   = 0
     rejected   = 0
     rows_batch: List[Dict[str, Any]] = []
 
-    src_cols_list = source_df.columns.tolist()
+    src_cols_list = resolved_df.columns.tolist()
     BATCH_SIZE  = 500
     PULSE_EVERY = 0.5  # secondes — max 2 pulses SSE / seconde
 
@@ -524,7 +555,7 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
     last_pulse    = load_start_ts
 
     # ⚡ itertuples ≈ 5-10× plus rapide qu'iterrows
-    for idx, src_tuple in enumerate(source_df.itertuples(index=False, name="Row")):
+    for idx, src_tuple in enumerate(resolved_df.itertuples(index=False, name="Row")):
         src_row = src_tuple._asdict()
         row_dict: Dict[str, Any] = {}
 
@@ -612,7 +643,7 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
     return {
         "inserted":    inserted,
         "rejected":    rejected,
-        "source_rows": len(source_df),
+        "source_rows": len(resolved_df),
         "duration_s":  round(elapsed_total, 2),
         "rate_rows_s": round(inserted / elapsed_total, 1),
     }
@@ -931,10 +962,19 @@ def _read_source(config: dict, dw_config: dict = None):
 
         query = config.get("query", "")
         if not query:
-            if "sqlserver" in str(src_engine.url) or "mssql" in str(src_engine.url):
-                query = "SELECT TOP 100 * FROM INFORMATION_SCHEMA.TABLES"
+            # Fallback: lire la première table utilisateur au lieu de INFORMATION_SCHEMA
+            from sqlalchemy import inspect as sa_inspect
+            inspector = sa_inspect(src_engine)
+            user_tables = [t for t in inspector.get_table_names()
+                           if not t.startswith("sys") and not t.startswith("_")]
+            if user_tables:
+                first_table = user_tables[0]
+                if "sqlserver" in str(src_engine.url) or "mssql" in str(src_engine.url):
+                    query = f"SELECT * FROM [{first_table}]"
+                else:
+                    query = f"SELECT * FROM {first_table}"
             else:
-                query = "SELECT * FROM information_schema.tables LIMIT 100"
+                raise ValueError("Aucune table utilisateur trouvée dans la base source")
 
         return pd.read_sql(query, src_engine)
 
@@ -973,6 +1013,107 @@ def _find_source_col(target_name: str, source_cols: list) -> Optional[str]:
         if clean in col.lower() or col.lower() in clean:
             return col
     return None
+
+
+def _resolve_source_df(
+    source_dfs: Dict[str, pd.DataFrame],
+    model_item: dict,
+    fallback_df: pd.DataFrame = None,
+) -> pd.DataFrame:
+    """
+    Résout le DataFrame source pour une dimension ou table de faits.
+
+    Stratégie :
+      1. Utiliser source_tables du modèle (ex: ["Customers", "Orders"])
+      2. Si plusieurs tables source, les merger sur les FK communes
+      3. Fallback: chercher par nom de dimension/fait dans source_dfs
+      4. Dernier recours: fallback_df (source_df legacy)
+    """
+    source_tables = model_item.get("source_tables", [])
+    item_name = model_item.get("name", "")
+
+    # ── 1. Match direct sur source_tables ──────────────────────────────────
+    if source_tables:
+        # Chercher les tables source dans source_dfs
+        matched_dfs = []
+        for st in source_tables:
+            # Match exact
+            if st in source_dfs:
+                matched_dfs.append(source_dfs[st])
+                continue
+            # Match case-insensitive
+            st_lower = st.lower()
+            found = None
+            for key, df in source_dfs.items():
+                if key.lower() == st_lower:
+                    found = df
+                    break
+            if found is not None:
+                matched_dfs.append(found)
+                continue
+            # Match partiel (ex: "Customer" dans "Customers")
+            found = None
+            for key, df in source_dfs.items():
+                if st_lower in key.lower() or key.lower() in st_lower:
+                    found = df
+                    break
+            if found is not None:
+                matched_dfs.append(found)
+
+        if len(matched_dfs) == 1:
+            return matched_dfs[0]
+        elif len(matched_dfs) > 1:
+            # Multi-table: merge sur les colonnes communes
+            # La première table est la table principale
+            result = matched_dfs[0]
+            for other in matched_dfs[1:]:
+                common_cols = list(set(result.columns) & set(other.columns))
+                if common_cols:
+                    # Merge sur la première colonne commune (souvent un ID)
+                    merge_col = common_cols[0]
+                    # Éviter les conflits de colonnes
+                    suffixes = ("", "_right")
+                    result = result.merge(other, on=merge_col, how="left", suffixes=suffixes)
+                else:
+                    # Pas de colonne commune — cross join limité (dangereux)
+                    logger.warning(
+                        f"[ETL] Pas de colonne commune pour merge de "
+                        f"{len(result)} × {len(other)} lignes — utilisation de la première table uniquement"
+                    )
+            return result
+
+    # ── 2. Fallback: chercher par nom de dim/fact dans source_dfs ──────────
+    # Ex: dim_customer → chercher "Customer" ou "Customers"
+    clean_name = item_name.lower()
+    for pfx in ("dim_", "fact_"):
+        clean_name = clean_name.removeprefix(pfx)
+
+    for key, df in source_dfs.items():
+        if key.lower() == clean_name or clean_name in key.lower() or key.lower() in clean_name:
+            return df
+
+    # ── 3. Fallback: chercher par source_table des colonnes ───────────────
+    col_source_tables = set()
+    for col in model_item.get("columns", []):
+        st = col.get("source_table", "")
+        if st:
+            col_source_tables.add(st)
+
+    for st in col_source_tables:
+        if st in source_dfs:
+            return source_dfs[st]
+        for key, df in source_dfs.items():
+            if st.lower() in key.lower() or key.lower() in st.lower():
+                return df
+
+    # ── 4. Dernier recours: fallback_df ─────────────────────────────────────
+    if fallback_df is not None:
+        logger.warning(f"[ETL] Aucun DataFrame source trouvé pour '{item_name}' — utilisation du fallback")
+        return fallback_df
+
+    # ── 5. Aucun DataFrame disponible ──────────────────────────────────────
+    logger.error(f"[ETL] Aucun DataFrame source pour '{item_name}'")
+    return pd.DataFrame()  # empty — les étapes suivantes détecteront l'absence de données
 
 
 def _is_date_column(series) -> bool:

@@ -53,7 +53,7 @@ const AGENT_MESSAGES = {
   critic:          { msg: 'Critic — Audit qualité du modèle logique',              type: 'agent' },
   human_review:    { msg: '👤 En attente de votre validation — vérifiez le schéma !', type: 'warning' },
   chat_modifier:   { msg: 'Chat Modifier — Application de vos modifications...',  type: 'agent' },
-  etl_generator:   { msg: 'ETL Generator — Génération du fichier Pentaho .ktr',   type: 'agent' },
+  etl_tsql_generator: { msg: 'ETL Generator — Génération du fichier Pentaho .ktr',   type: 'agent' },
   etl_executor:    { msg: 'ETL Executor — Chargement des données en cours...',    type: 'agent' },
   healer:          { msg: 'Healer — Auto-correction SQL détectée et appliquée',   type: 'warning' },
   lineage_tracker: { msg: 'Lineage Tracker — Traçabilité source→DW générée',     type: 'success' },

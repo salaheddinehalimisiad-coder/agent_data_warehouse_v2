@@ -15,7 +15,14 @@ def governance_agent_node(state: AgentState) -> dict:
     
     logical_model = state.get("logical_model", {})
     if not logical_model:
-        return {"execution_log": state.get("execution_log", []) + ["[Governance] ⚠️ SKIP — Modèle logique manquant"]}
+        logger.error("[Governance] ❌ logical_model VIDE — impossible d'auditer la conformité")
+        return {
+            "governance_report": {"pii_columns_detected": [], "compliance_score": 0, "masking_sql": "", "error": "no_model"},
+            "masking_sql": "",
+            "execution_log": state.get("execution_log", []) + [
+                "[Governance] ❌ SKIP — Modèle logique manquant, audit impossible"
+            ],
+        }
 
     llm = get_llm(temperature=0)
     

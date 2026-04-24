@@ -1,3 +1,4 @@
+// src/components/LandingPage.jsx
 import React, { useState, useEffect } from 'react';
 import { 
   Network, Search, Shield, Zap, Database, ArrowRight, Terminal, 
@@ -7,7 +8,6 @@ import {
   Sun, Moon, ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import UseCaseFlow from './UseCaseFlow';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 40 },
@@ -19,71 +19,60 @@ const staggerContainer = {
   visible: { opacity: 1, transition: { staggerChildren: 0.2 } }
 };
 
-export default function LandingPage({ onEnterDashboard, onSelectSource, user, onAuthOpen, onDocsOpen, isDarkMode, setIsDarkMode }) {
+export default function LandingPage({ onEnterDashboard, onSelectSource, user, onAuthOpen, onDocsOpen, onUseCaseOpen, isDarkMode, setIsDarkMode }) {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('explorer');
   const [isPaused, setIsPaused] = useState(false);
 
+  const scrollToSection = (e, id) => {
+    e.preventDefault();
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   const agents = {
     explorer: { 
-      icon: Search, 
-      title: "Explorer Agent", 
-      desc: "Scanne instantanément vos sources de données, identifie les schémas existants et extrait les métadonnées de dizaines de bases SQL, NoSQL ou CSV sans effort humain.", 
+      icon: Search, title: "Explorer Agent", desc: "Scanne instantanément vos sources de données, identifie les schémas existants et extrait les métadonnées de dizaines de bases SQL, NoSQL ou CSV sans effort humain.", 
       color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20" 
     },
     drift_detector: { 
-      icon: Waves, 
-      title: "Drift Detector", 
-      desc: "Surveille les écarts de schémas en temps réel et prévient les ruptures de pipeline avant qu'elles n'atteignent la production.", 
+      icon: Waves, title: "Drift Detector", desc: "Surveille les écarts de schémas en temps réel et prévient les ruptures de pipeline avant qu'elles n'atteignent la production.", 
       color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20" 
     },
     modeler: { 
-      icon: Network, 
-      title: "Modeler Agent", 
-      desc: "Construit une architecture dimensionnelle parfaite (Flocon/Étoile). Conçoit les tables de faits et les dimensions avec une précision d'architecte data senior.", 
+      icon: Network, title: "Modeler Agent", desc: "Construit une architecture dimensionnelle parfaite (Flocon/Étoile). Conçoit les tables de faits et les dimensions avec une précision d'architecte data senior.", 
       color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20" 
     },
     critic: { 
-      icon: Shield, 
-      title: "Critic Agent", 
-      desc: "Il doute de tout. Cet agent audite le schéma généré, corrige les relations manquantes, optimise les clés primaires et garantit l'intégrité.", 
+      icon: Shield, title: "Critic Agent", desc: "Il doute de tout. Cet agent audite le schéma généré, corrige les relations manquantes, optimise les clés primaires et garantit l'intégrité.", 
       color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20" 
     },
     human_review: { 
-      icon: CheckCircle2, 
-      title: "Human Review", 
-      desc: "Système de validation collaborative permettant à un expert d'approuver ou rectifier les décisions critiques de l'IA (HITL).", 
+      icon: CheckCircle2, title: "Human Review", desc: "Système de validation collaborative permettant à un expert d'approuver ou rectifier les décisions critiques de l'IA (HITL).", 
       color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20" 
     },
     chat_modifier: { 
-      icon: MessageSquare, 
-      title: "Chat Modifier", 
-      desc: "Affinez vos modèles par simple conversation. L'IA comprend vos directives métier et ajuste la structure (DDL) instantanément.", 
+      icon: MessageSquare, title: "Chat Modifier", desc: "Affinez vos modèles par simple conversation. L'IA comprend vos directives métier et ajuste la structure (DDL) instantanément.", 
       color: "text-indigo-400", bg: "bg-indigo-500/10", border: "border-indigo-500/20" 
     },
-    etl_generator: { 
-      icon: Code2, 
-      title: "ETL Generator", 
-      desc: "Traduit automatiquement les modèles logiques en code de transformation robuste (XML Pentaho natif).", 
+    etl_tsql_generator: { 
+      icon: Code2, title: "ETL Generator", desc: "Traduit automatiquement les modèles logiques en code de transformation robuste (XML Pentaho natif).", 
       color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20" 
     },
     etl_executor: { 
-      icon: PlayCircle, 
-      title: "ETL Executor", 
-      desc: "Orchestre l'exécution des flux ETL générés avec un monitoring de performance granulaire, sans jamais crasher.", 
+      icon: PlayCircle, title: "ETL Executor", desc: "Orchestre l'exécution des flux ETL générés avec un monitoring de performance granulaire, sans jamais crasher.", 
       color: "text-pink-400", bg: "bg-pink-500/10", border: "border-pink-500/20" 
     },
     healer: { 
-      icon: Zap, 
-      title: "Healer Agent", 
-      desc: "Tolérance aux pannes native. Si le script ETL plante en base de données, le Healer analyse les logs SQL et réécrit son code automatiquement.", 
+      icon: Zap, title: "Healer Agent", desc: "Tolérance aux pannes native. Si le script ETL plante en base de données, le Healer analyse les logs SQL et réécrit son code automatiquement.", 
       color: "text-rose-400", bg: "bg-rose-500/10", border: "border-rose-500/20" 
     }
   };
 
-  // Auto-slide logic
   useEffect(() => {
     if (isPaused) return;
     const agentKeys = Object.keys(agents);
@@ -97,12 +86,6 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
     return () => clearInterval(interval);
   }, [isPaused]);
 
-  useEffect(() => {
-    setTimeout(() => setLoading(false), 1000);
-  }, [user]);
-
-  const filtered = sessions.filter(s => s.name?.toLowerCase().includes(search.toLowerCase()) || s.id.includes(search));
-
   return (
     <div className="relative w-full h-screen flex flex-col items-center overflow-x-hidden overflow-y-auto selection:bg-indigo-500/30 font-sans transition-colors duration-500" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
       
@@ -114,17 +97,19 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
         <div className="absolute bottom-[-10%] left-[10%] w-[40%] h-[40%] rounded-full bg-purple-600/10 blur-[150px]"></div>
       </div>
 
-      {/* 1. Header Navigation */}
+      {/* Header Navigation */}
       <nav className="fixed top-0 inset-x-0 z-[100] w-full border-b backdrop-blur-2xl transition-colors duration-500" style={{ background: 'var(--bg-base)', opacity: 0.85, borderColor: 'var(--border-subtle)' }}>
         <div className="max-w-7xl mx-auto px-6 h-24 flex items-center justify-between">
           <div className="flex items-center cursor-pointer relative z-20" onClick={onEnterDashboard}>
             <img src="/logo-hero.svg" alt="Agent BI" className="h-16 md:h-20 lg:h-24 w-auto object-contain drop-shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:scale-105 transition-all" />
           </div>
+          
           <div className="hidden lg:flex items-center gap-10 text-sm font-semibold text-zinc-400 relative z-20">
-            <button onClick={() => document.getElementById('platform')?.scrollIntoView({ behavior: 'smooth' })} className="hover:text-white transition-colors">Plateforme IA</button>
-            <button onClick={onDocsOpen} className="hover:text-white transition-colors">Documentation</button>
-            <button onClick={() => document.getElementById('cases')?.scrollIntoView({ behavior: 'smooth' })} className="hover:text-white transition-colors">Cas d'utilisation</button>
+            <button onClick={(e) => scrollToSection(e, 'platform')} className="hover:text-white transition-colors cursor-pointer">Plateforme IA</button>
+            <button onClick={onDocsOpen} className="hover:text-white transition-colors cursor-pointer">Documentation</button>
+            <button onClick={onUseCaseOpen} className="hover:text-white transition-colors cursor-pointer">Cas d'utilisation</button>
           </div>
+
           <div className="flex items-center gap-6 relative z-20">
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
@@ -133,43 +118,25 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
               title={isDarkMode ? "Mode Clair" : "Mode Sombre"}
             >
               <div className="relative w-6 h-6 flex items-center justify-center">
-                <Sun 
-                  className={`absolute transition-all duration-500 ease-in-out text-amber-500 ${isDarkMode ? 'opacity-100 rotate-0 scale-100' : 'opacity-0 rotate-90 scale-50'}`} 
-                  size={18} 
-                />
-                <Moon 
-                  className={`absolute transition-all duration-500 ease-in-out text-indigo-500 ${isDarkMode ? 'opacity-0 -rotate-90 scale-50' : 'opacity-100 rotate-0 scale-100'}`} 
-                  size={18} 
-                />
+                <Sun className={`absolute transition-all duration-500 ease-in-out text-amber-500 ${isDarkMode ? 'opacity-100 rotate-0 scale-100' : 'opacity-0 rotate-90 scale-50'}`} size={18} />
+                <Moon className={`absolute transition-all duration-500 ease-in-out text-indigo-500 ${isDarkMode ? 'opacity-0 -rotate-90 scale-50' : 'opacity-100 rotate-0 scale-100'}`} size={18} />
               </div>
             </button>
             
-            {user ? (
-               <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-500/10 border border-indigo-500/20">
-                 <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-glow animate-pulse"></div>
-                 <span className="text-xs font-black text-indigo-400 uppercase tracking-widest">{user.prefix} Active</span>
-               </div>
-            ) : (
+            {user ? null : (
               <button onClick={onAuthOpen} className="text-sm font-semibold text-zinc-300 hover:text-white transition-colors hidden sm:block">Se connecter</button>
             )}
-            <button 
-              onClick={onSelectSource} 
-              className="text-sm font-bold bg-white text-black px-6 py-2.5 rounded-full hover:bg-slate-100 transition-all shadow-glow active:scale-95"
-            >
+
+            <button onClick={onSelectSource} className="text-sm font-bold bg-white text-black px-6 py-2.5 rounded-full hover:bg-slate-100 transition-all shadow-glow active:scale-95">
               Sélectionner source
             </button>
           </div>
         </div>
       </nav>
 
-      {/* 2. Hero Section */}
+      {/* Hero Section */}
       <main className="relative z-10 w-full max-w-7xl mx-auto px-6 pt-48 pb-32 flex flex-col items-center">
         <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="w-full flex flex-col items-center text-center">
-          <motion.div variants={fadeInUp} className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 text-indigo-300 text-sm font-semibold mb-8 backdrop-blur-md">
-            <BrainCircuit size={16} className="text-indigo-400" />
-            <span>Propulsé par Google Gemini 1.5 Flash</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
-          </motion.div>
           <motion.h1 variants={fadeInUp} className="text-5xl sm:text-6xl md:text-7xl lg:text-[85px] font-extrabold tracking-tight leading-[1.05] mb-8 max-w-5xl">
             Où vos données brutes <br className="hidden md:block" />
             <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400">
@@ -181,35 +148,30 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
           </motion.p>
           <motion.div variants={fadeInUp} className="flex flex-col sm:flex-row items-center gap-4 w-full justify-center">
             <button onClick={onSelectSource} className="group relative flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[20px] font-semibold text-lg transition-all shadow-lg hover:shadow-indigo-500/25 overflow-hidden active:scale-[0.98]">
-              <Database size={20} className="group-hover:-translate-y-0.5 transition-transform text-indigo-200" />
-              Commencer gratuitement
-              <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+              <Database size={20} className="group-hover:-translate-y-0.5 transition-transform text-indigo-200" /> Commencer gratuitement <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
             </button>
             <button onClick={onEnterDashboard} className="flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-900 dark:text-white rounded-[20px] font-semibold text-lg transition-colors active:scale-[0.98]">
-              <PlayCircle size={20} className="text-zinc-500 dark:text-zinc-400" />
-              Voir la démo
+              <PlayCircle size={20} className="text-zinc-500 dark:text-zinc-400" /> Voir la démo
             </button>
           </motion.div>
         </motion.div>
       </main>
 
-      {/* 4. Slideshow Section */}
-      <section className="relative z-10 w-full py-32 border-y transition-colors duration-500" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
+      {/* Slideshow Section */}
+      <section id="platform" className="relative z-10 w-full py-32 border-y transition-colors duration-500" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', scrollMarginTop: '108px' }}>
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-20 flex flex-col items-center">
             <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-6 text-zinc-900 dark:text-white">Orchestration Parfaite</h2>
             <p className="text-lg text-zinc-600 dark:text-zinc-400 max-w-2xl mx-auto leading-relaxed">Laissez nos 9 agents IA spécialisés travailler en harmonie pour ingérer, modéliser et déployer votre Data Warehouse sans aucune intervention manuelle.</p>
           </div>
 
-          <div id="platform" className="flex flex-col items-center">
-            {/* Top: Dynamic Visualizer */}
+          <div className="flex flex-col items-center">
             <div 
               onMouseEnter={() => setIsPaused(true)}
               onMouseLeave={() => setIsPaused(false)}
               className="w-full max-w-3xl h-[400px] bg-white dark:bg-[#09090b] rounded-[32px] border border-zinc-200 dark:border-white/10 p-10 relative flex items-center justify-center overflow-hidden shadow-2xl group transition-all duration-500 hover:border-indigo-500/30"
             >
               <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-10 mix-blend-overlay pointer-events-none"></div>
-              
               <AnimatePresence mode="wait">
                 {activeTab === 'explorer' && (
                   <motion.div key="explorer" initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: -20 }} className="w-full h-full flex flex-col items-center justify-center relative">
@@ -359,7 +321,7 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
                   </motion.div>
                 )}
 
-                {activeTab === 'etl_generator' && (
+                {activeTab === 'etl_tsql_generator' && (
                   <motion.div key="generator" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="w-full h-full flex flex-col items-center justify-center relative">
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(249,115,22,0.1)_0,transparent_60%)]"></div>
                     <div className="relative w-[400px] h-56 bg-[#0d0d12] border-2 border-orange-500/30 rounded-[40px] overflow-hidden shadow-2xl z-10 scale-110">
@@ -374,9 +336,9 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
                           <div><span className="text-pink-400">&lt;/step&gt;</span></div>
                        </div>
                        <motion.div 
-                          animate={{ top: ['0%', '100%'] }} 
-                          transition={{ duration: 2.5, repeat: Infinity, ease: 'linear' }} 
-                          className="absolute left-0 right-0 h-16 bg-gradient-to-b from-transparent to-orange-500/10 pointer-events-none"
+                         animate={{ top: ['0%', '100%'] }} 
+                         transition={{ duration: 2.5, repeat: Infinity, ease: 'linear' }} 
+                         className="absolute left-0 right-0 h-16 bg-gradient-to-b from-transparent to-orange-500/10 pointer-events-none"
                        />
                        <div className="absolute bottom-0 right-0 bg-orange-500 text-black text-[10px] font-black px-4 py-1 rounded-tl-2xl shadow-glow uppercase tracking-widest italic">
                           PDI XML READY
@@ -428,7 +390,6 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
               </AnimatePresence>
             </div>
 
-            {/* Bottom: Agent Info */}
             <div className="mt-12 w-full max-w-4xl text-center">
                <AnimatePresence mode="wait">
                   <motion.div
@@ -450,7 +411,6 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
                         {agents[activeTab].desc}
                      </p>
                      
-                     {/* Slide Indicators */}
                      <div className="flex gap-3 mt-10">
                         {Object.keys(agents).map(key => (
                            <button 
@@ -467,7 +427,7 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
         </div>
       </section>
 
-      {/* 5. Social Proof / Marquee */}
+      {/* Social Proof / Marquee */}
       <section className="relative z-10 w-full border-y border-white/5 bg-white/[0.01] py-10 overflow-hidden">
         <div className="absolute left-0 top-0 w-32 h-full bg-gradient-to-r from-black to-transparent z-10"></div>
         <div className="absolute right-0 top-0 w-32 h-full bg-gradient-to-l from-black to-transparent z-10"></div>
@@ -478,21 +438,7 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
         </div>
       </section>
 
-      {/* 6. Section Cas d'utilisation — animated 6-stage pipeline */}
-      <section id="cases" className="relative w-full py-32 md:py-40 border-b transition-colors duration-500 overflow-hidden" style={{ background: 'var(--bg-base)', borderColor: 'var(--border-subtle)' }}>
-        {/* Animated backdrop */}
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -top-32 left-1/2 -translate-x-1/2 w-[900px] h-[900px] rounded-full opacity-30"
-               style={{ background: 'radial-gradient(closest-side, rgba(139,92,246,0.35), transparent 70%)' }}/>
-          <div className="absolute bottom-0 right-0 w-[600px] h-[600px] rounded-full opacity-20"
-               style={{ background: 'radial-gradient(closest-side, rgba(59,130,246,0.35), transparent 70%)' }}/>
-        </div>
-        <div className="relative">
-          <UseCaseFlow />
-        </div>
-      </section>
-
-      {/* 7. Pricing Section */}
+      {/* Pricing Section */}
       <section id="pricing" className="relative w-full py-32 border-b transition-colors duration-500" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
         <div className="max-w-7xl mx-auto px-6 text-center">
           <h2 className="text-4xl md:text-5xl font-black mb-6">Choisissez le Plan Idéal</h2>
@@ -501,7 +447,6 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
           </p>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch max-w-5xl mx-auto text-left">
-             {/* Plan 1 */}
              <div className="bg-[#121214] border border-white/5 rounded-[32px] p-8 flex flex-col hover:border-indigo-500/50 transition-all duration-500 hover:-translate-y-2">
                 <h3 className="text-xl font-bold text-white mb-2">Mensuel</h3>
                 <div className="flex items-baseline gap-2 mb-6">
@@ -518,7 +463,6 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
                 <div className="mt-8 text-[11px] text-zinc-600 font-medium border-t border-white/5 pt-4">Facturé mois par mois. Annulation à tout moment.</div>
              </div>
 
-             {/* Plan 2 */}
              <div className="bg-gradient-to-b from-[#18181b] to-[#121214] border border-indigo-500/50 shadow-[0_0_50px_rgba(99,102,241,0.15)] rounded-[32px] p-8 flex flex-col relative transform md:-translate-y-4 hover:-translate-y-6 transition-all duration-500 z-10">
                 <div className="absolute top-0 right-8 -translate-y-1/2 bg-indigo-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full shadow-glow">Populaire</div>
                 <h3 className="text-xl font-bold text-white mb-2">Annuel</h3>
@@ -538,7 +482,6 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
                 <div className="mt-8 text-[11px] text-zinc-500 font-medium border-t border-white/10 pt-4">Facturé 12 000 DA par an après la fin de la période d'essai.</div>
              </div>
 
-             {/* Plan 3 */}
              <div className="bg-[#121214] border border-white/5 rounded-[32px] p-8 flex flex-col hover:border-purple-500/50 transition-all duration-500 hover:-translate-y-2">
                 <h3 className="text-xl font-bold text-white mb-2">Équipe</h3>
                 <div className="flex items-baseline gap-2 mb-6">
@@ -546,7 +489,7 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
                    <span className="text-sm text-zinc-500 font-bold">/ par an</span>
                 </div>
                 <div className="w-full px-4 py-2 bg-black border border-white/10 rounded-xl text-xs font-medium text-white flex justify-between items-center mb-6">
-                    Jusqu'à 5 utilisateurs <ChevronRight size={14}/>
+                   Jusqu'à 5 utilisateurs <ChevronRight size={14}/>
                 </div>
                 <button className="w-full py-4 rounded-xl bg-white text-black font-black uppercase tracking-widest text-sm hover:scale-[1.02] transition-transform mb-8">Nous Contacter</button>
                 <div className="space-y-4 text-sm text-zinc-400 font-medium flex-1">
@@ -561,7 +504,7 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
         </div>
       </section>
 
-      {/* 8. Refined Footer CTA */}
+      {/* Refined Footer CTA */}
       <section className="w-full py-32 border-t border-zinc-200 dark:border-white/10 relative overflow-hidden flex flex-col items-center justify-center text-center bg-zinc-50 dark:bg-transparent">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_bottom,rgba(99,102,241,0.10)_0,transparent_60%)]"></div>
         <h2 className="text-4xl md:text-5xl font-bold mb-6 relative z-10 tracking-tight text-zinc-900 dark:text-white">Prêt à automatiser vos données ?</h2>
@@ -575,7 +518,7 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
       <footer className="w-full border-t py-12 transition-colors duration-500 bg-white dark:bg-[#0A0A0B] border-zinc-200 dark:border-white/5 text-zinc-500 dark:text-zinc-400">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between">
           <div className="flex items-center gap-3 mb-6 md:mb-0">
-            <img src="/logo-mark.svg" alt="Agent BI" className="h-8 w-8 object-contain" />
+             {/* 4. MODIFICATION ICI : Logo Antigravity supprimé */}
             <span className="text-sm font-semibold text-zinc-900 dark:text-white">Agent BI</span>
           </div>
           <div className="flex gap-8 text-sm font-medium">

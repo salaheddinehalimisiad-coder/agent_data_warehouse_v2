@@ -36,6 +36,9 @@ from nodes.cataloger             import cataloger_node
 from nodes.governance_agent      import governance_agent_node
 from nodes.query_generator       import query_generator_node        # P3-02
 from nodes.cdc_watermark         import cdc_watermark_node          # P3-05
+from nodes.airflow_generator     import airflow_generator_node
+from nodes.dbt_generator         import dbt_generator_node
+from nodes.mock_generator        import mock_generator_node
 
 logger           = logging.getLogger(__name__)
 MAX_RETRIES      = 3
@@ -46,7 +49,10 @@ def human_review_node(state: AgentState) -> dict:
     """
     Auto-approve pour ne pas bloquer le pipeline
     """
-    return {"is_validated": True}
+    logger.info("[Human Review] Auto-approving schema")
+    result = {"is_validated": True}
+    logger.info(f"[Human Review] Returning: {result}")
+    return result
 
 
 # ─── Routage ──────────────────────────────────────────────────────────────────
@@ -65,6 +71,23 @@ def route_after_dq(state: AgentState) -> str:
         # On force un état awaiting_review avec message d'alerte DQ
         return "human_review_dq_alert"
     return "drift_detector"
+
+
+def route_after_modeler(state: AgentState) -> str:
+    """
+    Si le modèle logique est vide/invalide après le modeler,
+    le pipeline doit s'arrêter avec une erreur explicite au lieu
+    de continuer silencieusement vers governance → critic.
+    """
+    logical_model = state.get("logical_model", {})
+    has_fact = logical_model.get("fact_table") or logical_model.get("fact_tables")
+    if not logical_model or not has_fact:
+        logger.error(
+            f"[Router] ❌ Modeler a produit un modèle VIDE ou sans fact_table/fact_tables — "
+            f"arrêt du pipeline. clés={list(logical_model.keys()) if logical_model else 'None'}"
+        )
+        return "modeling_failed"
+    return "governance"
 
 
 def route_after_critic(state: AgentState) -> str:
@@ -86,8 +109,12 @@ def route_after_critic(state: AgentState) -> str:
 
 
 def route_after_human_review(state: AgentState) -> str:
-    if state.get("is_validated", False):
-        return "etl_generator"
+    is_validated = state.get("is_validated", False)
+    logger.info(f"[Router] route_after_human_review: is_validated={is_validated}")
+    if is_validated:
+        logger.info("[Router] Routing to cdc_watermark")
+        return "cdc_watermark"
+    logger.info("[Router] Routing to chat_modifier")
     return "chat_modifier"
 
 
@@ -127,12 +154,12 @@ def route_etl_step_execution(state: AgentState) -> str:
             logger.critical(f"[Router] ÉCHEC CRITIQUE après {MAX_RETRIES} tentatives.")
             return "critical_failure"
 
-    # Statut inattendu (ex: 'pending' après crash) — ne pas terminer silencieusement
+    # Statut inattendu (ex: 'pending' après crash) — traiter comme échec
     logger.warning(
-        f"[Router] Statut ETL inattendu: '{status}' — forçage vers succès.  "
+        f"[Router] Statut ETL inattendu: '{status}' — traité comme échec.  "
         "Vérifier l'état du nœud."
     )
-    return "success"
+    return "failed"
 
 
 # ─── Nœud DQ Alert (humain alerté si score DQ < 50) ──────────────────────────
@@ -170,11 +197,11 @@ def profile_node(node_func, node_name: str):
         start = time.time()
         result = node_func(state)
         duration = round(time.time() - start, 2)
-        
+
         # Merge node durations
         existing_durations = state.get("node_durations", {})
         new_durations = {**existing_durations, node_name: duration}
-        
+
         if isinstance(result, dict):
             result["node_durations"] = new_durations
         return result
@@ -193,7 +220,7 @@ def create_agent_workflow():
     workflow.add_node("critic",               profile_node(critic_node, "critic"))
     workflow.add_node("human_review",         human_review_node)
     workflow.add_node("chat_modifier",        profile_node(chat_modifier_node, "chat_modifier"))
-    workflow.add_node("cdc_watermark",        profile_node(cdc_watermark_node, "cdc_watermark"))      # P3-05
+    workflow.add_node("cdc_watermark",        profile_node(cdc_watermark_node, "cdc_watermark"))
     workflow.add_node("etl_tsql_generator",   profile_node(etl_tsql_generator_node, "etl_tsql_generator"))
     workflow.add_node("etl_initializer",      profile_node(etl_initializer_node, "etl_initializer"))
     workflow.add_node("etl_extractor",        profile_node(etl_extractor_node, "etl_extractor"))
@@ -203,7 +230,9 @@ def create_agent_workflow():
     workflow.add_node("lineage_tracker",      profile_node(lineage_tracker_node, "lineage_tracker"))
     workflow.add_node("query_generator",      profile_node(query_generator_node, "query_generator"))  # P3-02
     workflow.add_node("insight_generator",    profile_node(insight_generator_node, "insight_generator"))
-    workflow.add_node("cataloger",            profile_node(cataloger_node, "cataloger"))
+    workflow.add_node("cataloger",            cataloger_node)
+    workflow.add_node("airflow_generator",   profile_node(airflow_generator_node, "airflow_generator"))
+    workflow.add_node("dbt_generator",       profile_node(dbt_generator_node, "dbt_generator"))
 
     # ── Flux ─────────────────────────────────────────────────────────────────
     workflow.add_edge(START, "explorer")
@@ -222,7 +251,12 @@ def create_agent_workflow():
     })
 
     workflow.add_edge("drift_detector", "modeler")
-    workflow.add_edge("modeler",        "governance")
+
+    # Modeler → governance SEULEMENT si le modèle est valide, sinon END
+    workflow.add_conditional_edges("modeler", route_after_modeler, {
+        "governance":      "governance",
+        "modeling_failed": END,
+    })
     workflow.add_edge("governance",     "critic")
 
     # Boucle 1 : Critic → HITL ou Chat Modifier
@@ -234,9 +268,10 @@ def create_agent_workflow():
 
     # Boucle 2 : Human Review → CDC Watermark → ETL ou Chat Modifier
     workflow.add_conditional_edges("human_review", route_after_human_review, {
-        "etl_generator": "cdc_watermark",
+        "cdc_watermark":  "cdc_watermark",
         "chat_modifier": "chat_modifier",
     })
+    workflow.add_edge("chat_modifier", "human_review")
 
     # P3-05 : CDC Watermark → ETL T-SQL Generator
     workflow.add_edge("cdc_watermark", "etl_tsql_generator")
@@ -286,15 +321,19 @@ def create_agent_workflow():
 
     workflow.add_edge("healer", "etl_initializer")
 
-    # Post-ETL : lineage → query_generator → insight → cataloger → END
+    # Post-ETL : lineage → query_generator → insight → cataloger → generators → END
     workflow.add_edge("lineage_tracker",  "query_generator")
     workflow.add_edge("query_generator",  "insight_generator")
     workflow.add_edge("insight_generator", "cataloger")
-    workflow.add_edge("cataloger", END)
+    workflow.add_edge("cataloger",        "airflow_generator")
+    workflow.add_edge("airflow_generator", "dbt_generator")
+    workflow.add_edge("dbt_generator",     END)
 
-    memory = MemorySaver()
+    # Disabled checkpointer due to DataFrame msgpack serialization issues
+    # MemorySaver cannot serialize pandas DataFrames even with reducers
+    # memory = MemorySaver()
     return workflow.compile(
-        checkpointer=memory,
+        # checkpointer=memory,
     )
 
 

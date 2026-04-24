@@ -12,8 +12,8 @@ python-multipart>=0.0.9
 langgraph>=0.2.0
 langchain>=0.2.0
 langchain-core>=0.2.0
+langchain-openai>=0.1.0
 langchain-ollama>=0.1.0
-langchain-google-genai>=1.0.0
 
 # ── Data ─────────────────────────────────────────────────────
 pandas>=2.2.0
@@ -22,28 +22,27 @@ numpy>=1.26.0
 
 # ── Database connectors ──────────────────────────────────────
 mysql-connector-python>=8.3.0
-psycopg2-binary>=2.9.9          # PostgreSQL (ConnecteurPostgreSQL)
-pymongo>=4.7.0                  # MongoDB optionnel
+psycopg2-binary>=2.9.9  # PostgreSQL (ConnecteurPostgreSQL)
+pymongo>=4.7.0  # MongoDB optionnel
 
 # ── Fichiers Excel ───────────────────────────────────────────
-openpyxl>=3.1.2                 # .xlsx
-xlrd>=2.0.1                     # .xls legacy
+openpyxl>=3.1.2  # .xlsx
+xlrd>=2.0.1  # .xls legacy
 
 # ── Export PDF ───────────────────────────────────────────────
 reportlab>=4.2.0
-fpdf2>=2.7.0                     # Phase 3 — layouts complexes avec tables
+fpdf2>=2.7.0  # Phase 3 — layouts complexes avec tables
 
 # ── Auth JWT ─────────────────────────────────────────────────
 PyJWT>=2.8.0
 
 # ── Email ────────────────────────────────────────────────────
-# smtplib est dans la stdlib Python — aucune dépendance externe nécessaire
+email-validator>=2.1.0
 
 # ── Utils ────────────────────────────────────────────────────
 requests>=2.32.0
 
 # ── Rate Limiting ─────────────────────────────────────────────
-# (utilisé dans api/server.py pour la protection par IP)
 slowapi>=0.1.9
 
 # ── Hachage de mots de passe ──────────────────────────────────

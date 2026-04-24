@@ -1,12 +1,4 @@
-# docker-compose.deploy.yml — Déploiement prêt pour le PC du prof
-# Usage :
-#   docker compose -f docker-compose.deploy.yml --env-file .env up -d --build
-# Une seule commande = 3 conteneurs : SQL Server + Backend FastAPI + Frontend Nginx
-#
-# Ports publiés sur l'hôte :
-#   - 1433  → SQL Server       (le prof peut s'y connecter avec SSMS)
-#   - 8000  → API FastAPI      (Swagger : http://localhost:8000/api/docs)
-#   - 8080  → Frontend React   (UI   : http://localhost:8080)
+version: '3.9'
 
 networks:
   agent_dw_net:
@@ -20,7 +12,6 @@ volumes:
 
 services:
 
-  # ── SQL Server 2022 ─────────────────────────────────────────────────────────
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: agent_dw_sqlserver
@@ -37,7 +28,6 @@ services:
     volumes:
       - sql_data:/var/opt/mssql/data
       - sql_log:/var/opt/mssql/log
-      # Volume partagé : le backend écrit les .bak ici, SQL Server les restaure
       - ./uploads/bak:/var/opt/mssql/backup
     healthcheck:
       test: [
@@ -47,9 +37,8 @@ services:
       interval: 15s
       timeout: 10s
       retries: 10
-      start_period: 40s   # SQL Server met ~25-30s à démarrer la première fois
+      start_period: 40s
 
-  # ── Backend FastAPI ─────────────────────────────────────────────────────────
   backend:
     build:
       context: .
@@ -61,31 +50,27 @@ services:
       - agent_dw_net
     env_file: .env
     environment:
-      # Surcharges — dans le réseau Docker on adresse SQL Server par son nom
       DB_HOST: "sqlserver"
       DB_PORT: "1433"
       DB_USER: "sa"
       DB_PASSWORD: "${DB_PASSWORD}"
-      # Chemins Linux à l'intérieur des conteneurs
       SQLSERVER_BACKUP_MOUNT_DIR: "/var/opt/mssql/backup"
       SQLSERVER_DATA_DIR: "/var/opt/mssql/data"
       BAK_UPLOAD_DIR: "/app/uploads/bak"
-      # Accès Ollama éventuel sur l'hôte
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
-      # CORS : autoriser le frontend nginx
+      BLAZE_API_KEY: "${BLAZE_API_KEY:-sk-blaze-wuAdOktbeX65NxuxmnLrimuMxrQGeTymxsSMpyxLEi1RWkOH}"
+      BLAZE_BASE_URL: "${BLAZE_BASE_URL:-https://api.blaze.ai/v1}"
+      BLAZE_MODEL: "${BLAZE_MODEL:-glm-5}"
       ALLOWED_ORIGINS: "http://localhost:8080,http://127.0.0.1:8080"
-      # Environnement
       APP_ENV: "production"
       ENVIRONMENT: "production"
     volumes:
-      # Volume partagé avec SQL Server pour les .bak
       - ./uploads/bak:/app/uploads/bak
       - ./outputs:/app/outputs
-      # NB : pas de ".:/app" ici → l'image est self-contained pour le déploiement
     ports:
       - "8000:8000"
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # pour joindre Ollama sur le PC
+      - "host.docker.internal:host-gateway"
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -95,16 +80,16 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    mem_limit: 2g
+    deploy:
+      resources:
+        limits:
+          memory: 2g
 
-  # ── Frontend React (build statique servi par Nginx + proxy /api) ────────────
   frontend:
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
       args:
-        # En prod on laisse vide → client.js utilise des chemins relatifs
-        # et Nginx proxifie /api vers le backend
         VITE_API_URL: ""
     image: antigravity-bi-frontend:latest
     container_name: agent_dw_frontend

@@ -1,5 +1,5 @@
 # start.ps1 - Script de demarrage Windows
-Write-Host "Agent Data Warehouse v3.0" -ForegroundColor Cyan
+Write-Host "Agent Data Warehouse v3.1" -ForegroundColor Cyan
 Write-Host "================================" -ForegroundColor Cyan
 
 # Verifier .env
@@ -8,6 +8,13 @@ if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env"
     Write-Host "Editez .env avec vos valeurs puis relancez ce script." -ForegroundColor Yellow
     exit 1
+}
+
+# Verifier DB_PASSWORD (requis par sqlserver.py)
+$envContent = Get-Content ".env" -ErrorAction SilentlyContinue
+if ($envContent -notmatch "DB_PASSWORD=") {
+    Write-Host "DB_PASSWORD manquant dans .env - requis pour SQL Server metadata DB" -ForegroundColor Yellow
+    Write-Host "Ajoutez DB_PASSWORD=votre_mdp dans .env" -ForegroundColor Yellow
 }
 
 # Verifier Python

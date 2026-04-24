@@ -34,7 +34,7 @@ export const AGENT_STATUS_COLORS = {
 
 export const AGENT_ORDER = [
   'explorer', 'data_quality', 'drift_detector', 'modeler', 'governance', 'critic',
-  'human_review', 'chat_modifier', 'cdc_watermark', 'etl_generator', 'etl_extractor', 'etl_transformer', 'etl_loader',
+  'human_review', 'chat_modifier', 'cdc_watermark', 'etl_tsql_generator', 'etl_extractor', 'etl_transformer', 'etl_loader',
   'healer', 'lineage_tracker', 'query_generator', 'insight_generator', 'forecaster', 'cataloger',
   'airflow_generator', 'dbt_generator', 'mock_generator'
 ];
@@ -49,7 +49,7 @@ const AGENT_EMOJIS = {
   human_review:     '👤',
   chat_modifier:    '💬',
   cdc_watermark:    '💧',
-  etl_generator:    '⚙️',
+  etl_tsql_generator: '⚙️',
   etl_extractor:    '📥',
   etl_transformer:  '🔄',
   etl_loader:       '📤',
@@ -108,6 +108,7 @@ const INITIAL_PIPELINE_STATE = {
   queryResults:         [],
   etlMode:              null,
   etlWatermarks:        null,
+  pipelineError:        null,
 };
 
 export const usePipelineStore = create((set, get) => ({
@@ -336,6 +337,14 @@ function _connectSSE(sessionId, authToken, set, get) {
 }
 
 
+// Helper: treat empty logical_model {} (no fact_table) as null
+function _sanitizeLogicalModel(model) {
+  if (!model || typeof model !== 'object') return null;
+  if (Object.keys(model).length === 0) return null;
+  if (!model.fact_table && (!model.fact_tables || model.fact_tables.length === 0)) return null;
+  return model;
+}
+
 function _handleSSEEvent(type, data, set, get) {
   switch (type) {
 
@@ -346,7 +355,7 @@ function _handleSSEEvent(type, data, set, get) {
         etlCode:              data.etl_code              || '',
         criticReview:         data.critic_review         || '',
         criticApproved:       data.critic_approved       || false,
-        logicalModel:         data.logical_model         || null,
+        logicalModel:         _sanitizeLogicalModel(data.logical_model),
         logicalModelVersion:  data.logical_model_version || 0,
         schemaDriftDetected:  data.schema_drift_detected || false,
         schemaDriftDetails:   data.schema_drift_details  || '',
@@ -384,7 +393,7 @@ function _handleSSEEvent(type, data, set, get) {
       if (u.etl_code              !== undefined) patch.etlCode              = u.etl_code;
       if (u.critic_review         !== undefined) patch.criticReview         = u.critic_review;
       if (u.critic_approved       !== undefined) patch.criticApproved       = u.critic_approved;
-      if (u.logical_model         !== undefined) patch.logicalModel         = u.logical_model;
+      if (u.logical_model         !== undefined) patch.logicalModel         = _sanitizeLogicalModel(u.logical_model);
       if (u.logical_model_version !== undefined) patch.logicalModelVersion  = u.logical_model_version;
       if (u.schema_drift_detected !== undefined) patch.schemaDriftDetected  = u.schema_drift_detected;
       if (u.schema_drift_details  !== undefined) patch.schemaDriftDetails   = u.schema_drift_details;
@@ -437,7 +446,7 @@ function _handleSSEEvent(type, data, set, get) {
         sqlDDL:               data.sql_ddl               || get().sqlDDL,
         criticReview:         data.critic_review         || get().criticReview,
         criticApproved:       data.critic_approved       ?? get().criticApproved,
-        logicalModel:         data.logical_model         || get().logicalModel,
+        logicalModel:         _sanitizeLogicalModel(data.logical_model) || get().logicalModel,
         logicalModelVersion:  data.logical_model_version ?? get().logicalModelVersion,
         schemaDriftDetected:  data.schema_drift_detected ?? get().schemaDriftDetected,
         schemaDriftDetails:   data.schema_drift_details  || get().schemaDriftDetails,
@@ -455,7 +464,12 @@ function _handleSSEEvent(type, data, set, get) {
       break;
 
     case 'pipeline_complete':
-      set({ pipelineStatus: data.success ? 'complete' : 'error', currentAgent: null });
+      set({
+        pipelineStatus: data.success ? 'complete' : 'error',
+        currentAgent: null,
+        etlStatus: data.success ? 'success' : get().etlStatus,
+        pipelineError: data.success ? null : (data.summary?.error || data.summary?.reason || null),
+      });
       break;
 
     case 'stage':

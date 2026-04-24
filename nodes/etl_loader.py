@@ -55,6 +55,7 @@ def etl_loader_node(state: AgentState) -> dict:
     logical_model = state.get("logical_model", {})
     dw_config     = state.get("dw_connection_config", {})
     source_df     = state.get("source_df")
+    source_dfs    = state.get("source_dfs", {})
     sk_maps       = state.get("sk_maps", {})
     user_prefix   = state.get("user_prefix", "dw")
     session_id    = state.get("session_id", "unknown")
@@ -62,7 +63,7 @@ def etl_loader_node(state: AgentState) -> dict:
     clean_action  = state.get("clean_action", "NONE")
     dim_metrics   = state.get("load_metrics", {}).get("dimensions", {})
 
-    if source_df is None or (not sk_maps and logical_model.get("dimension_tables")):
+    if (source_df is None and not source_dfs) or (not sk_maps and logical_model.get("dimension_tables")):
         return {
             "etl_status": "failed",
             "etl_error":  "Missing data or SK maps",
@@ -82,7 +83,7 @@ def etl_loader_node(state: AgentState) -> dict:
         }
 
     # ── Header vibrant ───────────────────────────────────────────────────────
-    source_rows = len(source_df)
+    source_rows = len(source_df) if source_df is not None else sum(len(df) for df in source_dfs.values())
     exec_log.append(
         f"[Load] 🚀 Démarrage — {len(fact_tables)} fact(s) × {source_rows:,} rows source "
         f"• Préfixe DW: [{user_prefix}] • Action: {clean_action}"
@@ -112,6 +113,7 @@ def etl_loader_node(state: AgentState) -> dict:
             metrics = _load_fact(
                 dw_engine, table_name, fact, source_df,
                 sk_maps, user_prefix, session_id, clean_action,
+                source_dfs=source_dfs or None,
             )
             fact_elapsed = time.monotonic() - fact_start
 

@@ -9,7 +9,7 @@ const AGENT_NODES = [
   { id: 'critic',         label: 'Critic',          emoji: '🛡️', delay: 0.4 },
   { id: 'human_review',   label: 'Human Review',    emoji: '👤', delay: 0.5 },
   { id: 'chat_modifier',  label: 'Chat Modifier',   emoji: '💬', delay: 0.6 },
-  { id: 'etl_generator',  label: 'ETL Generator',   emoji: '⚙️', delay: 0.7 },
+  { id: 'etl_tsql_generator', label: 'ETL Generator',   emoji: '⚙️', delay: 0.7 },
   { id: 'etl_executor',   label: 'ETL Executor',    emoji: '🚀', delay: 0.8 },
   { id: 'healer',         label: 'Healer',          emoji: '🔧', delay: 0.9 },
 ];

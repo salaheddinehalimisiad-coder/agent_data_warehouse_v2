@@ -11,6 +11,21 @@ from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
 
+# Reducer to exclude DataFrames from checkpointing
+def exclude_dataframes(left, right):
+    """Reducer that excludes DataFrames from state updates to prevent checkpoint serialization errors."""
+    import pandas as pd
+    # If right is a DataFrame, don't update the state (keep left)
+    if isinstance(right, pd.DataFrame):
+        return left if left is not None else {}
+    # If right is a dict containing DataFrames, don't update the state (keep left)
+    if isinstance(right, dict):
+        if any(isinstance(v, pd.DataFrame) for v in right.values()):
+            return left if left is not None else {}
+    # Otherwise, allow the update
+    return right
+
+
 class AgentState(TypedDict, total=False):
     # ─── Messages LangChain ────────────────────────────────────────────────
     messages: Annotated[list, add_messages]
@@ -69,7 +84,8 @@ class AgentState(TypedDict, total=False):
     clean_action:      str
     governance_report: Dict[str, Any]
     masking_sql:       str
-    source_df:         Any     # DataFrame pandas (étapes ETL)
+    source_df:         Annotated[Any, exclude_dataframes]     # DataFrame pandas (étapes ETL) — legacy mono-table
+    source_dfs:        Annotated[Dict[str, Any], exclude_dataframes]  # {table_name: DataFrame} — multi-table (bak/sqlserver)
     sk_maps:           Dict[str, Dict[str, int]] # Mapping Surrogate Keys
     
     # ─── Phase 2 : Constellation & MDM (NOUVEAU v5.0) ──────────────────────

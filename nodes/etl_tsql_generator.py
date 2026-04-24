@@ -56,67 +56,38 @@ def etl_tsql_generator_node(state: AgentState) -> dict:
     """Génère des procédures stockées T-SQL MERGE pour le pipeline ETL."""
     logger.info("--- AGENT ETL T-SQL GENERATOR : Génération des procédures MERGE ---")
 
-    metadata = state.get("source_metadata", {})
     logical_model = state.get("logical_model", {})
-    sql_ddl = state.get("sql_ddl", "")
-    dw_config = state.get("dw_connection_config", {})
+    user_prefix   = state.get("user_prefix", "dw")
     source_config = state.get("connection_config", {})
-    user_prefix = state.get("user_prefix", "dw")
+    source_db     = source_config.get("database", "source_db")
+    exec_log      = state.get("execution_log", [])
 
-    if not logical_model or not sql_ddl:
+    if not logical_model:
         return {
-            "etl_code": "",
             "etl_status": "failed",
-            "etl_error": "Modèle OLAP ou DDL absent — impossible de générer l'ETL",
-            "execution_log": state.get("execution_log", []) + ["[ETL T-SQL] ERREUR : modèle absent"],
+            "etl_error": "No logical model available",
+            "execution_log": exec_log + ["[ETL T-SQL] ❌ No logical model"]
         }
 
-    # Déterminer la base source (pour les FROM dans les MERGE)
-    source_db = source_config.get("restored_db", "") or dw_config.get("database", "")
-
-    # ── Tentative avec LLM ───────────────────────────────────────────────────
-    tsql_code = None
     try:
-        llm = get_llm(temperature=0)
-        chain = ETL_TSQL_PROMPT | llm
+        # Utiliser le fallback algorithmique (sans LLM) pour la génération T-SQL
+        etl_code = _build_fallback_tsql(logical_model, user_prefix, source_db)
 
-        response = call_with_retry(chain, {
-            "metadata": json.dumps(metadata, indent=2, default=str),
-            "logical_model": json.dumps(logical_model, indent=2),
-            "sql_ddl": sql_ddl,
-            "source_db": source_db,
-            "user_prefix": user_prefix,
-        })
-        tsql_code = extract_text(response).strip()
+        exec_log.append(f"[ETL T-SQL] ✅ T-SQL procedures generated ({len(etl_code)} chars)")
 
-        # Nettoyage des balises markdown
-        tsql_code = re.sub(r"```(?:sql|tsql)?\n?", "", tsql_code).strip().rstrip("`")
-
-        if "MERGE" in tsql_code.upper() or "PROCEDURE" in tsql_code.upper():
-            logger.info("[ETL T-SQL] ✅ Procédures MERGE générées via LLM")
-        else:
-            logger.warning("[ETL T-SQL] ⚠️ LLM n'a pas généré de MERGE valide — fallback")
-            tsql_code = None
-
+        return {
+            "etl_code": etl_code,
+            "etl_status": "ready",
+            "etl_error": None,
+            "execution_log": exec_log,
+        }
     except Exception as e:
-        logger.warning(f"[ETL T-SQL] ⚠️ LLM indisponible ({type(e).__name__}) — fallback template")
-
-    # ── Fallback : Génération template sans LLM ──────────────────────────────
-    if not tsql_code:
-        tsql_code = _build_fallback_tsql(logical_model, user_prefix, source_db)
-        logger.info("[ETL T-SQL] 🤖 Procédures T-SQL générées en mode template")
-
-    logger.info("[ETL T-SQL] ✅ Code ETL T-SQL prêt")
-    return {
-        "etl_code": tsql_code,
-        "etl_status": "pending",
-        "etl_error": "",
-        "retry_count": 0,
-        "heal_history": [],
-        "execution_log": state.get("execution_log", []) + [
-            "[ETL T-SQL] ✅ Procédures stockées MERGE T-SQL générées"
-        ],
-    }
+        logger.error(f"[ETL T-SQL] Error generating T-SQL: {e}", exc_info=True)
+        return {
+            "etl_status": "failed",
+            "etl_error": str(e),
+            "execution_log": exec_log + [f"[ETL T-SQL] ❌ Error: {e}"]
+        }
 
 
 def _build_fallback_tsql(model: dict, prefix: str, source_db: str) -> str:
@@ -142,7 +113,7 @@ def _build_fallback_tsql(model: dict, prefix: str, source_db: str) -> str:
         natural_key = next((c["name"] for c in business_attrs if c.get("natural_key")), business_attrs[0]["name"] if business_attrs else "id")
         is_scd2 = dim.get("scd_type") == 2 or any(c["name"] in scd_cols for c in attr_cols)
 
-        # v4.2 : procédure SCD2 FONCTIONNELLE (fini le TODO WHERE 1=0).
+        # v4.2 : procédure SCD2 FONCTIONNELLE.
         # Convention : l'orchestrateur peuple une table staging [prefix_stg_<entity>]
         # au même schéma que la dim AVANT d'appeler cette procédure.
         stg_entity = dim_name.replace("dim_", "", 1) if dim_name.startswith("dim_") else dim_name

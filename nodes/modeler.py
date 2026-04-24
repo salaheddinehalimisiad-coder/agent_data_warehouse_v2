@@ -155,22 +155,74 @@ Génère le Star Schema Kimball optimal pour cette base OLTP. Retourne uniquemen
 # NŒUD PRINCIPAL
 # ═════════════════════════════════════════════════════════════════════════════
 
-def modeler_node(state: AgentState) -> dict:
-    """Génère le modèle logique OLAP Star/Constellation Schema et le DDL T-SQL correspondant."""
-    logger.info("--- AGENT MODELER v4.0 : Star/Constellation Schema Intelligence ---")
+def _is_valid_schema_model(model: dict) -> bool:
+    """Valide qu'un modèle logique est un vrai schéma OLAP, pas un mock/garbage LLM output.
+    Un modèle valide doit avoir au moins une fact_table avec des colonnes et au moins une dimension.
+    """
+    if not model or not isinstance(model, dict):
+        return False
+    # Détection de réponses mock/fake LLM (FakeChatModel ou garbage)
+    mock_indicators = {"status", "message"}
+    if set(model.keys()) <= mock_indicators:
+        return False
+    # Doit avoir au moins une fact_table (singulier ou pluriel)
+    ft = model.get("fact_table")
+    fts = model.get("fact_tables", [])
+    if not ft and not fts:
+        return False
+    # La fact table doit avoir des colonnes valides
+    if ft and not isinstance(ft, dict):
+        ft = None
+    if fts:
+        valid_facts = [f for f in fts if isinstance(f, dict) and f.get("columns")]
+        if not valid_facts and not (ft and ft.get("columns")):
+            return False
+    elif ft and not ft.get("columns"):
+        return False
+    # Doit avoir au moins une dimension
+    dims = model.get("dimension_tables", [])
+    if not dims or not isinstance(dims, list):
+        return False
+    valid_dims = [d for d in dims if isinstance(d, dict) and d.get("columns")]
+    if not valid_dims:
+        return False
+    return True
 
-    metadata    = state.get("source_metadata", {})
-    drift_warn  = ""
+
+def modeler_node(state: AgentState) -> dict:
+    """Génère le modèle logique OLAP Star/Constellation Schema et le DDL T-SQL correspondant.
+    v4.1 — Ajout : validation stricte de l'output, logs détaillés, échec explicite si résultat vide/invalide.
+    """
+    logger.info("--- AGENT MODELER v4.1 : Star/Constellation Schema Intelligence ---")
+
+    metadata = state.get("source_metadata", {})
+    logger.info(f"[Modeler] 🔍 source_metadata reçue : {len(metadata)} table(s) — {list(metadata.keys())[:10]}")
+    logger.info(f"[Modeler] 🔍 Full state keys reçues : {list(state.keys())}")
+    logger.info(f"[Modeler] 🔍 connection_config type : {state.get('connection_config', {}).get('type', 'N/A')}")
+
+    if not metadata:
+        logger.error("[Modeler] ❌ source_metadata est VIDE — impossible de modéliser sans métadonnées")
+        return {
+            "logical_model": {},
+            "logical_model_version": state.get("logical_model_version", 0),
+            "previous_sql_ddl": state.get("sql_ddl", ""),
+            "sql_ddl": "-- ERREUR : aucune métadonnée source disponible pour la modélisation",
+            "execution_log": state.get("execution_log", []) + [
+                "[Modeler] ❌ FAILED — source_metadata vide, étape de modélisation impossible"
+            ],
+        }
+
+    drift_warn = ""
     if state.get("schema_drift_detected"):
         drift_warn = f"⚠️ Dérive de schéma : {state.get('schema_drift_details', '')}. Adapter le modèle."
 
-    current_v   = state.get("logical_model_version", 0)
+    current_v = state.get("logical_model_version", 0)
     previous_ddl = state.get("sql_ddl", "")
-    prefix      = state.get("user_prefix", "dw")
+    prefix = state.get("user_prefix", "dw")
 
     # ── Construire le graphe FK et les candidats fact pour le prompt ──────────
     fk_out, fk_in = _build_fk_graph(metadata)
-    scores        = _score_fact_candidates(metadata, fk_out, fk_in)
+    scores = _score_fact_candidates(metadata, fk_out, fk_in)
 
     fk_graph_str = _fk_graph_to_str(fk_out)
     candidates_str = "\n".join(
@@ -178,25 +230,42 @@ def modeler_node(state: AgentState) -> dict:
         for i, (t, s) in enumerate(scores[:8])
     )
 
+    logger.info(f"[Modeler] 📊 FK graph : {sum(len(v) for v in fk_out.values())} FK détectées, top fact candidats : {scores[:5]}")
+
     # ── Tentative LLM ─────────────────────────────────────────────────────────
     logical_model = None
+    llm_source = "none"
     try:
-        llm   = get_llm(temperature=0.05)
+        llm = get_llm(temperature=0.05, task_type="code")
         chain = MODELER_PROMPT | llm
-        resp  = call_with_retry(chain, {
-            "metadata":       _metadata_summary(metadata),
-            "fk_graph":       fk_graph_str,
+        resp = call_with_retry(chain, {
+            "metadata": _metadata_summary(metadata),
+            "fk_graph": fk_graph_str,
             "fact_candidates": candidates_str,
-            "drift_warning":  drift_warn,
+            "drift_warning": drift_warn,
         })
         raw = extract_text(resp)
-        logical_model = _parse_json(raw)
+        logger.info(f"[Modeler] 📝 Réponse LLM brute (premiers 500 chars) : {raw[:500]}")
+        if not raw or not raw.strip():
+            logger.error("[Modeler] ❌ Réponse LLM VIDE — le modèle GLM-5/Blaze n'a rien retourné")
+            logical_model = None
+        else:
+            logical_model = _parse_json(raw)
         if logical_model:
-            logger.info("[Modeler] ✅ Star Schema généré via LLM")
+            # Vérifier que c'est un vrai schéma, pas un mock/garbage
+            if _is_valid_schema_model(logical_model):
+                llm_source = "llm"
+                logger.info("[Modeler] ✅ Star Schema généré via LLM — modèle validé")
+            else:
+                logger.warning(
+                    f"[Modeler] ⚠️ LLM a retourné un JSON valide mais PAS un schéma OLAP "
+                    f"(clés={list(logical_model.keys())[:8]}) — bascule sur algorithme"
+                )
+                logical_model = None
         else:
             logger.warning("[Modeler] ⚠️ JSON LLM invalide — bascule sur algorithme intelligent")
     except Exception as e:
-        logger.warning(f"[Modeler] ⚠️ LLM indisponible ({type(e).__name__}) — algorithme intelligent")
+        logger.warning(f"[Modeler] ⚠️ LLM indisponible ({type(e).__name__}) : {e} — algorithme intelligent")
 
     # ── Fallback : algorithme intelligent ────────────────────────────────────
     if not logical_model:
@@ -207,9 +276,34 @@ def modeler_node(state: AgentState) -> dict:
                 f"[Modeler] 🤖 Schema auto-généré : "
                 f"{len(logical_model.get('dimension_tables', []))} dimensions + {n_facts} fact(s)"
             )
+            llm_source = "algorithm"
         else:
             logical_model = _default_skeleton_model()
-            logger.info("[Modeler] 🦴 Skeleton model (aucune métadonnée)")
+            logger.warning("[Modeler] 🦴 Skeleton model (aucune métadonnée) — résultat probablement inutilisable")
+            llm_source = "skeleton"
+
+    # ── Validation stricte de l'output ────────────────────────────────────────
+    if not _is_valid_schema_model(logical_model):
+        logger.error(
+            f"[Modeler] ❌ Le modèle généré est INVALIDE (source={llm_source}) — "
+            f"fact_table={bool(logical_model.get('fact_table'))}, "
+            f"fact_tables={len(logical_model.get('fact_tables', []))}, "
+            f"dims={len(logical_model.get('dimension_tables', []))}, "
+            f"clés={list(logical_model.keys())[:8]}"
+        )
+        logger.error(
+            f"[Modeler] ❌ DÉTAIL DU MODÈLE INVALIDE : {json.dumps(logical_model, default=str)[:1000]}"
+        )
+        return {
+            "logical_model": {},
+            "logical_model_version": current_v,
+            "previous_sql_ddl": previous_ddl,
+            "sql_ddl": "-- ERREUR : modèle généré invalide (ni fact table ni dimensions valides)",
+            "execution_log": state.get("execution_log", []) + [
+                f"[Modeler] ❌ FAILED — modèle invalide (source={llm_source}), "
+                f"ni fact table ni dimensions valides générées"
+            ],
+        }
 
     # ── Normalisation : garantir fact_tables (list) + backward compat fact_table ──
     if "fact_tables" not in logical_model:
@@ -229,20 +323,34 @@ def modeler_node(state: AgentState) -> dict:
     sql_ddl = _generate_ddl(logical_model, prefix)
 
     n_facts = len(logical_model.get('fact_tables', []))
+    n_dims = len(logical_model.get('dimension_tables', []))
     schema_type = "Constellation" if n_facts > 1 else "Star"
     logger.info(
-        f"[Modeler] Modèle v{current_v + 1} ({schema_type}) — "
-        f"{len(logical_model.get('dimension_tables', []))} dimensions + {n_facts} table(s) de faits"
+        f"[Modeler] ✅ Modèle v{current_v + 1} ({schema_type}) — "
+        f"{n_dims} dimensions + {n_facts} table(s) de faits (source={llm_source})"
+    )
+    logger.info(
+        f"[Modeler] 📋 Fact tables : {[ft.get('name','?') for ft in logical_model.get('fact_tables', [])]}"
+    )
+    logger.info(
+        f"[Modeler] 📋 Dimensions : {[d.get('name','?') for d in logical_model.get('dimension_tables', [])]}"
+    )
+    logger.info(f"[Modeler] 📄 DDL généré : {len(sql_ddl)} caractères")
+    logger.info(
+        f"[Modeler] 🏁 RÉSULTAT FINAL — logical_model peuplé : "
+        f"fact_table={logical_model.get('fact_table', {}).get('name', 'N/A')}, "
+        f"{len(logical_model.get('dimension_tables', []))} dims, "
+        f"clés={list(logical_model.keys())}"
     )
 
     return {
-        "logical_model":         logical_model,
+        "logical_model": logical_model,
         "logical_model_version": current_v + 1,
-        "previous_sql_ddl":      previous_ddl,
-        "sql_ddl":               sql_ddl,
+        "previous_sql_ddl": previous_ddl,
+        "sql_ddl": sql_ddl,
         "execution_log": state.get("execution_log", []) + [
             f"[Modeler] ✅ {schema_type} Schema v{current_v+1} — "
-            f"{len(logical_model.get('dimension_tables', []))} dims + {n_facts} fact(s)"
+            f"{n_dims} dims + {n_facts} fact(s) (via {llm_source})"
         ],
     }
 

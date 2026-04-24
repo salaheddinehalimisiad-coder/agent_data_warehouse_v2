@@ -16,7 +16,7 @@ def mock_generator_node(state: AgentState) -> dict:
     if not logical_model:
         return {"execution_log": state.get("execution_log", []) + ["[Synthesizer] ⚠️ SKIP — Modèle logique manquant"]}
 
-    llm = get_llm(temperature=0.7) # Température plus haute pour de la donnée créative/variée
+    llm = get_llm(temperature=0.7, task_type="code") # Température plus haute pour de la donnée créative/variée
     
     prompt = f"""Tu es un Data Engineer Expert en Test et Qualité de données.
 Ta mission est de générer un script d'insertion SQL de données factices (Mock Data) hyper réalistes basées sur le Star Schema fourni.

@@ -239,7 +239,7 @@ export default function ArchitectureInspector() {
   const { 
     logicalModel, logicalModelVersion, sqlDDL, previousSqlDDL, 
     schemaDriftDetails, agentStatuses, currentAgent, 
-    pipelineStatus, validatePipeline, addMessage 
+    pipelineStatus, pipelineError, validatePipeline, addMessage 
   } = usePipelineStore();
   
   const [nodes, setNodes] = useState([]);
@@ -254,7 +254,8 @@ export default function ArchitectureInspector() {
   useEffect(() => {
     if (!logicalModel) return;
 
-    const factTable = logicalModel.fact_table;
+    const factTables = logicalModel.fact_tables || [];
+    const factTable = logicalModel.fact_table || factTables[0];
     const dimTables = logicalModel.dimension_tables || [];
 
     const newNodes = [];
@@ -347,7 +348,7 @@ export default function ArchitectureInspector() {
     { id: 'drift', label: 'Drift Detection', subtitle: 'Schema evolution monitoring', agents: ['drift_detector'] },
     { id: 'modeling', label: 'Schema Modeling', subtitle: 'Star schema architecture', agents: ['modeler', 'critic'] },
     { id: 'validation', label: 'Human Review', subtitle: 'HITL approval checkpoint', agents: ['human_review', 'chat_modifier'] },
-    { id: 'etl_gen', label: 'ETL Blueprint', subtitle: 'Code generation', agents: ['etl_generator'] },
+    { id: 'etl_gen', label: 'ETL Blueprint', subtitle: 'Code generation', agents: ['etl_tsql_generator'] },
     { id: 'etl_exec', label: 'Data Processing', subtitle: 'Extract → Transform → Load', agents: ['etl_extractor', 'etl_transformer', 'etl_loader', 'healer'] },
     { id: 'post_process', label: 'Finalization', subtitle: 'Insight & Lineage', agents: ['lineage_tracker', 'cataloger'] },
   ];
@@ -448,6 +449,17 @@ export default function ArchitectureInspector() {
         </div>
 
         {viewMode === 'graph' ? (
+          !logicalModel ? (
+            <div className="h-full flex flex-col items-center justify-center p-8 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-4">
+                <XCircle size={28} className="text-rose-400" />
+              </div>
+              <h3 className="text-sm font-black text-rose-400 uppercase tracking-widest mb-2">Schema Modeling Failed</h3>
+              <p className="text-[11px] text-slate-500 max-w-md leading-relaxed">
+                {pipelineError || "The Modeler agent did not produce a valid star schema. This usually means the source metadata was empty or the LLM returned an invalid response. Check the pipeline logs for details."}
+              </p>
+            </div>
+          ) : (
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -465,6 +477,7 @@ export default function ArchitectureInspector() {
             <Controls className="bg-slate-900 border-white/10 fill-white" />
             <FitViewListener isFullscreen={isFullscreen} />
           </ReactFlow>
+          )
         ) : (
           <div className="h-full p-10 overflow-auto custom-scrollbar bg-[#050508] font-mono text-[11px] leading-relaxed text-indigo-300">
             <pre className="p-8 rounded-[32px] bg-white/[0.02] border border-white/5 shadow-2xl">

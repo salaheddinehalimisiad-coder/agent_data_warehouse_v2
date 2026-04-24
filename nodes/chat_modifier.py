@@ -90,7 +90,7 @@ def chat_modifier_node(state: AgentState) -> dict:
         chat_history_lines.append(f"{role.upper()}: {content}")
     chat_history = "\n".join(chat_history_lines) if chat_history_lines else "Aucun historique."
 
-    llm   = get_llm(temperature=0.2)
+    llm   = get_llm(temperature=0.2, task_type="code")
     chain = CHAT_MODIFIER_PROMPT | llm
 
     try:
@@ -114,7 +114,7 @@ def chat_modifier_node(state: AgentState) -> dict:
     json_part = re.sub(r"CHANGE_SUMMARY:.+", "", raw, flags=re.DOTALL).strip()
     new_model = _parse_json(json_part)
 
-    if not new_model or not new_model.get("fact_table"):
+    if not new_model or (not new_model.get("fact_tables") and not new_model.get("fact_table")):
         return {"execution_log": state.get("execution_log", []) + ["[ChatModifier] ⚠️ JSON invalide — inchangé"]}
 
     previous_ddl = current_ddl
