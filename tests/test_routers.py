@@ -46,8 +46,8 @@ class TestRouteAfterCritic:
 # ─── route_after_human_review ─────────────────────────────────────────────────
 
 class TestRouteAfterHumanReview:
-    def test_validated_goes_to_etl_generator(self):
-        assert route_after_human_review({"is_validated": True}) == "etl_generator"
+    def test_validated_goes_to_cdc_watermark(self):
+        assert route_after_human_review({"is_validated": True}) == "cdc_watermark"
 
     def test_not_validated_goes_to_chat_modifier(self):
         assert route_after_human_review({"is_validated": False}) == "chat_modifier"

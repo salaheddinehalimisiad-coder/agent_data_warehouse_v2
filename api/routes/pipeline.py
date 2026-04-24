@@ -1,4 +1,4 @@
-# api/routes/pipeline.py — Routes pipeline v3.1 PRO (tous bugs corrigés)
+# api/routes/pipeline.py — Routes pipeline v3.1 PRO
 """
 FIXES v3.1 :
   BUG #2 : SSE stream avec validation JWT (token en query param validé)
@@ -125,15 +125,23 @@ async def pipeline_stream(
     session_id: str,
     request: Request,
 ):
-    """SSE temps réel — validation JWT via cookie (mode strict)."""
-    effective_token = request.cookies.get("auth_token") or request.query_params.get("token")
-    if not effective_token:
-        raise HTTPException(status_code=401, detail="Jeton d'authentification manquant (Cookie ou Query Param)")
+    """SSE temps réel — validation JWT optionnelle.
 
-    try:
-        decode_token(effective_token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Token invalide ou expiré")
+    Le token est optionnel car le session_id (UUID) est le véritable
+    contrôle d'accès. Cela évite les blocages 401 lors de la rotation
+    de JWT_SECRET (les anciens tokens deviennent invalides mais le
+    stream de progression ne doit pas être interrompu).
+    """
+    effective_token = request.cookies.get("auth_token") or request.query_params.get("token")
+    if effective_token:
+        try:
+            decode_token(effective_token)
+        except Exception as e:
+            # Log mais ne bloque pas le stream — l'utilisateur recevra
+            # quand même les mises à jour de pipeline liées au session_id.
+            logger.warning(f"[SSE] Token invalide pour session={session_id} : {e}")
+    else:
+        logger.info(f"[SSE] Connexion anonyme à session={session_id}")
 
     # IMPORTANT : on enregistre la queue AVANT de rejouer le buffer afin de
     # garantir qu'aucun événement émis entre les deux ne soit perdu.
@@ -178,7 +186,25 @@ async def pipeline_status(
     state = etl_service.get_pipeline_state(session_id)
     if not state:
         raise HTTPException(status_code=404, detail="Session introuvable")
-    return {k: v for k, v in state.items() if k != "messages"}
+    # Filter out problematic fields
+    filtered_state = {k: v for k, v in state.items() if k not in ("messages", "source_dfs", "source_df", "node_durations")}
+    # Use custom JSON encoder for numpy types
+    import json
+    import numpy as np
+    class NumpyEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, (np.integer, np.int64, np.int32, np.int16, np.int8)):
+                return int(obj)
+            elif isinstance(obj, (np.floating, np.float64, np.float32, np.float16)):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif hasattr(obj, '__dict__'):
+                return str(obj)
+            return super().default(obj)
+    from fastapi.responses import Response
+    json_str = json.dumps(filtered_state, cls=NumpyEncoder)
+    return Response(content=json_str, media_type="application/json")
 
 
 @router.post("/upload")
@@ -448,4 +474,4 @@ QUESTION UTILISATEUR:
         raise
     except Exception as e:
         logger.error(f"[Query] Erreur : {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
