@@ -318,45 +318,51 @@ export default function ConnectionModal({ isOpen, onClose }) {
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-black/80 backdrop-blur-2xl px-6" />
 
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="relative w-full max-w-[860px] glass-panel rounded-[40px] border border-white/5 overflow-hidden shadow-2xl bg-[#0a0a0f]">
-        
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-600 to-emerald-500" />
+        className="card-premium relative w-full max-w-[860px] overflow-hidden shadow-2xl"
+        style={{ background: 'var(--bg-base)' }}>
+
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: 'var(--grad-primary)', opacity: 0.8 }} />
         
         <div className="flex h-[580px]">
           {/* Sidebar */}
-          <div className="w-[280px] bg-black/40 border-r border-white/5 p-10 flex flex-col justify-between">
-             <div className="space-y-12">
-                 <div className="flex flex-col gap-2">
-                   <div className="w-14 h-14 rounded-[20px] bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center shadow-lg shadow-indigo-500/10">
-                      <Cpu size={28} className="text-indigo-400" />
+          <div style={{ width: 240, flexShrink: 0, background: 'var(--bg-elevated)', borderRight: '1px solid var(--border-hair)', padding: '36px 28px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+             <div>
+                 <div style={{ marginBottom: 32 }}>
+                   <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(61,106,232,0.12)', border: '1px solid rgba(61,106,232,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+                      <Cpu size={22} style={{ color: 'var(--blue-300)' }} />
                    </div>
-                   <h2 className="text-2xl font-black text-white italic tracking-tighter mt-6 uppercase leading-none">Neural Init</h2>
-                   <p className="text-[9px] text-slate-500 font-bold uppercase tracking-[0.2em]">Deployment Node v4.1</p>
+                   <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>New Pipeline</h2>
+                   <p style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>Configuration · v4.1</p>
                 </div>
-                <div className="space-y-6">
-                   {[{ s: 1, l: 'Source Strategy', i: Database }, { s: 2, l: 'Configuration', i: HardDrive }, { s: 3, l: 'Neural Ignition', i: Rocket }].map(item => (
-                      <div key={item.s} className={`flex items-center gap-4 transition-all ${step >= item.s ? 'opacity-100' : 'opacity-30'}`}>
-                         <div className={`w-8 h-8 rounded-full flex items-center justify-center border text-[10px] font-black ${step === item.s ? 'bg-white text-black border-white' : 'text-white border-white/20'}`}>{item.s}</div>
-                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">{item.l}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                   {[{ s: 1, l: 'Source' }, { s: 2, l: 'Configuration' }, { s: 3, l: 'Lancement' }].map(item => (
+                      <div key={item.s} style={{ display: 'flex', alignItems: 'center', gap: 12, opacity: step >= item.s ? 1 : 0.35, transition: 'opacity 0.2s' }}>
+                         <div style={{
+                           width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700,
+                           background: step === item.s ? 'var(--blue-400)' : step > item.s ? 'var(--green-500)' : 'var(--bg-higher)',
+                           color: step >= item.s ? '#fff' : 'var(--text-muted)',
+                           border: `1px solid ${step === item.s ? 'var(--blue-400)' : step > item.s ? 'var(--green-500)' : 'var(--border-default)'}`,
+                         }}>{item.s}</div>
+                         <span style={{ fontSize: 11, fontWeight: step === item.s ? 600 : 400, color: step === item.s ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{item.l}</span>
                       </div>
                    ))}
                 </div>
              </div>
-             <div className="flex items-center gap-2 text-slate-600">
-                <ShieldCheck size={14} className="text-emerald-500/50" />
-                <span className="text-[9px] font-black uppercase tracking-widest font-mono">Secure Transmission</span>
+             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-dim)' }}>
+                <ShieldCheck size={12} style={{ color: 'var(--green-500)', opacity: 0.5 }} />
+                <span style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>Transmission chiffrée</span>
              </div>
           </div>
 
           {/* Main Content */}
-          <div className="flex-1 p-10 flex flex-col relative bg-gradient-to-br from-indigo-500/5 to-transparent">
+          <div className="flex-1 p-8 flex flex-col relative" style={{ background: 'var(--bg-base)' }}>
              <button onClick={onClose} className="absolute top-8 right-8 p-2 rounded-xl text-slate-500 hover:text-white bg-white/5 hover:bg-white/10 transition-all"><X size={20} /></button>
 
              <div className="flex-1 pt-4 overflow-y-auto pr-2 custom-scrollbar">
                 {step === 1 && (
                   <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6">
                      <div className="mb-2">
-                        <span className="text-[10px] font-black text-indigo-500 tracking-[0.4em] uppercase">Step 01 / Selection</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--blue-400)' }}>Étape 01 · Sélection</span>
                         <h3 className="text-3xl font-black text-white tracking-tight mt-2">Choose Intelligence Source</h3>
                         <p className="text-xs text-slate-500 mt-2 font-medium">Select the data medium for neural ingestion.</p>
                      </div>
@@ -371,8 +377,8 @@ export default function ConnectionModal({ isOpen, onClose }) {
                                 whileHover={{ x: 4 }}
                                 whileTap={{ scale: 0.98 }}
                                 className={`group flex items-center gap-5 p-5 rounded-[28px] border transition-all relative overflow-hidden ${
-                                  isActive 
-                                  ? 'bg-white/[0.03] border-indigo-500/50 shadow-xl shadow-indigo-500/5' 
+                                  isActive
+                                  ? 'bg-white/[0.03] border-cobalt-500/50 shadow-xl shadow-cobalt-500/5'
                                   : 'bg-white/[0.02] border-white/5 hover:border-white/20'
                                 }`}
                               >
@@ -381,7 +387,7 @@ export default function ConnectionModal({ isOpen, onClose }) {
                                  )}
                                  
                                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${
-                                   isActive ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white/5 text-slate-500 group-hover:text-slate-300'
+                                   isActive ? 'bg-cobalt-600 text-white shadow-lg' : 'bg-white/5 text-slate-500 group-hover:text-slate-300'
                                  }`}>
                                     <Icon size={24} />
                                  </div>
@@ -396,7 +402,7 @@ export default function ConnectionModal({ isOpen, onClose }) {
                                  </div>
                                  
                                  {isActive ? (
-                                   <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center shadow-lg">
+                                   <div className="w-6 h-6 rounded-full flex items-center justify-center shadow-lg" style={{ background: 'var(--blue-400)' }}>
                                       <CheckCircle2 size={14} className="text-white" />
                                    </div>
                                  ) : (
@@ -412,7 +418,7 @@ export default function ConnectionModal({ isOpen, onClose }) {
                 {step === 2 && (
                    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-8">
                       <div>
-                         <span className="text-[10px] font-black text-indigo-400 tracking-[0.3em] uppercase">Phase 02</span>
+                         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--blue-400)' }}>Étape 02 · Configuration</span>
                          <h3 className="text-2xl font-black text-white tracking-tight mt-1">Configure & Target</h3>
                       </div>
                       
@@ -430,7 +436,7 @@ export default function ConnectionModal({ isOpen, onClose }) {
                                 <input type="file" onChange={handleFileUpload} accept={source === 'csv' ? '.csv' : '.bak,.sql,.bacpac'} className="hidden" />
                                 {isUploading ? (
                                   <div className="space-y-4">
-                                    <Loader2 className="animate-spin mx-auto text-indigo-400" size={48} />
+                                    <Loader2 className="animate-spin mx-auto" size={48} style={{ color: 'var(--blue-300)' }} />
                                     <div>
                                       <p className="text-xs font-black text-indigo-200 uppercase tracking-[0.3em]">
                                         {source === 'bak'
@@ -445,7 +451,7 @@ export default function ConnectionModal({ isOpen, onClose }) {
                                     </div>
                                     {source === 'bak' && (
                                       <div className="flex items-center justify-center gap-3">
-                                        <span className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-[10px] font-mono font-bold tracking-wider">
+                                        <span className="px-3 py-1 rounded-full text-[10px] font-mono font-bold tracking-wider" style={{ background: 'rgba(61,106,232,0.1)', border: '1px solid rgba(61,106,232,0.25)', color: 'var(--blue-300)' }}>
                                           ⏱ {fmtElapsed(uploadElapsedMs / 1000)}
                                         </span>
                                         <button
@@ -465,7 +471,7 @@ export default function ConnectionModal({ isOpen, onClose }) {
                                         ? restoreResult?.success === false
                                           ? 'bg-rose-500/20 text-rose-400'
                                           : 'bg-emerald-500/20 text-emerald-400 shadow-lg shadow-emerald-500/10'
-                                        : 'bg-white/5 text-slate-600 group-hover:bg-indigo-500/10 group-hover:text-indigo-400'
+                                        : 'bg-white/5 text-slate-600 group-hover:bg-cobalt-500/10 group-hover:text-cobalt-300'
                                     }`}>
                                        {sourceConfig.filename
                                          ? restoreResult?.success === false ? <X size={32}/> : <ShieldCheck size={32}/>
@@ -546,7 +552,7 @@ export default function ConnectionModal({ isOpen, onClose }) {
                                       </div>
                                     )}
                                     {!sourceConfig.filename && (
-                                      <div className="mt-4 px-6 py-2 bg-indigo-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest inline-block shadow-lg shadow-indigo-500/20 transition-transform active:scale-95">
+                                      <div className="mt-4 px-6 py-2 text-white rounded-full text-[10px] font-black uppercase tracking-widest inline-block shadow-lg transition-transform active:scale-95" style={{ background: 'var(--grad-primary)', boxShadow: '0 4px 12px rgba(61,106,232,0.3)' }}>
                                         Browse Files
                                       </div>
                                     )}
@@ -565,7 +571,9 @@ export default function ConnectionModal({ isOpen, onClose }) {
                               value={restoreDbName}
                               onChange={(e) => setRestoreDbName(e.target.value)}
                               placeholder="Nom DB cible (optionnel, ex: dw_sales_2026)"
-                              className="w-full h-11 px-4 rounded-xl bg-black border border-white/10 focus:border-emerald-500 text-sm font-semibold"
+                              style={{ width: '100%', height: 42, padding: '0 14px', borderRadius: 8, background: 'var(--bg-higher)', border: '1px solid var(--border-default)', fontSize: 13, color: 'var(--text-primary)', fontFamily: 'inherit', outline: 'none' }}
+                              onFocus={e => { e.target.style.borderColor = 'var(--blue-400)'; e.target.style.boxShadow = '0 0 0 3px rgba(61,106,232,0.12)'; }}
+                              onBlur={e => { e.target.style.borderColor = 'var(--border-default)'; e.target.style.boxShadow = 'none'; }}
                             />
                           </div>
                         )}
@@ -576,7 +584,11 @@ export default function ConnectionModal({ isOpen, onClose }) {
                         <div className="flex items-center gap-2"><Server size={14} className="text-slate-500"/><span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Enterprise DW Target</span></div>
                         <div className="grid grid-cols-2 gap-3">
                            {[{l:'Infrastructure',k:'host'}, {l:'Warehouse DB',k:'database'}, {l:'Auth ID',k:'user'}, {l:'Security',k:'password',t:'password'}].map(f => (
-                             <input key={f.k} type={f.t || 'text'} value={dwConfig[f.k]} onChange={e => setDwConfig({...dwConfig, [f.k]: e.target.value})} placeholder={f.l} className="h-11 px-4 rounded-xl bg-black border border-white/5 focus:border-indigo-500 text-sm font-bold" />
+                             <input key={f.k} type={f.t || 'text'} value={dwConfig[f.k]} onChange={e => setDwConfig({...dwConfig, [f.k]: e.target.value})} placeholder={f.l}
+                               style={{ height: 42, padding: '0 14px', borderRadius: 8, background: 'var(--bg-higher)', border: '1px solid var(--border-default)', fontSize: 13, color: 'var(--text-primary)', fontFamily: 'inherit', outline: 'none' }}
+                               onFocus={e => { e.target.style.borderColor = 'var(--blue-400)'; e.target.style.boxShadow = '0 0 0 3px rgba(61,106,232,0.12)'; }}
+                               onBlur={e => { e.target.style.borderColor = 'var(--border-default)'; e.target.style.boxShadow = 'none'; }}
+                             />
                            ))}
                         </div>
                       </div>
@@ -693,9 +705,9 @@ export default function ConnectionModal({ isOpen, onClose }) {
              <div className="mt-8 pt-8 border-t border-white/5 flex items-center justify-between">
                 <div>{step > 1 && <button onClick={prevStep} className="px-6 py-3 rounded-2xl text-slate-500 hover:text-white font-black text-[11px] uppercase tracking-widest">Back</button>}</div>
                 {step < 3 ? (
-                  <button onClick={nextStep} className="flex items-center gap-3 px-8 py-4 bg-white text-black rounded-2xl font-black text-[12px] uppercase tracking-widest hover:bg-slate-200">Next Step</button>
+                  <button onClick={nextStep} className="flex items-center gap-3 px-7 py-3 rounded-xl font-bold text-[12px] uppercase tracking-wider text-white transition-opacity hover:opacity-90" style={{ background: 'var(--grad-primary)', boxShadow: '0 2px 12px rgba(61,106,232,0.3)' }}>Étape suivante</button>
                 ) : (
-                  <button onClick={handleLaunch} disabled={isLaunching} className="flex items-center gap-4 px-10 py-5 bg-indigo-600 text-white rounded-[28px] font-black text-[13px] uppercase tracking-widest hover:bg-indigo-500 shadow-xl shadow-indigo-500/20">
+                  <button onClick={handleLaunch} disabled={isLaunching} className="flex items-center gap-3 px-8 py-3 rounded-xl font-bold text-[12px] uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-50" style={{ background: 'var(--grad-primary)', boxShadow: '0 2px 16px rgba(61,106,232,0.35)' }}>
                      {isLaunching ? <Loader2 className="animate-spin" size={18} /> : "🎁"} BEGIN SYNTHESIS
                   </button>
                 )}

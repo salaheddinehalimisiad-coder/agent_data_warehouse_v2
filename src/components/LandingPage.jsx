@@ -127,7 +127,7 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
               <button onClick={onAuthOpen} className="text-sm font-semibold text-zinc-300 hover:text-white transition-colors hidden sm:block">Se connecter</button>
             )}
 
-            <button onClick={onSelectSource} className="text-sm font-bold bg-white text-black px-6 py-2.5 rounded-full hover:bg-slate-100 transition-all shadow-glow active:scale-95">
+            <button onClick={onSelectSource} style={{ background: 'var(--grad-primary)', boxShadow: '0 2px 12px rgba(61,106,232,0.3)' }} className="text-sm font-bold text-white px-6 py-2.5 rounded-full hover:opacity-90 transition-all active:scale-95">
               Sélectionner source
             </button>
           </div>
@@ -139,7 +139,7 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
         <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="w-full flex flex-col items-center text-center">
           <motion.h1 variants={fadeInUp} className="text-5xl sm:text-6xl md:text-7xl lg:text-[85px] font-extrabold tracking-tight leading-[1.05] mb-8 max-w-5xl">
             Où vos données brutes <br className="hidden md:block" />
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400">
+            <span style={{ background: 'var(--grad-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
               deviennent un ROI évident.
             </span>
           </motion.h1>
@@ -147,8 +147,8 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
             Être vu par vos utilisateurs n'est plus suffisant. Transformez instantanément vos bases brutes en un Data Warehouse optimisé grâce à nos 9 ingénieurs IA autonomes.
           </motion.p>
           <motion.div variants={fadeInUp} className="flex flex-col sm:flex-row items-center gap-4 w-full justify-center">
-            <button onClick={onSelectSource} className="group relative flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-[20px] font-semibold text-lg transition-all shadow-lg hover:shadow-indigo-500/25 overflow-hidden active:scale-[0.98]">
-              <Database size={20} className="group-hover:-translate-y-0.5 transition-transform text-indigo-200" /> Commencer gratuitement <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+            <button onClick={onSelectSource} style={{ background: 'var(--grad-primary)', boxShadow: '0 4px 20px rgba(61,106,232,0.35)' }} className="group relative flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 text-white rounded-[20px] font-semibold text-lg transition-all overflow-hidden active:scale-[0.98] hover:opacity-90">
+              <Database size={20} className="group-hover:-translate-y-0.5 transition-transform text-white/80" /> Commencer gratuitement <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
             </button>
             <button onClick={onEnterDashboard} className="flex items-center justify-center gap-2 w-full sm:w-auto px-8 py-4 bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 text-zinc-900 dark:text-white rounded-[20px] font-semibold text-lg transition-colors active:scale-[0.98]">
               <PlayCircle size={20} className="text-zinc-500 dark:text-zinc-400" /> Voir la démo
@@ -471,7 +471,7 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
                    <span className="text-sm text-zinc-500 font-bold">/ utilisateur / par mois</span>
                 </div>
                 <div className="text-indigo-400 text-[11px] font-black uppercase tracking-widest mb-4 bg-indigo-500/10 inline-block px-3 py-1 rounded-full w-fit">Économisez 33% !</div>
-                <button onClick={onSelectSource} className="w-full py-4 rounded-xl bg-indigo-500 text-white shadow-glow font-black uppercase tracking-widest text-sm hover:scale-[1.02] hover:bg-indigo-400 transition-transform mb-8">Essayer Gratuitement</button>
+                <button onClick={onSelectSource} className="w-full py-4 rounded-xl text-white font-black uppercase tracking-widest text-sm hover:scale-[1.02] transition-transform mb-8" style={{ background: 'var(--grad-primary)', boxShadow: '0 2px 16px rgba(61,106,232,0.3)' }}>Essayer Gratuitement</button>
                 <div className="space-y-4 text-sm text-zinc-300 font-medium flex-1">
                    <div className="flex items-start gap-3"><CheckCircle2 size={18} className="text-emerald-500 shrink-0"/> Essai gratuit de 3 jours</div>
                    <div className="flex items-start gap-3"><CheckCircle2 size={18} className="text-emerald-500 shrink-0"/> Accès illimité aux graphes IA & Auto-Correction</div>

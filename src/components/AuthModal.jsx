@@ -1,37 +1,54 @@
-// src/components/AuthModal.jsx — Neural ID Interface (V3 Premium)
+// src/components/AuthModal.jsx
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  X, Loader2, Eye, EyeOff, 
-  Database, Sparkles, ArrowRight,
-  Blocks
+import {
+  X, Loader2, Eye, EyeOff,
+  Database, Sparkles, ArrowRight, ShieldCheck, Zap
 } from 'lucide-react';
 import { usePipelineStore } from '../store/pipelineStore';
 import { apiClient } from '../api/client';
 
+const FIELD_STYLE = {
+  width: '100%', height: 42,
+  background: 'var(--bg-higher)',
+  border: '1px solid var(--border-default)',
+  borderRadius: 8,
+  padding: '0 14px',
+  fontSize: 13, fontWeight: 400,
+  color: 'var(--text-primary)',
+  outline: 'none',
+  transition: 'border-color 0.15s, box-shadow 0.15s',
+  fontFamily: 'inherit',
+};
+
+function Field({ label, children, hint }) {
+  return (
+    <div>
+      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 6 }}>
+        {label}
+      </label>
+      {children}
+      {hint && <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 5 }}>{hint}</p>}
+    </div>
+  );
+}
+
 export default function AuthModal({ isOpen, onClose }) {
   const { setAuth } = usePipelineStore();
-  const [mode, setMode] = useState('register'); // Default to register for onboarding feel
-  const [email, setEmail] = useState('');
+  const [mode,     setMode]     = useState('register');
+  const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
-  const [prefix, setPrefix] = useState('');
-  const [showPwd, setShowPwd] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [prefix,   setPrefix]   = useState('');
+  const [showPwd,  setShowPwd]  = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState('');
 
-  // Validation côté client pour éviter un aller-retour et fournir un message clair
-  const validateClientSide = () => {
-    if (!email || !password) {
-      return 'Veuillez remplir tous les champs obligatoires.';
-    }
+  const validate = () => {
+    if (!email || !password) return 'Veuillez remplir tous les champs.';
     if (mode === 'register') {
-      if (password.length < 8) return 'Le mot de passe doit faire au moins 8 caractères.';
-      const hasUpper = /[A-Z]/.test(password);
-      const hasLower = /[a-z]/.test(password);
-      const hasDigit = /[0-9]/.test(password);
-      if (!hasUpper || !hasLower || !hasDigit) {
-        return 'Le mot de passe doit contenir au moins une majuscule, une minuscule et un chiffre.';
-      }
+      if (password.length < 8) return 'Mot de passe : 8 caractères minimum.';
+      if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password))
+        return 'Mot de passe : majuscule, minuscule et chiffre requis.';
     }
     return null;
   };
@@ -39,9 +56,8 @@ export default function AuthModal({ isOpen, onClose }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    const clientErr = validateClientSide();
-    if (clientErr) { setError(clientErr); return; }
-
+    const err = validate();
+    if (err) { setError(err); return; }
     setLoading(true);
     try {
       const data = mode === 'login'
@@ -50,7 +66,7 @@ export default function AuthModal({ isOpen, onClose }) {
       setAuth(data.token, data.user_id, data.prefix);
       onClose();
     } catch (err) {
-      setError(err.message || "Une erreur s'est produite lors de l'authentification.");
+      setError(err.message || "Erreur d'authentification.");
     } finally {
       setLoading(false);
     }
@@ -59,169 +75,216 @@ export default function AuthModal({ isOpen, onClose }) {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 sm:p-6">
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }} 
-            exit={{ opacity: 0 }}
+        <div style={{ position: 'fixed', inset: 0, zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-zinc-900/40 backdrop-blur-md"
-            style={{ zIndex: 0 }}
+            style={{ position: 'absolute', inset: 0, background: 'rgba(6,8,16,0.82)', backdropFilter: 'blur(12px)' }}
           />
 
+          {/* Modal */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            initial={{ opacity: 0, scale: 0.95, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="relative z-10 w-full max-w-[900px] bg-white dark:bg-[#0A0A0B] rounded-[32px] overflow-hidden shadow-2xl border border-zinc-200 dark:border-white/10 flex flex-col md:flex-row min-h-[550px]"
+            exit={{ opacity: 0, scale: 0.95, y: 16 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+            className="card-premium"
+            style={{
+              position: 'relative', zIndex: 1,
+              width: '100%', maxWidth: 860,
+              display: 'flex', minHeight: 520, overflow: 'hidden',
+            }}
           >
-            {/* Left Panel: Value Proposition / Onboarding UX */}
-            <div className="hidden md:flex flex-col justify-between w-[40%] bg-zinc-50 dark:bg-zinc-900/50 p-10 border-r border-zinc-200 dark:border-white/5 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-              <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2" />
-              
-              <div className="relative z-10">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white dark:bg-white/5 border border-zinc-200 dark:border-white/10 shadow-sm mb-6">
-                  <Database size={14} className="text-indigo-600 dark:text-indigo-400" />
-                  <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Configuration Agentic DW</span>
+            {/* Left panel */}
+            <div style={{
+              width: '38%', flexShrink: 0,
+              background: 'var(--bg-elevated)',
+              borderRight: '1px solid var(--border-hair)',
+              padding: '40px 32px',
+              display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+              position: 'relative', overflow: 'hidden',
+            }}>
+              {/* Ambient glow */}
+              <div style={{ position: 'absolute', top: -80, right: -80, width: 240, height: 240, borderRadius: '50%', background: 'var(--blue-600)', opacity: 0.07, filter: 'blur(80px)', pointerEvents: 'none' }} />
+              <div style={{ position: 'absolute', bottom: -60, left: -60, width: 200, height: 200, borderRadius: '50%', background: 'var(--purple-500)', opacity: 0.06, filter: 'blur(70px)', pointerEvents: 'none' }} />
+
+              <div style={{ position: 'relative', zIndex: 1 }}>
+                {/* Badge */}
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 99, background: 'rgba(61,106,232,0.12)', border: '1px solid rgba(61,106,232,0.22)', marginBottom: 20 }}>
+                  <Database size={12} style={{ color: 'var(--blue-300)' }} />
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--blue-300)' }}>Agent Data Warehouse</span>
                 </div>
-                
-                <h2 className="text-3xl font-bold text-zinc-900 dark:text-white leading-tight mb-4 tracking-tight">
-                  {mode === 'register' ? "Construisez votre Data Warehouse." : "Bon retour parmi nous."}
+
+                <h2 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3, marginBottom: 10 }}>
+                  {mode === 'register' ? 'Construisez votre\nData Warehouse.' : 'Bon retour\nparmi nous.'}
                 </h2>
-                <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed mb-10 font-medium">
-                  {mode === 'register' 
-                    ? "Rejoignez des milliers d'ingénieurs data automatisant leur pipeline avec l'IA." 
-                    : "Connectez-vous pour continuer à modéliser et orchestrer vos données."}
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 28 }}>
+                  {mode === 'register'
+                    ? "Rejoignez des ingénieurs data qui automatisent leur pipeline avec l'IA."
+                    : 'Connectez-vous pour continuer à modéliser et orchestrer vos données.'}
                 </p>
 
-                <div className="space-y-5">
-                  <div className="flex items-start gap-4">
-                    <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <Blocks size={14} className="text-indigo-600 dark:text-indigo-400" />
+                {/* Features */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {[
+                    { icon: Database, color: 'var(--blue-400)', title: 'Architecture IA', desc: 'Génération automatique de schémas en étoile optimisés.' },
+                    { icon: Sparkles, color: 'var(--purple-400)', title: 'Auto-Correction', desc: 'Pipelines qui se réparent automatiquement en cas d\'échec.' },
+                    { icon: ShieldCheck, color: 'var(--teal-400)', title: 'Qualité des données', desc: 'Monitoring et alertes DQ en temps réel.' },
+                  ].map(({ icon: Icon, color, title, desc }) => (
+                    <div key={title} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                      <div style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--bg-higher)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Icon size={14} style={{ color }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{title}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{desc}</div>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-1">Architecture pilotée par l'IA</h4>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">Génération automatique de tables de faits et de dimensions optimisées pour l'analytique.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-4">
-                    <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-500/20 flex items-center justify-center shrink-0 mt-0.5">
-                      <Sparkles size={14} className="text-purple-600 dark:text-purple-400" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-1">Auto-Correction Autonome</h4>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">Des pipelines qui s'auto-corrigent en cas d'échec, assurant 99,9 % de disponibilité des données.</p>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </div>
 
-              <div className="relative z-10 flex items-center gap-3 bg-white dark:bg-zinc-800/50 p-4 rounded-2xl border border-zinc-200 dark:border-white/5 shadow-sm mt-8">
-                <div className="flex -space-x-2 shrink-0">
-                   {[
-                     'https://i.pravatar.cc/100?img=1',
-                     'https://i.pravatar.cc/100?img=2',
-                     'https://i.pravatar.cc/100?img=3'
-                   ].map((src, i) => (
-                     <img key={i} src={src} alt="user" className="w-8 h-8 rounded-full border-2 border-white dark:border-zinc-800 object-cover" />
-                   ))}
-                </div>
-                <div className="text-xs">
-                  <span className="font-bold text-zinc-900 dark:text-white block">Approuvé par les experts</span>
-                  <span className="text-zinc-500 dark:text-zinc-400">Rejoignez une communauté grandissante</span>
+              {/* Social proof */}
+              <div style={{ position: 'relative', zIndex: 1, background: 'var(--bg-higher)', borderRadius: 10, padding: '12px 14px', border: '1px solid var(--border-hair)', marginTop: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ display: 'flex' }}>
+                    {[1,2,3].map(i => (
+                      <div key={i} style={{ width: 26, height: 26, borderRadius: '50%', background: `hsl(${i*80+180},60%,55%)`, border: '2px solid var(--bg-higher)', marginLeft: i === 1 ? 0 : -8, fontSize: 11, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {String.fromCharCode(64 + i)}
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>Approuvé par les experts</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Communauté grandissante</div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Right Panel: Clean Interactive Form */}
-            <div className="flex-1 p-8 md:p-12 flex flex-col relative bg-white dark:bg-[#0A0A0B]">
-              <button onClick={onClose} className="absolute top-6 right-6 p-2 text-zinc-400 hover:text-zinc-900 dark:hover:text-white bg-zinc-100 dark:bg-white/5 hover:bg-zinc-200 dark:hover:bg-white/10 rounded-full transition-all">
-                <X size={18} />
+            {/* Right panel — form */}
+            <div style={{ flex: 1, padding: '40px 36px', display: 'flex', flexDirection: 'column', justifyContent: 'center', position: 'relative' }}>
+              {/* Close */}
+              <button
+                onClick={onClose}
+                style={{ position: 'absolute', top: 16, right: 16, width: 30, height: 30, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-higher)', border: '1px solid var(--border-soft)', cursor: 'pointer', color: 'var(--text-muted)' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--text-primary)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+              >
+                <X size={14} />
               </button>
 
-              <div className="flex-1 flex flex-col justify-center max-w-sm mx-auto w-full">
-                {/* Onboarding Mode Toggle */}
-                <div className="flex bg-zinc-100 dark:bg-zinc-900/80 p-1 rounded-xl mb-10 w-fit mx-auto border border-zinc-200 dark:border-white/5">
-                  <button 
-                    type="button"
-                    onClick={() => { setMode('register'); setError(''); }} 
-                    className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-300 ${mode === 'register' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
-                  >
-                    S'inscrire
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => { setMode('login'); setError(''); }} 
-                    className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all duration-300 ${mode === 'login' ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
-                  >
-                    Se connecter
-                  </button>
+              <div style={{ maxWidth: 320, margin: '0 auto', width: '100%' }}>
+                {/* Tab toggle */}
+                <div style={{ display: 'flex', background: 'var(--bg-elevated)', borderRadius: 8, padding: 3, marginBottom: 28, border: '1px solid var(--border-hair)' }}>
+                  {[{ id: 'register', label: "S'inscrire" }, { id: 'login', label: 'Se connecter' }].map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => { setMode(t.id); setError(''); }}
+                      style={{
+                        flex: 1, padding: '7px 0', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        background: mode === t.id ? 'var(--bg-higher)' : 'transparent',
+                        color: mode === t.id ? 'var(--text-primary)' : 'var(--text-muted)',
+                        border: mode === t.id ? '1px solid var(--border-soft)' : '1px solid transparent',
+                        boxShadow: mode === t.id ? 'var(--shadow-sm)' : 'none',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-5">
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 ml-1 mb-1.5 block">Adresse E-mail</label>
-                    <input 
+                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <Field label="Adresse e-mail">
+                    <input
                       type="email" value={email} onChange={e => setEmail(e.target.value)}
                       placeholder="vous@entreprise.com"
-                      className="w-full h-12 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-white/10 rounded-xl px-4 text-sm font-medium text-zinc-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder:text-zinc-400"
+                      style={FIELD_STYLE}
+                      onFocus={e => { e.target.style.borderColor = 'var(--blue-400)'; e.target.style.boxShadow = '0 0 0 3px rgba(61,106,232,0.12)'; }}
+                      onBlur={e => { e.target.style.borderColor = 'var(--border-default)'; e.target.style.boxShadow = 'none'; }}
                     />
-                  </div>
-                  
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 ml-1 mb-1.5 block">Mot de passe</label>
-                    <div className="relative">
-                      <input 
+                  </Field>
+
+                  <Field label="Mot de passe" hint={mode === 'register' ? 'Min. 8 caractères, avec majuscule, minuscule et chiffre.' : ''}>
+                    <div style={{ position: 'relative' }}>
+                      <input
                         type={showPwd ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
                         placeholder="••••••••"
-                        className="w-full h-12 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-white/10 rounded-xl px-4 pr-12 text-sm font-medium text-zinc-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder:text-zinc-400"
+                        style={{ ...FIELD_STYLE, paddingRight: 40 }}
+                        onFocus={e => { e.target.style.borderColor = 'var(--blue-400)'; e.target.style.boxShadow = '0 0 0 3px rgba(61,106,232,0.12)'; }}
+                        onBlur={e => { e.target.style.borderColor = 'var(--border-default)'; e.target.style.boxShadow = 'none'; }}
                       />
-                      <button type="button" onClick={() => setShowPwd(!showPwd)} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors">
-                         {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+                      <button
+                        type="button" onClick={() => setShowPwd(!showPwd)}
+                        style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2 }}
+                      >
+                        {showPwd ? <EyeOff size={14} /> : <Eye size={14} />}
                       </button>
                     </div>
-                    {mode === 'register' && (
-                      <p className="text-[11px] text-zinc-500 mt-2 ml-1">
-                        Min 8 caractères, avec au moins <span className="font-semibold">une majuscule</span>, <span className="font-semibold">une minuscule</span> et <span className="font-semibold">un chiffre</span>.
-                      </p>
-                    )}
-                  </div>
+                  </Field>
 
-                  {mode === 'register' && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
-                      <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 ml-1 mb-1.5 block">Préfixe de l'espace de travail (Optionnel)</label>
-                      <input 
-                         type="text" value={prefix} onChange={e => setPrefix(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                         placeholder="ex: ventes, mktg"
-                         className="w-full h-12 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-white/10 rounded-xl px-4 text-sm font-medium text-zinc-900 dark:text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder:text-zinc-400"
-                      />
-                      <p className="text-[11px] text-zinc-500 mt-2 ml-1">
-                        Préfixe pour vos tables générées (ex. <span className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 rounded">{prefix || 'dw'}_fact_ventes</span>)
-                      </p>
-                    </motion.div>
-                  )}
+                  <AnimatePresence>
+                    {mode === 'register' && (
+                      <motion.div key="prefix" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                        <Field
+                          label="Préfixe (optionnel)"
+                          hint={`Tables générées : ${prefix || 'dw'}_fact_ventes`}
+                        >
+                          <input
+                            type="text" value={prefix} onChange={e => setPrefix(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                            placeholder="ex: ventes, mktg"
+                            style={FIELD_STYLE}
+                            onFocus={e => { e.target.style.borderColor = 'var(--blue-400)'; e.target.style.boxShadow = '0 0 0 3px rgba(61,106,232,0.12)'; }}
+                            onBlur={e => { e.target.style.borderColor = 'var(--border-default)'; e.target.style.boxShadow = 'none'; }}
+                          />
+                        </Field>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
                   <AnimatePresence>
                     {error && (
-                      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="p-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 text-xs font-semibold">
+                      <motion.div
+                        initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                        style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: 'var(--red-400)', fontSize: 12, fontWeight: 500 }}
+                      >
                         {error}
                       </motion.div>
                     )}
                   </AnimatePresence>
 
-                  <button 
+                  <button
                     type="submit" disabled={loading}
-                    className="w-full h-12 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50 mt-4"
+                    style={{
+                      width: '100%', height: 42, borderRadius: 8, cursor: loading ? 'default' : 'pointer',
+                      background: loading ? 'var(--bg-higher)' : 'var(--grad-primary)',
+                      color: '#fff', fontSize: 13, fontWeight: 600,
+                      border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      boxShadow: loading ? 'none' : '0 2px 16px rgba(61,106,232,0.3)',
+                      opacity: loading ? 0.7 : 1,
+                      transition: 'opacity 0.15s, transform 0.1s',
+                      marginTop: 4,
+                    }}
+                    onMouseEnter={e => { if (!loading) e.currentTarget.style.opacity = '0.88'; }}
+                    onMouseLeave={e => { e.currentTarget.style.opacity = loading ? '0.7' : '1'; }}
                   >
-                    {loading ? <Loader2 className="animate-spin" size={18} /> : (mode === 'login' ? 'Continuer' : 'Créer l\'espace de travail')}
-                    {!loading && <ArrowRight size={16} />}
+                    {loading
+                      ? <Loader2 size={16} className="animate-spin" />
+                      : <>
+                          {mode === 'login' ? 'Continuer' : "Créer l'espace de travail"}
+                          <ArrowRight size={14} />
+                        </>
+                    }
                   </button>
-                  
+
                   {mode === 'register' && (
-                    <p className="text-[11px] text-center text-zinc-500 font-medium pt-2">
-                      En continuant, vous acceptez nos <a href="#" className="text-indigo-600 dark:text-indigo-400 hover:underline">Conditions d'Utilisation</a> et notre <a href="#" className="text-indigo-600 dark:text-indigo-400 hover:underline">Politique de Confidentialité</a>.
+                    <p style={{ fontSize: 10, textAlign: 'center', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                      En continuant, vous acceptez nos{' '}
+                      <a href="#" style={{ color: 'var(--blue-300)', textDecoration: 'none' }}>Conditions d'Utilisation</a>
+                      {' '}et notre{' '}
+                      <a href="#" style={{ color: 'var(--blue-300)', textDecoration: 'none' }}>Politique de Confidentialité</a>.
                     </p>
                   )}
                 </form>

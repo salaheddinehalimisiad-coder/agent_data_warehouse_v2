@@ -79,11 +79,11 @@ export default function ExecutionLog({ onClose }) {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-2 py-0.5 rounded-lg border transition-all uppercase tracking-wider ${
-                  filter === f
-                    ? 'bg-indigo-500/20 border-indigo-500/30 text-indigo-300'
-                    : 'border-white/[0.06] text-slate-600 hover:text-slate-400'
-                }`}
+                className="px-2 py-0.5 rounded-lg border transition-all uppercase tracking-wider"
+                style={filter === f
+                  ? { color: 'var(--blue-300)', background: 'rgba(61,106,232,0.1)', borderColor: 'rgba(61,106,232,0.25)' }
+                  : { color: 'var(--text-dim)', borderColor: 'rgba(255,255,255,0.06)' }
+                }
               >{f}</button>
             ))}
           </div>
@@ -111,10 +111,11 @@ export default function ExecutionLog({ onClose }) {
           {/* Auto-scroll toggle */}
           <button
             onClick={() => setAutoScroll(v => !v)}
-            className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border transition-all ${
-              autoScroll ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20'
-              : 'text-slate-600 border-white/[0.06] hover:text-slate-400'
-            }`}
+            className="text-[10px] font-semibold px-2 py-0.5 rounded-md border transition-all"
+            style={autoScroll
+              ? { color: 'var(--blue-300)', background: 'rgba(61,106,232,0.1)', borderColor: 'rgba(61,106,232,0.2)' }
+              : { color: 'var(--text-muted)', borderColor: 'rgba(255,255,255,0.06)' }
+            }
           >
             {autoScroll ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
           </button>

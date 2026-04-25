@@ -87,7 +87,7 @@ function MessageCodeBlock({ code, lang }) {
     <div className="my-4 rounded-2xl overflow-hidden border border-white/5 bg-[#010102]/60 shadow-2xl">
       <div className="bg-white/5 px-4 py-2 text-[9px] text-slate-500 uppercase tracking-widest font-black flex items-center justify-between border-b border-white/5">
         <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-indigo-500/50" />
+            <span className="w-2 h-2 rounded-full" style={{ background: 'rgba(77,126,247,0.45)' }} />
             <span>{lang || 'Source'}</span>
         </div>
       </div>
@@ -119,12 +119,12 @@ function FormattedMessage({ content, role }) {
               
               const html = line
                 .replace(/\*\*(.*?)\*\*/g, '<b class="text-white font-black">$1</b>')
-                .replace(/\*(.*?)\*/g, '<i class="text-indigo-300">$1</i>');
+                .replace(/\*(.*?)\*/g, '<i style="color:var(--blue-200)">$1</i>');
 
               if (line.trim().match(/^[-*]\s/)) {
                 return (
                   <div key={i} className="flex gap-3 pl-2">
-                    <span className="mt-2 w-1.5 h-1.5 rounded-full bg-indigo-500/40 shrink-0" />
+                    <span className="mt-2 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'rgba(61,106,232,0.45)' }} />
                     <span className="text-slate-300" dangerouslySetInnerHTML={{ __html: html.replace(/^[-*]\s/, '') }} />
                   </div>
                 );
@@ -155,7 +155,7 @@ function TypewriterMessage({ content, role, isLast, queryResult }) {
   return (
     <>
       <FormattedMessage content={content} role={role} />
-      {role === 'assistant' && isLast && <span className="inline-block w-1.5 h-4 ml-1 bg-indigo-400 animate-pulse align-middle" />}
+      {role === 'assistant' && isLast && <span className="inline-block w-1.5 h-4 ml-1 animate-pulse align-middle" style={{ background: 'var(--purple-400)' }} />}
       {queryResult && <QueryResultTable data={queryResult} />}
     </>
   );
@@ -196,9 +196,9 @@ export default function ChatInterface() {
 
 
   const tabs = [
-    { id: 'chat',   label: 'Intelligence', icon: BrainCircuit, color: 'text-indigo-400' },
+    { id: 'chat',   label: 'Intelligence', icon: BrainCircuit, color: 'text-purple-400' },
     { id: 'critic', label: 'Audit',        icon: Shield,       color: 'text-rose-400' },
-    { id: 'sql',    label: 'Architecture', icon: Database,     color: 'text-cyan-400' },
+    { id: 'sql',    label: 'Architecture', icon: Database,     color: 'text-cobalt-300' },
     { id: 'etl',    label: 'Pentaho XML',  icon: Code,         color: 'text-emerald-400' },
   ];
 
@@ -224,7 +224,7 @@ export default function ChatInterface() {
                     <Icon size={13} className={isActive ? color : 'text-slate-600'} />
                     {label.toUpperCase()}
                     {isActive && (
-                        <motion.div layoutId="tab-underline" className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5 bg-indigo-500" />
+                        <motion.div layoutId="tab-underline" className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5" style={{ background: 'var(--blue-400)' }} />
                     )}
                 </button>
             )
@@ -239,9 +239,9 @@ export default function ChatInterface() {
             <motion.div key="chat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center py-20 px-6 text-center">
-                  <div className="w-16 h-16 rounded-3xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-6 shadow-2xl relative">
-                     <Cpu size={28} className="text-indigo-400" />
-                     <div className="absolute inset-0 bg-indigo-500/20 blur-2xl rounded-full" />
+                  <div className="w-16 h-16 rounded-3xl flex items-center justify-center mb-6 shadow-2xl relative" style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)' }}>
+                     <Cpu size={28} style={{ color: 'var(--purple-400)' }} />
+                     <div className="absolute inset-0 blur-2xl rounded-full" style={{ background: 'rgba(139,92,246,0.15)' }} />
                   </div>
                   <h3 className="text-lg font-black text-white italic tracking-tight mb-2">Neural Architect Copilot</h3>
                   <p className="text-xs text-slate-500 max-w-[240px] leading-relaxed mb-10 uppercase tracking-[0.1em] font-mono">
@@ -254,7 +254,7 @@ export default function ChatInterface() {
                         <button
                           key={i}
                           onClick={() => { setInput(s); textareaRef.current?.focus(); }}
-                          className="text-left text-[10.5px] font-bold text-slate-500 px-4 py-2.5 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-indigo-500/10 hover:text-indigo-300 hover:border-indigo-500/30 transition-all group"
+                          className="text-left text-[10.5px] font-bold text-slate-500 px-4 py-2.5 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-cobalt-500/10 hover:text-cobalt-300 hover:border-cobalt-500/30 transition-all group"
                         >
                           <span className="mr-2 opacity-50 group-hover:opacity-100">/</span> {s}
                         </button>
@@ -270,21 +270,32 @@ export default function ChatInterface() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     className={`flex items-start gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
                   >
-                    <div className={`w-8 h-8 rounded-xl shrink-0 border flex items-center justify-center shadow-lg ${
-                      msg.role === 'user' ? 'bg-slate-800 border-white/10' : 'bg-indigo-600 border-indigo-500 shadow-indigo-500/20'
-                    }`}>
+                    <div className="w-8 h-8 rounded-xl shrink-0 border flex items-center justify-center shadow-lg"
+                      style={msg.role === 'user'
+                        ? { background: 'var(--bg-higher)', borderColor: 'var(--border-soft)' }
+                        : { background: 'rgba(139,92,246,0.2)', borderColor: 'rgba(139,92,246,0.35)' }
+                      }
+                    >
                         {msg.role === 'user' ? <Users size={14} /> : <Bot size={14} className="text-white" />}
                     </div>
                     
-                    <div className={`relative max-w-[92%] px-5 py-4 rounded-3xl shadow-xl transition-all ${
-                      msg.role === 'user'
-                      ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-tr-none'
-                      : 'bg-white/[0.03] border border-white/[0.08] text-slate-200 rounded-tl-none backdrop-blur-md'
-                    }`}>
-                        <TypewriterMessage 
-                          content={msg.content} 
-                          role={msg.role} 
-                          isLast={idx === messages.length - 1} 
+                    <div
+                      className="relative max-w-[92%] px-5 py-4 shadow-xl transition-all"
+                      style={msg.role === 'user' ? {
+                        background: 'var(--grad-ai)', color: 'white',
+                        borderRadius: '20px 4px 20px 20px',
+                      } : {
+                        background: 'rgba(255,255,255,0.03)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        color: 'var(--text-secondary)',
+                        borderRadius: '4px 20px 20px 20px',
+                        backdropFilter: 'blur(8px)',
+                      }}
+                    >
+                        <TypewriterMessage
+                          content={msg.content}
+                          role={msg.role}
+                          isLast={idx === messages.length - 1}
                           queryResult={msg.queryResult}
                         />
                     </div>
@@ -298,11 +309,11 @@ export default function ChatInterface() {
                       {[1,2,3].map(i => (
                           <motion.div 
                             key={i} animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: i*0.1 }}
-                            className="w-1.5 h-1.5 bg-indigo-500 rounded-full" 
+                            style={{ background: 'var(--purple-400)' }} className="w-1.5 h-1.5 rounded-full"
                           />
                       ))}
                    </div>
-                   <span className="text-[10px] font-black text-indigo-400/60 uppercase tracking-[0.2em] italic">Synthesizing response</span>
+                   <span className="text-[10px] font-black uppercase tracking-[0.2em] italic" style={{ color: 'var(--purple-400)', opacity: 0.7 }}>Synthesizing response</span>
                 </div>
               )}
               <div ref={messagesEndRef} />
@@ -343,7 +354,7 @@ export default function ChatInterface() {
                         <div className="flex items-center justify-between mb-4">
                             <span className="text-[10px] font-black text-slate-700 uppercase tracking-[0.2em]">Validated Logical Schema (DDL)</span>
                             <div className="flex gap-2">
-                                <button onClick={() => downloadFile(sqlDDL, 'schema.sql')} className="p-2 hover:bg-white/5 rounded-lg text-slate-500 transition-all hover:text-indigo-400" title="Download SQL">
+                                <button onClick={() => downloadFile(sqlDDL, 'schema.sql')} className="p-2 hover:bg-white/5 rounded-lg text-slate-500 transition-all hover:text-cobalt-300" title="Download SQL">
                                     <Download size={14} />
                                 </button>
                                 <button onClick={() => { navigator.clipboard.writeText(sqlDDL); setCopied('sql'); setTimeout(() => setCopied(null), 2000); }} className="p-2 hover:bg-white/5 rounded-lg text-slate-500 transition-all">
@@ -394,8 +405,11 @@ export default function ChatInterface() {
 
       {/* ── Conversational Input HUD ────────────────────────────────────────── */}
       <div className="p-6 bg-black/40 border-t border-white/[0.06] backdrop-blur-3xl shrink-0">
-        <div className="relative group overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] transition-all focus-within:border-indigo-500/50 shadow-2xl">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent pointer-events-none opacity-0 group-focus-within:opacity-100 transition-opacity" />
+        <div className="relative group overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] transition-all shadow-2xl" style={{ transition: 'border-color 0.15s' }}
+          onFocusCapture={e => e.currentTarget.style.borderColor = 'rgba(61,106,232,0.4)'}
+          onBlurCapture={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'}
+        >
+          <div className="absolute inset-0 pointer-events-none opacity-0 group-focus-within:opacity-100 transition-opacity" style={{ background: 'radial-gradient(ellipse at bottom, rgba(61,106,232,0.04), transparent)' }} />
           <textarea
             ref={textareaRef}
             value={input}
@@ -415,7 +429,8 @@ export default function ChatInterface() {
             <button
                 onClick={handleSend}
                 disabled={!input.trim() || isSending}
-                className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center disabled:opacity-30 hover:bg-indigo-500 hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] active:scale-95 transition-all shadow-lg"
+                className="w-8 h-8 rounded-xl text-white flex items-center justify-center disabled:opacity-30 active:scale-95 transition-all shadow-lg"
+                style={{ background: 'var(--grad-primary)', boxShadow: '0 2px 12px rgba(61,106,232,0.35)' }}
             >
                 {isSending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             </button>
@@ -426,7 +441,8 @@ export default function ChatInterface() {
                 <div className="flex p-0.5 bg-black/40 rounded-lg border border-white/10 shrink-0">
                     <button 
                       onClick={() => setChatMode('architecture')}
-                      className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${chatMode === 'architecture' ? 'bg-indigo-600 text-white' : 'text-zinc-600 hover:text-zinc-400'}`}
+                      className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${chatMode === 'architecture' ? 'text-white' : 'text-zinc-600 hover:text-zinc-400'}`}
+                      style={chatMode === 'architecture' ? { background: 'var(--grad-primary)' } : {}}
                     >
                       Modeling
                     </button>
@@ -446,7 +462,7 @@ export default function ChatInterface() {
                 </div>
             </div>
             <div className="text-[9px] font-black text-slate-800 tracking-[0.2em] flex items-center gap-1">
-                SYSTEM <span className="text-indigo-400">ENCRYPTED</span>
+                SYSTEM <span style={{ color: 'var(--blue-300)' }}>SECURE</span>
             </div>
         </div>
       </div>
