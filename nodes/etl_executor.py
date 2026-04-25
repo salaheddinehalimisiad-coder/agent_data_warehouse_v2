@@ -31,6 +31,17 @@ logger = logging.getLogger(__name__)
 _HERE = Path(__file__).parent.parent
 OUTPUTS_DIR = _HERE / "outputs"
 
+# ── Module-level DataFrame cache (bypasses LangGraph msgpack serialization) ──
+# DataFrames cannot be serialized by LangGraph's MemorySaver — store them here
+# keyed by session_id so ETL steps can share them without going through state.
+_df_store: Dict[str, Dict[str, "pd.DataFrame"]] = {}
+
+def df_cache_store(session_id: str, dfs: Dict) -> None:
+    _df_store[session_id] = dfs
+
+def df_cache_load(session_id: str) -> Dict:
+    return _df_store.get(session_id, {})
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  NODE ENTRY POINT — etl_executor_node (inchangé fonctionnellement)
@@ -224,6 +235,24 @@ def etl_executor_node(state: AgentState) -> dict:
 #  DIMENSIONS — SCD Type 1 + SCD Type 2
 # ═════════════════════════════════════════════════════════════════════════════
 
+_MAX_ATTR_LEN = 450  # safe for NVARCHAR(450) / VARCHAR(450)
+
+def _safe_attr_val(raw) -> str:
+    """Converts a raw cell value to a safe SQL string attribute.
+    Binary blobs (bytes or bytes repr) are replaced with '' to avoid truncation errors.
+    Other values are truncated to _MAX_ATTR_LEN chars.
+    """
+    if raw is None:
+        return ""
+    if isinstance(raw, (bytes, bytearray)):
+        return ""
+    s = str(raw).strip()
+    # Python repr of bytes: b'\x...' or b"..." — extremely long, not useful
+    if (s.startswith("b'") or s.startswith('b"')) and len(s) > 100:
+        return ""
+    return s[:_MAX_ATTR_LEN]
+
+
 def _load_dimension(engine, table_name: str, dim_model: dict, source_df, source_dfs: Dict[str, pd.DataFrame] = None) -> dict:
     """
     Charge une table de dimension avec support SCD Type 2 :
@@ -250,16 +279,24 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df, source_
     columns  = dim_model.get("columns", [])
     scd_type = dim_model.get("scd_type", 1)
 
-    # Colonnes attributs (pas pk, pas fk, pas SCD metadata)
+    # Colonnes attributs : tout sauf pk, fk strict, et métadonnées SCD
+    # On accepte role=attribute, natural_key, "", None — le LLM peut générer plusieurs valeurs
     scd_meta_cols = {"valid_from", "valid_to", "is_current"}
+    _excluded_roles = {"pk", "fk"}
     attr_cols = [c for c in columns
-                 if c.get("role") == "attribute" and c.get("name") not in scd_meta_cols]
+                 if c.get("role") not in _excluded_roles
+                 and c.get("name") not in scd_meta_cols]
     pk_col = next((c for c in columns if c.get("role") == "pk"), None)
+
+    # Fallback: si aucun pk trouvé, utiliser la 1ère colonne comme pk
+    if not pk_col and columns:
+        pk_col = columns[0]
 
     has_scd2_cols = any(c.get("name") in scd_meta_cols for c in columns)
     is_scd2 = (scd_type == 2 or has_scd2_cols) and "dim_date" not in dim_name
 
-    if not attr_cols or not pk_col:
+    if not attr_cols:
+        logger.warning(f"[ETL] Dim {dim_name}: aucune colonne attribut trouvée — colonnes: {[c.get('name') for c in columns]}")
         return {"sk_map": {}, "metrics": {"inserted": 0, "existing": 0, "updated": 0}}
 
     pk_name = pk_col["name"]
@@ -271,6 +308,25 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df, source_
     compare_attr_names = [c["name"] for c in attr_cols if c["name"] != natural_key_col]
 
     src_col_name = _find_source_col(natural_key_col, resolved_df.columns.tolist())
+
+    # If natural key column not found, try every attr_col as fallback before giving up
+    if src_col_name is None:
+        for _fallback_ac in attr_cols:
+            _fb = _find_source_col(_fallback_ac["name"], resolved_df.columns.tolist())
+            if _fb:
+                natural_key_col  = _fallback_ac["name"]
+                src_col_name     = _fb
+                compare_attr_names = [c["name"] for c in attr_cols if c["name"] != natural_key_col]
+                logger.warning(
+                    f"[ETL] Dim {dim_name}: natural key not found in source — "
+                    f"falling back to '{natural_key_col}' → src col '{_fb}'"
+                )
+                break
+        if src_col_name is None:
+            logger.warning(
+                f"[ETL] Dim {dim_name}: NO source column matched any attr col "
+                f"(source cols: {resolved_df.columns.tolist()[:8]}) — dimension will load 0 rows"
+            )
 
     src_attr_mapping: Dict[str, str] = {}
     for ac in attr_cols:
@@ -315,9 +371,9 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df, source_
                             for dim_col in compare_attr_names:
                                 sc = src_attr_mapping.get(dim_col)
                                 if sc and src_row is not None:
-                                    new_attrs[dim_col] = str(src_row.get(sc, "")).strip()
+                                    new_attrs[dim_col] = _safe_attr_val(src_row.get(sc, ""))
                                 else:
-                                    new_attrs[dim_col] = str(old_attrs.get(dim_col, ""))
+                                    new_attrs[dim_col] = _safe_attr_val(old_attrs.get(dim_col, ""))
 
                             changed = any(
                                 str(old_attrs.get(k, "")).strip() != str(new_attrs.get(k, "")).strip()
@@ -367,7 +423,7 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df, source_
                                         resolved_df[src_col_name].astype(str).str.strip() == clean_val
                                     ]
                                     if len(src_rows) > 0:
-                                        insert_vals[dim_col] = str(src_rows.iloc[-1].get(sc, "")).strip()
+                                        insert_vals[dim_col] = _safe_attr_val(src_rows.iloc[-1].get(sc, ""))
 
                             insert_vals["is_current"] = 1
                             non_func_cols = {k: v for k, v in insert_vals.items()}
@@ -386,7 +442,7 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df, source_
                             ).fetchone()
                             if row2:
                                 sk_map[clean_val] = row2[0]
-                            inserted += 1
+                                inserted += 1
 
                     else:
                         # ─── SCD TYPE 1 ────────────────────────────────────
@@ -400,18 +456,22 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df, source_
                             sk_map[clean_val] = row[0]
                             existing += 1
                         else:
-                            insert_vals = {a["name"]: clean_val for a in attr_cols[:1]}
-                            cols_str  = ", ".join(f"[{k}]" for k in insert_vals)
-                            vals_str  = ", ".join(f":{k}" for k in insert_vals)
-                            merge_sql = f"""
-                            MERGE [{table_name}] AS Target
-                            USING (SELECT :v AS [{check_col}]) AS Source
-                            ON Target.[{check_col}] = Source.[{check_col}]
-                            WHEN NOT MATCHED THEN
-                                INSERT ({cols_str}) VALUES ({vals_str});
-                            """
-                            insert_vals["v"] = clean_val
-                            conn.execute(text(merge_sql), insert_vals)
+                            # Build complete row with ALL attribute columns mapped from source
+                            insert_vals = {natural_key_col: clean_val}
+                            for dim_col in compare_attr_names:
+                                sc = src_attr_mapping.get(dim_col)
+                                if sc:
+                                    src_rows = resolved_df[
+                                        resolved_df[src_col_name].astype(str).str.strip() == clean_val
+                                    ]
+                                    if len(src_rows) > 0:
+                                        insert_vals[dim_col] = _safe_attr_val(src_rows.iloc[-1].get(sc, ""))
+
+                            cols_str = ", ".join(f"[{k}]" for k in insert_vals)
+                            vals_str = ", ".join(f":{k}" for k in insert_vals)
+                            conn.execute(text(
+                                f"INSERT INTO [{table_name}] ({cols_str}) VALUES ({vals_str})"
+                            ), insert_vals)
 
                             row2 = conn.execute(
                                 text(f"SELECT TOP 1 [{pk_name}] FROM [{table_name}] WHERE [{check_col}] = :v"),
@@ -422,7 +482,7 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df, source_
                                 inserted += 1
 
                 except Exception as e:
-                    logger.debug(f"[ETL] Dim {table_name} val '{clean_val}' : {e}")
+                    logger.warning(f"[ETL] Dim {table_name} val '{clean_val}' : {e}")
 
     # dim_date : chargement automatique depuis la source
     if "dim_date" in dim_name:
@@ -470,17 +530,30 @@ def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
                         sk_map[key] = row[0]
                     else:
                         dt = datetime.date.fromisoformat(key)
+                        iso = dt.isocalendar()
                         conn.execute(text(f"""
                             MERGE [{table_name}] AS Target
-                            USING (SELECT :df AS date_full) AS Source
+                            USING (SELECT CAST(:df AS DATE) AS date_full) AS Source
                             ON Target.[date_full] = Source.[date_full]
                             WHEN NOT MATCHED THEN
-                                INSERT ([date_full],[annee],[trimestre],[mois],[semaine],[jour],[jour_semaine])
-                                VALUES (:df, :y, :q, :m, :w, :d2, :wd);
+                                INSERT ([date_full],[year],[semester],[quarter],[month],[month_name],
+                                        [week],[day],[day_of_week],[day_name],[is_weekend],
+                                        [is_month_start],[is_month_end])
+                                VALUES (:df,:y,:sem,:q,:m,:mname,:w,:d2,:wd,:dname,:wkend,:mstart,:mend);
                         """), {
-                            "df": d, "y": dt.year, "q": (dt.month - 1) // 3 + 1,
-                            "m": dt.month, "w": dt.isocalendar()[1],
-                            "d2": dt.day, "wd": dt.strftime("%A"),
+                            "df":     d,
+                            "y":      dt.year,
+                            "sem":    1 if dt.month <= 6 else 2,
+                            "q":      (dt.month - 1) // 3 + 1,
+                            "m":      dt.month,
+                            "mname":  dt.strftime("%B"),
+                            "w":      iso[1],
+                            "d2":     dt.day,
+                            "wd":     dt.isoweekday(),           # 1=Mon … 7=Sun
+                            "dname":  dt.strftime("%A"),
+                            "wkend":  1 if dt.weekday() >= 5 else 0,
+                            "mstart": 1 if dt.day == 1 else 0,
+                            "mend":   1 if (dt + datetime.timedelta(days=1)).month != dt.month else 0,
                         })
 
                         row2 = conn.execute(
@@ -537,7 +610,11 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
 
     columns  = fact_model.get("columns", [])
     fk_cols  = [c for c in columns if c.get("role") == "fk"]
-    met_cols = [c for c in columns if c.get("role") == "metric"]
+    # Accepter role=metric, measure, ou toute colonne non-fk/non-pk comme métrique potentielle
+    met_cols = [c for c in columns if c.get("role") in ("metric", "measure")]
+    if not met_cols:
+        # Fallback: toutes les colonnes non-fk et non-pk sont des métriques candidates
+        met_cols = [c for c in columns if c.get("role") not in ("fk", "pk")]
 
     if not met_cols:
         return {"inserted": 0, "rejected": 0, "reason": "Aucune métrique définie"}
@@ -566,34 +643,69 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
             dim_sks = sk_maps.get(ref_dim, {})
 
             nat_key_col = _find_source_col(fk_name.replace("_sk", ""), src_cols_list)
-            if nat_key_col and dim_sks:
-                nat_val = str(src_row.get(nat_key_col, "")).strip()
-                sk_val  = dim_sks.get(nat_val)
-                if sk_val:
-                    row_dict[fk_name] = sk_val
-                else:
-                    if "date" in ref_dim:
-                        try:
-                            d = str(pd.to_datetime(src_row.get(nat_key_col)).date())
-                            row_dict[fk_name] = dim_sks.get(d, 1)
-                        except Exception:
-                            row_dict[fk_name] = 1
-                    else:
-                        row_dict[fk_name] = 1
+            nat_val = str(src_row.get(nat_key_col, "")).strip() if nat_key_col else ""
+            sk_val  = dim_sks.get(nat_val) if (dim_sks and nat_val) else None
+
+            if sk_val:
+                row_dict[fk_name] = sk_val
+            elif "date" in ref_dim and nat_key_col:
+                try:
+                    d = str(pd.to_datetime(src_row.get(nat_key_col)).date())
+                    row_dict[fk_name] = dim_sks.get(d, 1) if dim_sks else 1
+                except Exception:
+                    row_dict[fk_name] = 1
+            else:
+                # Always populate FK with a valid integer — prevents NOT NULL violations
+                row_dict[fk_name] = 1
 
         # ─── Mapping métriques ───────────────────────────────────────────────
+        mapped_src_cols = set()  # colonnes source déjà utilisées
         for met in met_cols:
             met_name = met["name"]
-            src_col  = _find_source_col(met_name, src_cols_list)
-            if src_col:
-                val = src_row.get(src_col, 0)
+            formula  = met.get("formula", "")
+            is_dec   = "decimal" in met.get("type", "").lower() or "float" in met.get("type", "").lower() or "real" in met.get("type", "").lower()
+
+            if formula:
+                # ── Colonne calculée : évaluation de formule sécurisée ──────
                 try:
-                    if "decimal" in met.get("type", "").lower():
-                        row_dict[met_name] = float(val)
-                    else:
-                        row_dict[met_name] = int(float(val))
+                    safe_env = {k.lower().replace(" ", "_"): (float(v) if v is not None else 0)
+                                for k, v in src_row.items()}
+                    result_val = eval(formula.lower(), {"__builtins__": {}}, safe_env)  # noqa: S307
+                    row_dict[met_name] = round(float(result_val), 4)
+                except Exception:
+                    # Fallback : chercher colonne source de même nom
+                    src_col = _find_source_col(met_name, src_cols_list)
+                    if src_col:
+                        try:
+                            row_dict[met_name] = float(src_row.get(src_col, 0)) if is_dec else int(float(src_row.get(src_col, 0)))
+                        except (ValueError, TypeError):
+                            row_dict[met_name] = 0.0 if is_dec else 0
+            else:
+                src_col = _find_source_col(met_name, src_cols_list)
+                if src_col:
+                    mapped_src_cols.add(src_col)
+                    val = src_row.get(src_col, 0)
+                    try:
+                        row_dict[met_name] = round(float(val), 4) if is_dec else int(float(val))
+                    except (ValueError, TypeError):
+                        row_dict[met_name] = 0.0 if is_dec else 0
+
+        # ── Auto-map : colonnes numériques source non encore mappées ────────
+        # Pour ne perdre aucune donnée numérique, on tente de les rattacher
+        # aux colonnes DW non encore remplies.
+        unmatched_dw = [m["name"] for m in met_cols if m["name"] not in row_dict and not m.get("formula")]
+        if unmatched_dw:
+            numeric_unmapped = [
+                c for c in src_cols_list
+                if c not in mapped_src_cols
+                and pd.api.types.is_numeric_dtype(resolved_df[c])
+            ]
+            for dw_col, src_c in zip(unmatched_dw, numeric_unmapped):
+                val = src_row.get(src_c, 0)
+                try:
+                    row_dict[dw_col] = round(float(val), 4)
                 except (ValueError, TypeError):
-                    row_dict[met_name] = 0
+                    row_dict[dw_col] = 0.0
 
         if row_dict:
             rows_batch.append(row_dict)
@@ -629,6 +741,76 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
         rejected += rej
 
     elapsed_total = max(0.1, time.monotonic() - load_start_ts)
+
+    # ─── SQL UPDATE post-load : calcul des métriques dérivées ────────────────
+    # Pour chaque colonne avec un champ "formula", on exécute un UPDATE SQL
+    # afin de recalculer la valeur en utilisant les colonnes déjà en base.
+    computed_updates = 0
+    try:
+        from sqlalchemy import text as sa_text
+        with engine.connect() as conn:
+            for met in met_cols:
+                formula = met.get("formula", "")
+                met_name = met["name"]
+                if not formula:
+                    continue
+                # Convertir la formule Python en SQL (cas courants)
+                sql_formula = formula
+                # Python -> SQL opérators
+                sql_formula = sql_formula.replace("**", "").replace("^", "")
+                # Nettoyer espaces
+                sql_formula = sql_formula.strip()
+                update_sql = f"UPDATE [{table_name}] SET [{met_name}] = {sql_formula} WHERE [{met_name}] IS NULL OR [{met_name}] = 0"
+                try:
+                    conn.execute(sa_text(update_sql))
+                    computed_updates += 1
+                    logger.info(f"[ETL] Computed column [{met_name}] updated via: {sql_formula}")
+                except Exception as upd_err:
+                    logger.warning(f"[ETL] Computed column [{met_name}] SQL update failed: {upd_err}")
+            conn.commit()
+
+            # ── Métriques dérivées automatiques communes ──────────────────
+            # Detect if we have unit_price, quantity, discount → calculate extended_price
+            auto_formulas = {
+                "extended_price":  "unit_price * quantity * (1.0 - discount)",
+                "total_amount":    "unit_price * quantity * (1.0 - discount)",
+                "line_total":      "unit_price * quantity * (1.0 - discount)",
+                "amount":          "unit_price * quantity",
+            }
+            # Get actual column names in the table
+            try:
+                from sqlalchemy import inspect as sa_inspect
+                inspector = sa_inspect(engine)
+                tbl_name_clean = table_name.strip("[]")
+                existing_cols = {c["name"].lower() for c in inspector.get_columns(tbl_name_clean)}
+                has_price    = any(c in existing_cols for c in ("unit_price", "unitprice"))
+                has_qty      = any(c in existing_cols for c in ("quantity", "qty"))
+                has_discount = any(c in existing_cols for c in ("discount",))
+
+                if has_price and has_qty:
+                    price_col    = "unit_price" if "unit_price" in existing_cols else "unitprice"
+                    qty_col      = "quantity" if "quantity" in existing_cols else "qty"
+                    disc_col     = "discount"  if "discount"  in existing_cols else None
+                    disc_expr    = f" * (1.0 - [{disc_col}])" if disc_col else ""
+
+                    for target_col in auto_formulas:
+                        if target_col in existing_cols:
+                            auto_sql = (f"UPDATE [{table_name}] SET [{target_col}] = "
+                                        f"[{price_col}] * [{qty_col}]{disc_expr} "
+                                        f"WHERE [{target_col}] IS NULL OR [{target_col}] = 0")
+                            try:
+                                conn.execute(sa_text(auto_sql))
+                                computed_updates += 1
+                                logger.info(f"[ETL] Auto-computed [{target_col}]")
+                            except Exception:
+                                pass
+                    conn.commit()
+            except Exception as insp_err:
+                logger.debug(f"[ETL] Auto-formula inspect error: {insp_err}")
+
+    except Exception as post_err:
+        logger.warning(f"[ETL] Post-load computed columns failed: {post_err}")
+
     broadcast(session_id, "etl_progress", {
         "table":       table_name,
         "inserted":    inserted,
@@ -641,11 +823,12 @@ def _load_fact(engine, table_name: str, fact_model: dict, source_df,
     })
 
     return {
-        "inserted":    inserted,
-        "rejected":    rejected,
-        "source_rows": len(resolved_df),
-        "duration_s":  round(elapsed_total, 2),
-        "rate_rows_s": round(inserted / elapsed_total, 1),
+        "inserted":        inserted,
+        "rejected":        rejected,
+        "source_rows":     len(resolved_df),
+        "duration_s":      round(elapsed_total, 2),
+        "rate_rows_s":     round(inserted / elapsed_total, 1),
+        "computed_updates": computed_updates,
     }
 
 
@@ -865,10 +1048,56 @@ def _split_tsql_batches(sql_ddl: str) -> list:
     return statements
 
 
+_CREATE_TABLE_RE = re.compile(
+    r'CREATE\s+TABLE\s+(?:\[?\w+\]?\.)?\[?(\w+)\]?\s*\(',
+    re.IGNORECASE,
+)
+
+
+def _drop_tables_for_ddl(conn, statements: list) -> None:
+    """
+    Drop every table that appears in a CREATE TABLE statement within the DDL.
+    Processes facts (with FK refs) before dimensions so FK constraints don't block the drops.
+    Uses dynamic SQL to drop any referencing FK constraints first.
+    """
+    from sqlalchemy import text as _text
+
+    tables = []
+    for stmt in statements:
+        m = _CREATE_TABLE_RE.search(stmt)
+        if m:
+            tables.append(m.group(1))
+
+    if not tables:
+        return
+
+    # Drop in reverse declaration order (facts first since they hold the FKs)
+    for tbl in reversed(tables):
+        try:
+            conn.execute(_text(f"""
+                IF OBJECT_ID(N'[{tbl}]', N'U') IS NOT NULL
+                BEGIN
+                    DECLARE @drop_fks NVARCHAR(MAX) = N'';
+                    SELECT @drop_fks = @drop_fks
+                        + N'ALTER TABLE [' + OBJECT_NAME(parent_object_id)
+                        + N'] DROP CONSTRAINT [' + name + N'];'
+                    FROM sys.foreign_keys
+                    WHERE referenced_object_id = OBJECT_ID(N'[{tbl}]');
+                    IF LEN(@drop_fks) > 0 EXEC sp_executesql @drop_fks;
+                    DROP TABLE [{tbl}];
+                END
+            """))
+            logger.info(f"[ExecuteDDL] ♻ Dropped existing table [{tbl}] for schema refresh")
+        except Exception as drop_err:
+            logger.warning(f"[ExecuteDDL] Could not drop [{tbl}]: {drop_err}")
+
+
 def _execute_ddl(engine, sql_ddl: str) -> str:
     """
-    Exécute le DDL en AUTOCOMMIT (indispensable pour CREATE DATABASE,
-    ALTER DATABASE SET, FULLTEXT, SNAPSHOT_ISOLATION, etc.).
+    Exécute le DDL en AUTOCOMMIT.
+    DROP + RE-CREATE toutes les tables du DDL pour garantir que le schéma
+    correspond toujours au modèle logique courant (évite les erreurs de
+    colonnes manquantes dues aux re-générations LLM).
     Retourne '' si OK, message d'erreur sinon.
     """
     from sqlalchemy import text
@@ -879,19 +1108,20 @@ def _execute_ddl(engine, sql_ddl: str) -> str:
 
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            # Phase 1 — Drop existing tables so new schema is always applied fresh
+            _drop_tables_for_ddl(conn, statements)
+
+            # Phase 2 — Execute all DDL statements
             for stmt in statements:
                 try:
                     conn.execute(text(stmt))
                 except Exception as stmt_err:
                     msg = str(stmt_err)
+                    # Tolerate "already exists" for non-table objects (indexes, constraints…)
                     if "already" in msg.lower() and "exist" in msg.lower():
-                        logger.info(
-                            f"[ExecuteDDL] ⊙ objet déjà existant (skipped) : {stmt[:60]}"
-                        )
+                        logger.info(f"[ExecuteDDL] ⊙ objet déjà existant (skipped) : {stmt[:60]}")
                         continue
-                    logger.error(
-                        f"[ExecuteDDL] ❌ Statement: {stmt[:100]}... → {msg}"
-                    )
+                    logger.error(f"[ExecuteDDL] ❌ Statement: {stmt[:100]}... → {msg}")
                     return f"Erreur SQL: {msg} (Statement: {stmt[:80]}...)"
         return ""
     except Exception as e:
@@ -915,8 +1145,13 @@ def _verify_tables_created(engine, user_prefix: str) -> Tuple[int, List[str]]:
     """)
     try:
         with engine.connect() as conn:
-            rows = conn.execute(sql, {"p": f"{user_prefix}\\_%" if "\\" not in user_prefix else f"{user_prefix}%"}).fetchall()
+            # SQL Server ne reconnaît pas \ comme escape sans clause ESCAPE.
+            # On utilise la notation bracket [_] pour échapper _ littéralement.
+            safe_prefix = user_prefix.replace("[", "[[]").replace("%", "[%]")
+            pattern = f"{safe_prefix}[_]%"
+            rows = conn.execute(sql, {"p": pattern}).fetchall()
         names = [r[0] for r in rows]
+        logger.info(f"[_verify_tables_created] Pattern={pattern!r} → {len(names)} tables: {names}")
         return len(names), names
     except Exception as e:
         logger.warning(f"[_verify_tables_created] {e}")
@@ -998,20 +1233,65 @@ def _read_source(config: dict, dw_config: dict = None):
 #  UTILITAIRES
 # ═════════════════════════════════════════════════════════════════════════════
 
+_SOURCE_COL_ALIASES: Dict[str, List[str]] = {
+    # Domain aliases — DW column name → possible source column names
+    "shipper":     ["shipvia", "ship_via", "shipperid", "carrier"],
+    "ship_via":    ["shipvia", "ship_via", "shipperid"],
+    "customer":    ["customerid", "custid", "clientid", "client"],
+    "employee":    ["employeeid", "empid", "salesrepid"],
+    "product":     ["productid", "itemid", "skuid"],
+    "category":    ["categoryid", "catid"],
+    "supplier":    ["supplierid", "vendorid"],
+    "territory":   ["territoryid"],
+    "region":      ["regionid"],
+    "order":       ["orderid"],
+}
+
+
 def _find_source_col(target_name: str, source_cols: list) -> Optional[str]:
-    """Cherche la colonne source la plus proche du nom cible."""
+    """Cherche la colonne source la plus proche du nom cible.
+    Gère : snake_case ↔ PascalCase ↔ camelCase ↔ 'Space Separated' ↔ domain aliases.
+    Ex: company_name → CompanyName, shipper → ShipVia
+    """
     clean = target_name.lower()
     for suffix in ("_sk", "_id", "_key", "_fk"):
         clean = clean.removesuffix(suffix)
     for pfx in ("dim_", "fact_"):
         clean = clean.removeprefix(pfx)
 
+    # Variantes : sans underscore, sans espace
+    clean_flat = clean.replace("_", "").replace(" ", "")
+
+    source_flat = {col: col.lower().replace("_", "").replace(" ", "") for col in source_cols}
+
+    # 1. Match exact (casse)
     for col in source_cols:
         if col.lower() == clean or col.lower() == target_name.lower():
             return col
-    for col in source_cols:
-        if clean in col.lower() or col.lower() in clean:
+
+    # 2. Match en ignorant underscores/espaces (snake_case ↔ PascalCase ↔ spaces)
+    for col, flat in source_flat.items():
+        if flat == clean_flat:
             return col
+
+    # 3. Match partiel brut
+    for col in source_cols:
+        c = col.lower()
+        if clean in c or c in clean:
+            return col
+
+    # 4. Match partiel sans underscores/espaces
+    for col, flat in source_flat.items():
+        if clean_flat and (clean_flat in flat or flat in clean_flat) and len(clean_flat) >= 3:
+            return col
+
+    # 5. Domain alias lookup (handles ShipVia → shipper, etc.)
+    aliases = _SOURCE_COL_ALIASES.get(clean, []) + _SOURCE_COL_ALIASES.get(clean_flat, [])
+    for alias in aliases:
+        for col, flat in source_flat.items():
+            if flat == alias or alias in flat or flat in alias:
+                return col
+
     return None
 
 
@@ -1063,23 +1343,24 @@ def _resolve_source_df(
         if len(matched_dfs) == 1:
             return matched_dfs[0]
         elif len(matched_dfs) > 1:
-            # Multi-table: merge sur les colonnes communes
-            # La première table est la table principale
-            result = matched_dfs[0]
-            for other in matched_dfs[1:]:
+            # Multi-table : merge en utilisant les colonnes ID pour la jointure
+            # La table SECONDAIRE (plus grosse = grain fin) est la table principale
+            matched_dfs_sorted = sorted(matched_dfs, key=lambda d: len(d), reverse=True)
+            result = matched_dfs_sorted[0]
+            for other in matched_dfs_sorted[1:]:
                 common_cols = list(set(result.columns) & set(other.columns))
-                if common_cols:
-                    # Merge sur la première colonne commune (souvent un ID)
-                    merge_col = common_cols[0]
-                    # Éviter les conflits de colonnes
-                    suffixes = ("", "_right")
-                    result = result.merge(other, on=merge_col, how="left", suffixes=suffixes)
-                else:
-                    # Pas de colonne commune — cross join limité (dangereux)
-                    logger.warning(
-                        f"[ETL] Pas de colonne commune pour merge de "
-                        f"{len(result)} × {len(other)} lignes — utilisation de la première table uniquement"
-                    )
+                if not common_cols:
+                    logger.warning(f"[ETL] Pas de colonne commune pour merge — skip join")
+                    continue
+                # Préférer les colonnes ID/Key pour la jointure
+                id_cols = [c for c in common_cols
+                           if any(c.lower().endswith(s) for s in ("id", "key", "no", "code", "num"))]
+                merge_col = id_cols[0] if id_cols else common_cols[0]
+                # Éviter conflits de colonnes : supprimer du 'other' les cols déjà dans result
+                cols_to_drop = [c for c in other.columns if c in result.columns and c != merge_col]
+                other_clean  = other.drop(columns=cols_to_drop)
+                result = result.merge(other_clean, on=merge_col, how="left")
+                logger.info(f"[ETL] Merge multi-table sur [{merge_col}] → {len(result)} lignes")
             return result
 
     # ── 2. Fallback: chercher par nom de dim/fact dans source_dfs ──────────
@@ -1154,6 +1435,72 @@ def _export_ddl_only(sql_ddl: str, user_prefix: str, exec_log: list,
             "[ETL] ℹ️ Mode sans-DW : exécutez le .sql dans votre base cible",
         ],
     }
+
+
+def _drop_source_tables(engine, dw_prefix: str, execution_log: list) -> list:
+    """
+    Supprime toutes les tables NON-DW de la base après un ETL réussi.
+    Les tables DW sont identifiées par leur préfixe (ex: admin_dim_*, admin_fact_*).
+    Désactive d'abord les FK constraints pour éviter les erreurs de dépendance.
+    """
+    from sqlalchemy import text
+
+    new_logs = list(execution_log)
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            rows = conn.execute(text(
+                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES "
+                "WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME"
+            )).fetchall()
+
+            all_tables    = [r[0] for r in rows]
+            prefix_lower  = dw_prefix.lower() + "_"
+            dw_tables     = [t for t in all_tables if t.lower().startswith(prefix_lower)]
+            source_tables = [t for t in all_tables if not t.lower().startswith(prefix_lower)]
+
+            if not source_tables:
+                new_logs.append("[Cleanup] ℹ️ Aucune table source à supprimer — base déjà propre")
+                return new_logs
+
+            new_logs.append(
+                f"[Cleanup] 🗑️ {len(source_tables)} tables sources détectées "
+                f"| {len(dw_tables)} tables DW conservées"
+            )
+
+            # Désactiver toutes les FK constraints
+            try:
+                conn.execute(text(
+                    "EXEC sp_MSforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT ALL'"
+                ))
+            except Exception:
+                for t in source_tables:
+                    try:
+                        conn.execute(text(f"ALTER TABLE [{t}] NOCHECK CONSTRAINT ALL"))
+                    except Exception:
+                        pass
+
+            # DROP chaque table source
+            dropped, failed = [], []
+            for table in source_tables:
+                try:
+                    conn.execute(text(f"DROP TABLE IF EXISTS [{table}]"))
+                    dropped.append(table)
+                except Exception as drop_err:
+                    failed.append(table)
+                    logger.warning(f"[Cleanup] DROP [{table}] échoué : {drop_err}")
+
+            if dropped:
+                preview = ", ".join(f"[{t}]" for t in dropped[:12])
+                suffix  = f"… (+{len(dropped)-12})" if len(dropped) > 12 else ""
+                new_logs.append(f"[Cleanup] ✅ {len(dropped)} tables supprimées : {preview}{suffix}")
+            if failed:
+                new_logs.append(f"[Cleanup] ⚠️ {len(failed)} tables non supprimées : {', '.join(failed[:5])}")
+
+    except Exception as e:
+        logger.error(f"[Cleanup] Erreur globale : {e}")
+        new_logs.append(f"[Cleanup] ❌ Nettoyage échoué : {e}")
+
+    return new_logs
 
 
 def _persist_metrics(metrics: dict, session_id: str) -> None:

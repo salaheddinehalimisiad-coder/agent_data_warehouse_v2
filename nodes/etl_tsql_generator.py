@@ -60,33 +60,33 @@ def etl_tsql_generator_node(state: AgentState) -> dict:
     user_prefix   = state.get("user_prefix", "dw")
     source_config = state.get("connection_config", {})
     source_db     = source_config.get("database", "source_db")
-    exec_log      = state.get("execution_log", [])
+    new_logs      = []
 
     if not logical_model:
         return {
             "etl_status": "failed",
             "etl_error": "No logical model available",
-            "execution_log": exec_log + ["[ETL T-SQL] ❌ No logical model"]
+            "execution_log": ["[ETL T-SQL] ❌ No logical model"]
         }
 
     try:
         # Utiliser le fallback algorithmique (sans LLM) pour la génération T-SQL
         etl_code = _build_fallback_tsql(logical_model, user_prefix, source_db)
 
-        exec_log.append(f"[ETL T-SQL] ✅ T-SQL procedures generated ({len(etl_code)} chars)")
+        new_logs.append(f"[ETL T-SQL] ✅ T-SQL procedures generated ({len(etl_code)} chars)")
 
         return {
             "etl_code": etl_code,
             "etl_status": "ready",
             "etl_error": None,
-            "execution_log": exec_log,
+            "execution_log": new_logs,
         }
     except Exception as e:
         logger.error(f"[ETL T-SQL] Error generating T-SQL: {e}", exc_info=True)
         return {
             "etl_status": "failed",
             "etl_error": str(e),
-            "execution_log": exec_log + [f"[ETL T-SQL] ❌ Error: {e}"]
+            "execution_log": [f"[ETL T-SQL] ❌ Error: {e}"]
         }
 
 

@@ -1,13 +1,18 @@
 # api/server.py — Serveur FastAPI production-ready v2.0
 import logging
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Charger .env AVANT tous les autres imports pour que os.getenv() soit correct
+load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
-from dotenv import load_dotenv
 
 from api.routes import pipeline, auth, sessions, backup
 from api.routes.scheduler import router as scheduler_router
@@ -15,8 +20,6 @@ from api.db.sqlserver import init_metadata_db
 from api.middleware.security import RateLimitMiddleware, SecurityHeadersMiddleware
 from api.middleware.jwt_auth import get_current_user, get_optional_user
 from api.services import etl_service, export_service
-
-load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,

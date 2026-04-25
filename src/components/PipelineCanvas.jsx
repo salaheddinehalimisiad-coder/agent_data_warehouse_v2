@@ -1,5 +1,5 @@
 // src/components/PipelineCanvas.jsx — Modern Stepper Pipeline Visualization v4.0
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePipelineStore, AGENT_ORDER } from '../store/pipelineStore';
 import {
@@ -96,9 +96,11 @@ const COLOR_MAP = {
 
 function getStageStatus(stage, agentStatuses, currentAgent) {
   const agents = stage.agents;
-  const allDone    = agents.every(a => agentStatuses[a] === 'done');
   const anyRunning = agents.some(a => agentStatuses[a] === 'running' || currentAgent === a);
   const anyError   = agents.some(a => agentStatuses[a] === 'error');
+  // Exclude agents that are still 'idle' (never ran) so optional agents don't block 'done'
+  const ranAgents  = agents.filter(a => agentStatuses[a] !== undefined && agentStatuses[a] !== 'idle');
+  const allDone    = ranAgents.length > 0 && ranAgents.every(a => agentStatuses[a] === 'done');
   if (anyError)   return 'error';
   if (allDone)    return 'done';
   if (anyRunning) return 'running';
@@ -267,9 +269,11 @@ function StageCard({ stage, status, idx, isLast, executionLog }) {
   );
 }
 
-function ProgressBar({ stages, agentStatuses, currentAgent }) {
+function ProgressBar({ stages, agentStatuses, currentAgent, pipelineStatus }) {
   const done = stages.filter(s => getStageStatus(s, agentStatuses, currentAgent) === 'done').length;
-  const pct  = Math.round((done / stages.length) * 100);
+  const rawPct = Math.round((done / stages.length) * 100);
+  // Only show 100% when backend confirms pipeline_complete — avoid premature 100%
+  const pct = (rawPct >= 100 && pipelineStatus !== 'complete') ? 99 : rawPct;
 
   return (
     <div className="mb-8">
@@ -289,6 +293,13 @@ function ProgressBar({ stages, agentStatuses, currentAgent }) {
   );
 }
 
+// Durée minimale d'affichage du statut "running" pour chaque étape (ms)
+const MIN_RUNNING_MS = 1800;
+// Gap visuel entre la fin d'une étape ETL et le début de la suivante (ms)
+const ETL_STEP_GAP   = 700;
+// Chaîne ETL séquentielle : chaque agent attend la fin visuelle du précédent
+const ETL_CHAIN = ['etl_extractor', 'etl_transformer', 'etl_loader'];
+
 export default function PipelineCanvas() {
   const { agentStatuses, currentAgent, pipelineStatus, dqScore, executionLog } = usePipelineStore();
 
@@ -296,12 +307,57 @@ export default function PipelineCanvas() {
   const isComplete  = pipelineStatus === 'complete';
   const isError     = pipelineStatus === 'error';
 
+  // ── Durée minimale visuelle + délai séquentiel ETL ─────────────────────────
+  // runningStart : quand l'agent a *visuellement* commencé à tourner
+  // doneShownAt  : quand l'agent a *visuellement* affiché 'done'
+  const runningStart = useRef({});
+  const doneShownAt  = useRef({});
+  const [visualStatus, setVisualStatus] = useState({});
+
+  useEffect(() => {
+    const timers = [];
+    Object.entries(agentStatuses).forEach(([agent, status]) => {
+      if (status === 'running') {
+        // Pour les agents ETL (sauf le premier), attendre que le précédent
+        // ait affiché 'done' depuis au moins ETL_STEP_GAP ms.
+        const chainIdx = ETL_CHAIN.indexOf(agent);
+        let runDelay = 0;
+        if (chainIdx > 0) {
+          const prevAgent  = ETL_CHAIN[chainIdx - 1];
+          const prevDoneAt = doneShownAt.current[prevAgent] || 0;
+          const elapsed    = Date.now() - prevDoneAt;
+          if (elapsed < ETL_STEP_GAP) runDelay = ETL_STEP_GAP - elapsed;
+        }
+        const t = setTimeout(() => {
+          runningStart.current[agent] = Date.now();
+          setVisualStatus(prev => ({ ...prev, [agent]: 'running' }));
+        }, runDelay);
+        timers.push(t);
+      } else if (status === 'done') {
+        const started = runningStart.current[agent] || 0;
+        const elapsed = Date.now() - started;
+        const delay   = Math.max(0, MIN_RUNNING_MS - elapsed);
+        const t = setTimeout(() => {
+          doneShownAt.current[agent] = Date.now();
+          setVisualStatus(prev => ({ ...prev, [agent]: 'done' }));
+        }, delay);
+        timers.push(t);
+      } else {
+        setVisualStatus(prev => ({ ...prev, [agent]: status }));
+      }
+    });
+    return () => timers.forEach(clearTimeout);
+  }, [agentStatuses]);
+
+  // Merge : visualStatus prend le dessus sur agentStatuses pour le rendu
+  const effectiveStatuses = useMemo(() => ({ ...agentStatuses, ...visualStatus }), [agentStatuses, visualStatus]);
+
   const stageStatuses = useMemo(() =>
     PIPELINE_STAGES.map(s => ({
       ...s,
-      status: getStageStatus(s, agentStatuses, currentAgent)
+      status: getStageStatus(s, effectiveStatuses, currentAgent)
     })),
-    [agentStatuses, currentAgent]
+    [effectiveStatuses, currentAgent]
   );
 
   const activeStage = stageStatuses.find(s => s.status === 'running');
@@ -385,7 +441,7 @@ export default function PipelineCanvas() {
             </div>
 
             {/* Progress bar */}
-            <ProgressBar stages={stageStatuses} agentStatuses={agentStatuses} currentAgent={currentAgent} />
+            <ProgressBar stages={stageStatuses} agentStatuses={agentStatuses} currentAgent={currentAgent} pipelineStatus={pipelineStatus} />
 
             {/* Stage cards */}
             <div>

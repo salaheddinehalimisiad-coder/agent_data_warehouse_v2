@@ -5,7 +5,7 @@ import {
   Play, Terminal, LogOut, Database, ChevronLeft, ChevronRight,
   Settings, Activity, Sparkles, ShieldCheck, Star, GitMerge,
   BrainCircuit, Zap, Sun, Moon, Book, Lock, Home, User, AlertCircle,
-  Download
+  Download, BarChart3, Layers
 } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import ToastNotifications, { addToast } from './components/ToastNotifications';
@@ -35,6 +35,8 @@ const DocumentationPage = React.lazy(() => import('./components/DocumentationPag
 const ArchitectureInspector = React.lazy(() => import('./components/ArchitectureInspector'));
 const LineageGraph          = React.lazy(() => import('./components/LineageGraph'));
 const RunMetrics            = React.lazy(() => import('./components/RunMetrics'));
+const QueryRunner           = React.lazy(() => import('./components/QueryRunner'));
+const OlapExplorer          = React.lazy(() => import('./components/OlapExplorer'));
 const UseCaseFlow           = React.lazy(() => import('./components/UseCaseFlow'));
 
 import { usePipelineStore } from './store/pipelineStore';
@@ -61,8 +63,24 @@ function StatusBadge({ status }) {
   );
 }
 
+// ─── Mode documentation standalone (nouvel onglet via ?view=docs)
+const IS_DOCS_TAB = new URLSearchParams(window.location.search).get('view') === 'docs';
+
+function DocsStandalone() {
+  return (
+    <div className="min-h-screen overflow-y-auto" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
+      <Suspense fallback={<div className="flex h-screen items-center justify-center opacity-30"><Activity className="animate-spin" /></div>}>
+        <DocumentationPage />
+      </Suspense>
+    </div>
+  );
+}
+
 // ─── Main App Component
 export default function App() {
+  // Rendu direct de la doc si l'onglet a été ouvert avec ?view=docs
+  if (IS_DOCS_TAB) return <DocsStandalone />;
+
   const {
     pipelineStatus, executionLog, setAuth, authToken, userId,
     userPrefix, logout, resetPipeline, currentAgent,
@@ -125,9 +143,11 @@ export default function App() {
     { id: 'explorer', icon: Database, label: 'Source', alert: false },
     { id: 'schema',   icon: Star, label: 'OLAP Schema', alert: pipelineStatus === 'complete' },
     { id: 'quality',  icon: ShieldCheck, label: 'Quality', alert: pipelineStatus === 'awaiting_dq_review' || (dqScore !== null && dqScore < 50) },
-    { id: 'catalog',  icon: Book, label: 'Catalog', alert: false },
-    { id: 'lineage',  icon: GitMerge, label: 'Lineage', alert: false },
-    { id: 'metrics',  icon: Activity, label: 'Metrics', alert: false },
+    { id: 'catalog',  icon: Book,      label: 'Catalog',  alert: false },
+    { id: 'queries',  icon: BarChart3, label: 'Queries',  alert: false },
+    { id: 'olap',     icon: Layers,    label: 'OLAP Cube', alert: false },
+    { id: 'lineage',  icon: GitMerge,  label: 'Lineage',  alert: false },
+    { id: 'metrics',  icon: Activity,  label: 'Metrics',  alert: false },
     { id: 'export',   icon: Download, label: 'Export', alert: pipelineStatus === 'complete' },
   ];
 
@@ -182,6 +202,7 @@ export default function App() {
               onSelectSource={() => { setAppView('dashboard'); setShowConnection(true); }}
               onAuthOpen={() => setShowAuth(true)}
               onUseCaseOpen={() => setAppView('usecases')}
+              onDocsOpen={() => window.open('/?view=docs', '_blank')}
               isDarkMode={isDarkMode}
               setIsDarkMode={setIsDarkMode}
               user={authToken ? { prefix: userPrefix } : null}
@@ -254,6 +275,8 @@ export default function App() {
                 {renderView('explorer', <DataExplorer />)}
                 {renderView('schema',   <StarSchemaViewer />)}
                 {renderView('catalog',  <DataCatalog />)}
+                {renderView('queries',  <QueryRunner />)}
+                {renderView('olap',    <OlapExplorer />)}
                 {renderView('quality',  <DataQualityPanel />)}
                 {renderView('architect',<ArchitectureInspector />)}
                 {renderView('lineage',  <LineageGraph />)}

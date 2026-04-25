@@ -37,7 +37,7 @@ if BLAZE_BASE_URL and not BLAZE_BASE_URL.rstrip("/").endswith("/v1"):
 
 # Fenêtre de tokens optimisée pour Data Warehouse (schémas SQL complets)
 BLAZE_MAX_TOKENS = int(os.getenv("BLAZE_MAX_TOKENS", "16384"))
-BLAZE_TIMEOUT = int(os.getenv("BLAZE_TIMEOUT", "300"))
+BLAZE_TIMEOUT = int(os.getenv("BLAZE_TIMEOUT", "60"))
 
 # Ollama fallback (offline)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -296,8 +296,9 @@ def call_with_retry(chain: Any, inputs: dict, max_retries: int = 3) -> Any:
             last_error = e
             err_str = str(e).lower()
 
-            # 401/403 / RAM insuffisante — non retryable
+            # 401/403/524 / RAM insuffisante — non retryable
             if ("401" in err_str or "403" in err_str or "forbidden" in err_str or
+                "524" in err_str or
                 "subscription" in err_str or "upgrade" in err_str or
                 "invalid_api_key" in err_str or "authentication" in err_str or
                 "requires more system memory" in err_str or "memory" in err_str):

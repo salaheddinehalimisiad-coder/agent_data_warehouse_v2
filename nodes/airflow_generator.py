@@ -17,7 +17,7 @@ def airflow_generator_node(state: AgentState) -> dict:
     user_prefix   = state.get("user_prefix", "dw")
     
     if not logical_model:
-        return {"execution_log": state.get("execution_log", []) + ["[Airflow] SKIP — Pas de modèle logique pour générer le DAG"]}
+        return {"execution_log": ["[Airflow] SKIP — Pas de modèle logique pour générer le DAG"]}
 
     llm = get_llm(temperature=0, task_type="code")
     
@@ -45,7 +45,7 @@ Génère **UNIQUEMENT** le code Python du DAG de bout en bout sans aucun autre t
 """
     
     try:
-        resp = llm.invoke(prompt)
+        resp = call_with_retry(llm, prompt)
         dag_code = extract_text(resp)
         # Nettoyage si markdown
         if "```python" in dag_code:
@@ -54,10 +54,10 @@ Génère **UNIQUEMENT** le code Python du DAG de bout en bout sans aucun autre t
             dag_code = dag_code.split("```")[1].split("```")[0].strip()
         
         return {
-            "execution_log": state.get("execution_log", []) + ["[Airflow] ✅ DAG généré pour automatisation"],
+            "execution_log": ["[Airflow] ✅ DAG généré pour automatisation"],
             "airflow_dag": dag_code
         }
 
     except Exception as e:
         logger.error(f"[Airflow Generator] Error: {e}")
-        return {"execution_log": state.get("execution_log", []) + [f"[Airflow Generator] ERROR: {str(e)}"]}
+        return {"execution_log": [f"[Airflow Generator] ERROR: {str(e)}"]}

@@ -4,7 +4,7 @@ import pandas as pd
 from pathlib import Path
 from typing import Dict, Any
 from app_state import AgentState
-from nodes.etl_executor import _read_source, _build_engine
+from nodes.etl_executor import _read_source, _build_engine, df_cache_store
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,8 @@ def etl_extractor_node(state: AgentState) -> dict:
     source_config = state.get("connection_config", {})
     dw_config = state.get("dw_connection_config", {})
     source_type = source_config.get("type", "csv").lower()
-    exec_log = state.get("execution_log", [])
+    session_id = state.get("session_id", "default")
+    new_logs = []
 
     multi_table_types = {"bak", "sqlserver", "mssql", "mysql", "postgresql", "postgres", "sqlite"}
 
@@ -71,7 +72,7 @@ def etl_extractor_node(state: AgentState) -> dict:
                 return {
                     "etl_status": "failed",
                     "etl_error": "No tables could be extracted from the source database",
-                    "execution_log": exec_log + ["[Extract] ❌ No tables extracted"],
+                    "execution_log": ["[Extract] ❌ No tables extracted"],
                 }
 
             # Legacy compat: source_df = plus grosse table
@@ -79,31 +80,37 @@ def etl_extractor_node(state: AgentState) -> dict:
             source_df = source_dfs[biggest_table]
 
             total_rows = sum(len(df) for df in source_dfs.values())
-            exec_log.append(
+            new_logs.append(
                 f"[Extract] ✅ {len(source_dfs)} table(s) extraite(s), "
                 f"{total_rows} lignes au total (principale: {biggest_table}={len(source_df)} rows)"
             )
 
+            # Store DataFrames in module-level cache to avoid LangGraph msgpack serialization
+            df_cache_store(session_id, source_dfs)
+
             return {
-                "source_df": source_df,
-                "source_dfs": source_dfs,
-                "etl_status": "success",
-                "execution_log": exec_log,
+                "source_df":   None,   # exclude DataFrame from LangGraph state
+                "source_dfs":  {},     # exclude DataFrames from LangGraph state
+                "etl_status":  "success",
+                "execution_log": new_logs,
             }
         else:
             # ── Mono-table: CSV, Excel, REST API ──────────────────────────────
             source_df = _read_source(source_config, dw_config)
-            exec_log.append(f"[Extract] ✅ Data extracted: {len(source_df)} rows captured.")
+            new_logs.append(f"[Extract] ✅ Data extracted: {len(source_df)} rows captured.")
 
             # Wrap dans source_dfs pour API uniforme
             table_key = source_config.get("filename", "source_data")
             source_dfs = {table_key: source_df}
 
+            # Store DataFrames in module-level cache to avoid LangGraph msgpack serialization
+            df_cache_store(session_id, source_dfs)
+
             return {
-                "source_df": source_df,
-                "source_dfs": source_dfs,
-                "etl_status": "success",
-                "execution_log": exec_log,
+                "source_df":   None,   # exclude DataFrame from LangGraph state
+                "source_dfs":  {},     # exclude DataFrames from LangGraph state
+                "etl_status":  "success",
+                "execution_log": new_logs,
             }
 
     except Exception as e:
@@ -111,5 +118,5 @@ def etl_extractor_node(state: AgentState) -> dict:
         return {
             "etl_status": "failed",
             "etl_error": f"Extraction failed: {e}",
-            "execution_log": exec_log + [f"[Extract] ❌ Failed: {e}"],
+            "execution_log": new_logs + [f"[Extract] ❌ Failed: {e}"],
         }

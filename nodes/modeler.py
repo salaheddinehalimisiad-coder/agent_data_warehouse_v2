@@ -207,7 +207,7 @@ def modeler_node(state: AgentState) -> dict:
             "logical_model_version": state.get("logical_model_version", 0),
             "previous_sql_ddl": state.get("sql_ddl", ""),
             "sql_ddl": "-- ERREUR : aucune métadonnée source disponible pour la modélisation",
-            "execution_log": state.get("execution_log", []) + [
+            "execution_log": [
                 "[Modeler] ❌ FAILED — source_metadata vide, étape de modélisation impossible"
             ],
         }
@@ -299,7 +299,7 @@ def modeler_node(state: AgentState) -> dict:
             "logical_model_version": current_v,
             "previous_sql_ddl": previous_ddl,
             "sql_ddl": "-- ERREUR : modèle généré invalide (ni fact table ni dimensions valides)",
-            "execution_log": state.get("execution_log", []) + [
+            "execution_log": [
                 f"[Modeler] ❌ FAILED — modèle invalide (source={llm_source}), "
                 f"ni fact table ni dimensions valides générées"
             ],
@@ -348,7 +348,7 @@ def modeler_node(state: AgentState) -> dict:
         "logical_model_version": current_v + 1,
         "previous_sql_ddl": previous_ddl,
         "sql_ddl": sql_ddl,
-        "execution_log": state.get("execution_log", []) + [
+        "execution_log": [
             f"[Modeler] ✅ {schema_type} Schema v{current_v+1} — "
             f"{n_dims} dims + {n_facts} fact(s) (via {llm_source})"
         ],

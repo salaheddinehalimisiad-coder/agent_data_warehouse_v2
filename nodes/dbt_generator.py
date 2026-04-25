@@ -16,7 +16,7 @@ def dbt_generator_node(state: AgentState) -> dict:
     user_prefix   = state.get("user_prefix", "dw")
     
     if not logical_model:
-        return {"execution_log": state.get("execution_log", []) + ["[dbt] SKIP — Pas de modèle logique pour générer le projet dbt"]}
+        return {"execution_log": ["[dbt] SKIP — Pas de modèle logique pour générer le projet dbt"]}
 
     llm = get_llm(temperature=0, task_type="code")
     
@@ -47,7 +47,7 @@ Ne renvoie **AUCUN** autre texte que le JSON brut (pas de balises markdown, just
 """
     
     try:
-        resp = llm.invoke(prompt)
+        resp = call_with_retry(llm, prompt)
         dbt_json_str = extract_text(resp)
         
         # Nettoyage si markdown
@@ -59,10 +59,10 @@ Ne renvoie **AUCUN** autre texte que le JSON brut (pas de balises markdown, just
         dbt_project = json.loads(dbt_json_str)
         
         return {
-            "execution_log": state.get("execution_log", []) + ["[dbt] ✅ Projet dbt généré avec succès"],
+            "execution_log": ["[dbt] ✅ Projet dbt généré avec succès"],
             "dbt_project": dbt_project
         }
 
     except Exception as e:
         logger.error(f"[dbt Generator] Error: {e}")
-        return {"execution_log": state.get("execution_log", []) + [f"[dbt Generator] ERROR: {str(e)}"]}
+        return {"execution_log": [f"[dbt Generator] ERROR: {str(e)}"]}

@@ -9,6 +9,7 @@ v3.0 — Nouveaux champs :
 from typing import Annotated, Any, Dict, List
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
+import operator
 
 
 # Reducer to exclude DataFrames from checkpointing
@@ -79,7 +80,7 @@ class AgentState(TypedDict, total=False):
     load_metrics:      Dict[str, Any]
     executive_summary: str
     visualizations:    List[Dict]
-    node_durations:    Dict[str, float]
+    node_durations:    Annotated[Dict[str, float], lambda left, right: {**(left or {}), **(right or {})}]
     data_catalog:      Dict[str, Any]
     clean_action:      str
     governance_report: Dict[str, Any]
@@ -87,6 +88,7 @@ class AgentState(TypedDict, total=False):
     source_df:         Annotated[Any, exclude_dataframes]     # DataFrame pandas (étapes ETL) — legacy mono-table
     source_dfs:        Annotated[Dict[str, Any], exclude_dataframes]  # {table_name: DataFrame} — multi-table (bak/sqlserver)
     sk_maps:           Dict[str, Dict[str, int]] # Mapping Surrogate Keys
+    dim_metrics:       Dict[str, Any]            # {dim_name: {inserted, existing, updated}} from transformer
     
     # ─── Phase 2 : Constellation & MDM (NOUVEAU v5.0) ──────────────────────
     fact_tables:       List[Dict]   # Multi-fact constellation support
@@ -114,10 +116,12 @@ class AgentState(TypedDict, total=False):
     report_sections:   List[Dict[str, Any]] # Sections composées du rapport
     report_language:   str          # 'fr' | 'en' (défaut: 'fr')
 
-
+    # ─── Générateurs (Airflow / dbt) ──────────────────────────────────────
+    airflow_dag:       str                 # Code Python du DAG Airflow généré
+    dbt_project:       Dict[str, Any]      # Arborescence JSON du projet dbt généré
 
     # ─── Journal ──────────────────────────────────────────────────────────
-    execution_log: List[str]
+    execution_log: Annotated[List[str], operator.add]
 
     # ─── Session (optionnel, pour le tracking) ────────────────────────────
     session_id: str

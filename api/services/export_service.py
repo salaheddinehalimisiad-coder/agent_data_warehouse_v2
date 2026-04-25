@@ -640,17 +640,22 @@ def _iter_result_tables(state: dict):
     Yields (name, rows) pour chaque table exportable trouvée dans le state.
 
     Sources consultées (dans l'ordre) :
-      1. state['query_results']   → [{name, rows: [dict]}, ...]
+      1. state['query_results']   → [{title, columns, rows: [list]}, ...]
       2. state['etl_samples']     → {table_name: [dict]}
       3. state['tables_preview']  → {table_name: [dict]}
     Une table est toujours au format list[dict] (rows).
     """
-    # (1) query_results
+    # (1) query_results — rows sont des listes, columns contient les vrais noms
     for qr in state.get("query_results", []) or []:
         if isinstance(qr, dict):
-            name = qr.get("name") or qr.get("table") or qr.get("label") or "query"
+            name = qr.get("title") or qr.get("name") or qr.get("table") or "query"
+            columns = qr.get("columns", [])
             rows = qr.get("rows") or qr.get("data") or []
             if rows and isinstance(rows, list):
+                first = rows[0]
+                # Si rows sont des listes, les convertir en dicts avec les vrais noms
+                if isinstance(first, (list, tuple)) and columns:
+                    rows = [dict(zip(columns, row)) for row in rows]
                 yield str(name), rows
 
     # (2) etl_samples

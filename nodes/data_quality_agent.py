@@ -37,7 +37,7 @@ def data_quality_agent_node(state: AgentState) -> dict:
             "dq_report": {},
             "dq_score": 100,
             "dq_alerts": [],
-            "execution_log": state.get("execution_log", []) + [
+            "execution_log": [
                 "[DataQuality] SKIP — aucune métadonnée disponible"
             ],
         }
@@ -163,7 +163,7 @@ def data_quality_agent_node(state: AgentState) -> dict:
         },
         "dq_score":  global_score,
         "dq_alerts": all_alerts,
-        "execution_log": state.get("execution_log", []) + [log_msg],
+        "execution_log": [log_msg],
     }
 
 

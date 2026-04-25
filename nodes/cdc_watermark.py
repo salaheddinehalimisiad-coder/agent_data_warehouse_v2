@@ -45,7 +45,7 @@ def cdc_watermark_node(state: AgentState) -> dict:
         return {
             "etl_mode": "full_load",
             "etl_watermarks": {},
-            "execution_log": state.get("execution_log", []) + [
+            "execution_log": [
                 "[CDC] ⚠️ Mode full_load — aucune métadonnée"
             ],
         }
@@ -133,7 +133,7 @@ def cdc_watermark_node(state: AgentState) -> dict:
     return {
         "etl_mode": etl_mode,
         "etl_watermarks": new_watermarks,
-        "execution_log": state.get("execution_log", []) + [
+        "execution_log": [
             f"[CDC] ✅ Mode {mode_label} — {total_tables} tables analysées"
         ],
     }

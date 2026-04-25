@@ -54,7 +54,7 @@ def insight_generator_node(state: AgentState) -> dict:
     user_prefix  = state.get("user_prefix", "dw")
     
     if not logical_model or not load_metrics:
-        return {"execution_log": state.get("execution_log", []) + ["[Insight] SKIP — données insuffisantes"]}
+        return {"execution_log": ["[Insight] SKIP — données insuffisantes"]}
 
     llm = get_llm(temperature=0)
     chain = INSIGHT_PROMPT | llm
@@ -106,7 +106,7 @@ def insight_generator_node(state: AgentState) -> dict:
         viz_data = []
 
     return {
-        "execution_log": state.get("execution_log", []) + ["[Insight] ✅ Dashboard stratégique prêt"],
+        "execution_log": ["[Insight] ✅ Dashboard stratégique prêt"],
         "executive_summary": summary,
         "visualizations": viz_data
     }

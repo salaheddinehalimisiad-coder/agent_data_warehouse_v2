@@ -27,6 +27,35 @@ UPLOADS_DIR = _HERE / "uploads" / "bak"
 OUTPUTS_DIR = _HERE / "outputs"
 
 
+def _load_session_from_disk(session_id: str) -> dict:
+    """Charge le modèle de session depuis le disque (fallback après redémarrage serveur)."""
+    import json as _json
+    # 1. Fichier exact
+    exact = OUTPUTS_DIR / f"{session_id}_model.json"
+    if exact.exists():
+        try:
+            return _json.loads(exact.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    # 2. Correspondance partielle + fichier le plus récent en dernier recours
+    try:
+        candidates = sorted(OUTPUTS_DIR.glob("*_model.json"),
+                            key=lambda p: p.stat().st_mtime, reverse=True)
+        for f in candidates:
+            try:
+                data = _json.loads(f.read_text(encoding="utf-8"))
+                sid  = data.get("session_id", "")
+                if session_id in sid or sid in session_id:
+                    return data
+            except Exception:
+                pass
+        if candidates:
+            return _json.loads(candidates[0].read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
 class StartRequest(BaseModel):
     session_id: Optional[str] = None
     connection_config: dict
@@ -475,3 +504,181 @@ QUESTION UTILISATEUR:
     except Exception as e:
         logger.error(f"[Query] Erreur : {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+
+
+class ExecuteQueryRequest(BaseModel):
+    sql:        str
+    session_id: Optional[str] = None
+
+
+@router.post("/execute-query")
+async def execute_query_direct(
+    req: ExecuteQueryRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Exécute directement un SQL SELECT sur le DW de la session."""
+    import re, pandas as pd
+    from nodes.etl_executor import _build_engine
+
+    sql    = req.sql.strip()
+    lowered = sql.lower()
+
+    blocked = ("insert", "update", "delete", "drop", "alter", "truncate", "create", "merge", "exec")
+    if not lowered.startswith("select"):
+        raise HTTPException(status_code=400, detail="Seules les requêtes SELECT sont autorisées.")
+    if any(re.search(rf"\b{kw}\b", lowered) for kw in blocked):
+        raise HTTPException(status_code=400, detail="Opération interdite dans la requête.")
+
+    # Récupérer dw_config depuis la session
+    dw_config = None
+    if req.session_id:
+        from main import get_thread_state
+        state     = get_thread_state(req.session_id)
+        dw_config = state.get("dw_connection_config")
+
+    if not dw_config:
+        # fallback sur env vars
+        from api.services.etl_service import get_pipeline_state
+        state     = get_pipeline_state(req.session_id or "")
+        dw_config = state.get("dw_connection_config")
+
+    # Fallback disque
+    if not dw_config:
+        disk = _load_session_from_disk(req.session_id or "")
+        dw_config = disk.get("dw_connection_config")
+
+    if not dw_config:
+        raise HTTPException(status_code=400, detail="Config DW introuvable pour cette session.")
+
+    try:
+        engine = _build_engine(dw_config)
+        with engine.connect() as conn:
+            df = pd.read_sql(sql, conn).head(500)
+
+        for col in df.columns:
+            if 'datetime' in str(df[col].dtype) or df[col].dtype == 'object':
+                df[col] = df[col].astype(str).where(df[col].notna(), None)
+
+        import numpy as np
+        def safe(v):
+            if v is None: return None
+            if isinstance(v, float) and np.isnan(v): return None
+            if isinstance(v, (np.integer,)): return int(v)
+            if isinstance(v, (np.floating,)): return round(float(v), 4)
+            return v
+
+        columns = list(df.columns)
+        rows    = [[safe(v) for v in row] for row in df.values.tolist()]
+        return {"columns": columns, "rows": rows, "error": None}
+
+    except Exception as e:
+        logger.warning(f"[ExecuteQuery] SQL error: {e}")
+        return {"columns": [], "rows": [], "error": str(e)[:300]}
+
+
+# ─── OLAP Cube Explorer ───────────────────────────────────────────────────────
+
+class OlapQueryRequest(BaseModel):
+    session_id: str
+    row_dims:   list  # [{"dim": "dim_date", "col": "year", "alias": "Année"}, ...]
+    measures:   list  # [{"fact": "fact_orders", "col": "freight", "agg": "SUM", "alias": "Total Fret"}, ...]
+    filters:    list  # [{"dim": "dim_date", "col": "year", "op": "=", "val": "1997"}, ...]
+    top_n:      int = 0
+
+
+@router.post("/olap")
+async def run_olap_query(
+    req: OlapQueryRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Construit et exécute une requête OLAP multidimensionnelle."""
+    from main import get_thread_state
+    from api.services.etl_service import get_pipeline_state
+    from api.services.olap_service import build_olap_sql, execute_olap
+
+    state = get_thread_state(req.session_id)
+    if not state:
+        state = get_pipeline_state(req.session_id)
+
+    logical_model = state.get("logical_model") if state else None
+    dw_config     = state.get("dw_connection_config") if state else None
+    prefix        = state.get("user_prefix", "dw") if state else "dw"
+
+    # Fallback disque si état mémoire perdu (ex: redémarrage serveur)
+    if not logical_model or not dw_config:
+        disk = _load_session_from_disk(req.session_id)
+        if not logical_model:
+            logical_model = disk.get("logical_model")
+            prefix        = disk.get("user_prefix", prefix)
+        if not dw_config:
+            dw_config = disk.get("dw_connection_config")
+
+    if not logical_model or not dw_config:
+        raise HTTPException(status_code=400, detail="Data Warehouse non prêt pour cette session.")
+
+    try:
+        sql = build_olap_sql(
+            logical_model=logical_model,
+            prefix=prefix,
+            row_dims=req.row_dims,
+            measures=req.measures,
+            filters=req.filters,
+            top_n=req.top_n,
+        )
+        result = execute_olap(sql, dw_config, limit=2000)
+        result["sql"] = sql
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"[OLAP] Error: {e}", exc_info=True)
+        return {"columns": [], "rows": [], "total": 0, "sql": "", "error": str(e)[:400]}
+
+
+@router.get("/olap/schema")
+async def get_olap_schema(
+    session_id: str = Query(...),
+    user: dict = Depends(get_current_user),
+):
+    """Retourne le schéma OLAP (dimensions + mesures) pour le frontend."""
+    from main import get_thread_state
+    from api.services.etl_service import get_pipeline_state, _pipeline_states
+    from api.services.olap_service import get_olap_schema
+
+    # Cherche le modèle logique avec 3 niveaux de fallback
+    logical_model = None
+    prefix        = "dw"
+
+    # 1. LangGraph thread state
+    state = get_thread_state(session_id)
+    if state:
+        logical_model = state.get("logical_model")
+        prefix        = state.get("user_prefix", prefix)
+
+    # 2. In-memory pipeline state dict
+    if not logical_model:
+        state = get_pipeline_state(session_id)
+        if state:
+            logical_model = state.get("logical_model")
+            prefix        = state.get("user_prefix", prefix)
+
+    # 3. Scan all in-memory states for matching session (partial key match)
+    if not logical_model:
+        for sid, s in _pipeline_states.items():
+            if session_id in sid or sid in session_id:
+                lm = s.get("logical_model")
+                if lm:
+                    logical_model = lm
+                    prefix        = s.get("user_prefix", prefix)
+                    break
+
+    # 4. Fallback disque (survie aux redémarrages serveur)
+    if not logical_model:
+        disk = _load_session_from_disk(session_id)
+        logical_model = disk.get("logical_model")
+        prefix        = disk.get("user_prefix", prefix)
+
+    if not logical_model:
+        raise HTTPException(status_code=404, detail="Modèle logique non disponible — relancez un pipeline complet.")
+
+    return get_olap_schema(logical_model, prefix)

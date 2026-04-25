@@ -65,25 +65,17 @@ def query_generator_node(state: AgentState) -> dict:
     if not logical_model:
         logger.warning("[QueryGen] Aucun modèle logique — SKIP")
         return {
-            "execution_log": state.get("execution_log", []) + [
+            "execution_log": [
                 "[QueryGen] ⚠️ SKIP — pas de modèle logique"
             ],
             "generated_queries": [],
             "query_results": [],
         }
 
-    # ── Générer les requêtes via LLM avec fallback ───────────────────────────
-    queries = None
-    try:
-        queries = _generate_via_llm(logical_model, prefix)
-        if queries:
-            logger.info(f"[QueryGen] ✅ {len(queries)} requêtes générées via LLM")
-    except Exception as e:
-        logger.warning(f"[QueryGen] ⚠️ LLM indisponible ({type(e).__name__}) — fallback algorithmique")
-
-    if not queries:
-        queries = _generate_fallback(logical_model, prefix)
-        logger.info(f"[QueryGen] 🤖 {len(queries)} requêtes générées par algorithme")
+    # ── Génération algorithmique directe (noms physiques garantis) ──────────
+    # Le LLM invente des noms de tables (français, mauvais préfixe) → bypass total
+    queries = _generate_fallback(logical_model, prefix)
+    logger.info(f"[QueryGen] 🤖 {len(queries)} requêtes générées (noms physiques: {prefix}_*)")
 
     # ── Exécuter les requêtes sur la base DW ─────────────────────────────────
     query_results = []
@@ -93,7 +85,7 @@ def query_generator_node(state: AgentState) -> dict:
         logger.info(f"[QueryGen] Exécution : {n_success}/{len(query_results)} requêtes réussies")
 
     return {
-        "execution_log": state.get("execution_log", []) + [
+        "execution_log": [
             f"[QueryGen] ✅ {len(queries)} requêtes générées, "
             f"{sum(1 for r in query_results if not r.get('error'))}/{len(query_results)} exécutées"
         ],
@@ -176,7 +168,9 @@ def _generate_fallback(model: dict, prefix: str) -> List[Dict]:
         cols = fact.get("columns", [])
 
         # Identifier les métriques et FKs
-        metrics = [c for c in cols if c.get("role") == "metric"]
+        metrics = [c for c in cols if c.get("role") in ("metric", "measure")]
+        if not metrics:
+            metrics = [c for c in cols if c.get("role") not in ("fk", "pk")]
         fk_cols = [c for c in cols if c.get("role") == "fk"]
 
         if not metrics:
@@ -205,20 +199,30 @@ def _generate_fallback(model: dict, prefix: str) -> List[Dict]:
                 (c["name"] for c in fk_cols if c.get("references") == "dim_date"),
                 "date_sk"
             )
-            queries.append({
-                "title": f"Tendance Mensuelle — {fact['name']}",
-                "description": "Évolution des métriques par mois et année",
-                "type": "trend",
-                "sql": (
-                    f"SELECT d.[year], d.[month], d.[month_name], "
-                    f"SUM(f.[{first_metric}]) AS total_{first_metric}, "
-                    f"COUNT(*) AS nb_transactions "
-                    f"FROM {fact_full} f "
-                    f"JOIN {date_full} d ON f.[{date_sk_col}] = d.[date_sk] "
-                    f"GROUP BY d.[year], d.[month], d.[month_name] "
-                    f"ORDER BY d.[year], d.[month];"
-                )
-            })
+            # Résoudre les vrais noms de colonnes depuis le modèle
+            date_col_names = {c["name"].lower(): c["name"] for c in dim_date.get("columns", [])}
+            year_col  = _find_date_dim_col(date_col_names, ["year", "annee", "année", "an"])
+            month_col = _find_date_dim_col(date_col_names, ["month", "mois"])
+            mname_col = _find_date_dim_col(date_col_names, ["month_name", "nom_mois", "mois_nom"])
+
+            if year_col and month_col:
+                month_part = f"d.[{month_col}]"
+                if mname_col:
+                    month_part += f", d.[{mname_col}]"
+                queries.append({
+                    "title": f"Tendance Mensuelle — {fact['name']}",
+                    "description": "Évolution des métriques par mois et année",
+                    "type": "trend",
+                    "sql": (
+                        f"SELECT d.[{year_col}], {month_part}, "
+                        f"SUM(f.[{first_metric}]) AS total_{first_metric}, "
+                        f"COUNT(*) AS nb_transactions "
+                        f"FROM {fact_full} f "
+                        f"JOIN {date_full} d ON f.[{date_sk_col}] = d.[date_sk] "
+                        f"GROUP BY d.[{year_col}], {month_part} "
+                        f"ORDER BY d.[{year_col}], d.[{month_col}];"
+                    )
+                })
 
         # ── 3. Top N par dimension ───────────────────────────────────────────
         for fk in fk_cols[:2]:
@@ -259,24 +263,42 @@ def _generate_fallback(model: dict, prefix: str) -> List[Dict]:
                 (c["name"] for c in fk_cols if c.get("references") == "dim_date"),
                 "date_sk"
             )
-            queries.append({
-                "title": f"Distribution Trimestrielle — {fact['name']}",
-                "description": "Répartition des transactions par trimestre",
-                "type": "distribution",
-                "sql": (
-                    f"SELECT d.[year], d.[quarter], "
-                    f"SUM(f.[{first_metric}]) AS total_{first_metric}, "
-                    f"COUNT(*) AS nb_transactions, "
-                    f"AVG(CAST(f.[{first_metric}] AS FLOAT)) AS avg_{first_metric} "
-                    f"FROM {fact_full} f "
-                    f"JOIN {date_full} d ON f.[{date_sk_col}] = d.[date_sk] "
-                    f"GROUP BY d.[year], d.[quarter] "
-                    f"ORDER BY d.[year], d.[quarter];"
-                )
-            })
+            date_col_names = {c["name"].lower(): c["name"] for c in dim_date.get("columns", [])}
+            year_col2    = _find_date_dim_col(date_col_names, ["year", "annee", "année", "an"])
+            quarter_col  = _find_date_dim_col(date_col_names, ["quarter", "trimestre"])
+
+            if year_col2 and quarter_col:
+                queries.append({
+                    "title": f"Distribution Trimestrielle — {fact['name']}",
+                    "description": "Répartition des transactions par trimestre",
+                    "type": "distribution",
+                    "sql": (
+                        f"SELECT d.[{year_col2}], d.[{quarter_col}], "
+                        f"SUM(f.[{first_metric}]) AS total_{first_metric}, "
+                        f"COUNT(*) AS nb_transactions, "
+                        f"AVG(CAST(f.[{first_metric}] AS FLOAT)) AS avg_{first_metric} "
+                        f"FROM {fact_full} f "
+                        f"JOIN {date_full} d ON f.[{date_sk_col}] = d.[date_sk] "
+                        f"GROUP BY d.[{year_col2}], d.[{quarter_col}] "
+                        f"ORDER BY d.[{year_col2}], d.[{quarter_col}];"
+                    )
+                })
 
     # Limiter à 6 requêtes
     return queries[:6]
+
+
+def _find_date_dim_col(col_names_lower: dict, candidates: list) -> Optional[str]:
+    """Résout le vrai nom d'une colonne date depuis une liste de candidats (FR/EN)."""
+    for c in candidates:
+        if c in col_names_lower:
+            return col_names_lower[c]
+    # Correspondance partielle
+    for c in candidates:
+        for k, v in col_names_lower.items():
+            if c in k or k in c:
+                return v
+    return None
 
 
 def _find_descriptive_col(dim_info: dict) -> Optional[str]:

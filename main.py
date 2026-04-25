@@ -47,12 +47,15 @@ MAX_CRITIC_LOOPS = 4   # anti-boucle infinie critic ↔ chat_modifier
 
 def human_review_node(state: AgentState) -> dict:
     """
-    Auto-approve pour ne pas bloquer le pipeline
+    Pause et attend l'approbation explicite de l'utilisateur via /validate endpoint.
+    FIX : Force TOUJOURS is_validated à None quand le graphe atteint ce nœud naturellement,
+    pour briser les boucles infinies et forcer la pause HITL.
     """
-    logger.info("[Human Review] Auto-approving schema")
-    result = {"is_validated": True}
-    logger.info(f"[Human Review] Returning: {result}")
-    return result
+    logger.info("[Human Review] ⏸️ En attente d'approbation utilisateur")
+    return {
+        "is_validated": None,  # Force la pause
+        "hitl_comment": "",
+    }
 
 
 # ─── Routage ──────────────────────────────────────────────────────────────────
@@ -108,12 +111,23 @@ def route_after_critic(state: AgentState) -> str:
     return "chat_modifier"
 
 
+def route_after_chat_modifier(state: AgentState) -> str:
+    """
+    Après chat_modifier : toujours repasser par critic pour re-valider les changements,
+    que critic_approved ait été True ou False avant. Le critic reset critic_approved.
+    """
+    logger.info("[Router] ChatModifier → critic (re-validation)")
+    return "critic"
+
+
 def route_after_human_review(state: AgentState) -> str:
-    is_validated = state.get("is_validated", False)
+    is_validated = state.get("is_validated")
     logger.info(f"[Router] route_after_human_review: is_validated={is_validated}")
+
     if is_validated:
         logger.info("[Router] Routing to cdc_watermark")
         return "cdc_watermark"
+
     logger.info("[Router] Routing to chat_modifier")
     return "chat_modifier"
 
@@ -254,24 +268,28 @@ def create_agent_workflow():
 
     # Modeler → governance SEULEMENT si le modèle est valide, sinon END
     workflow.add_conditional_edges("modeler", route_after_modeler, {
-        "governance":      "governance",
+        "governance":      "critic",   # governance désactivée — aller directement au critic
         "modeling_failed": END,
     })
-    workflow.add_edge("governance",     "critic")
 
     # Boucle 1 : Critic → HITL ou Chat Modifier
     workflow.add_conditional_edges("critic", route_after_critic, {
         "human_review":  "human_review",
         "chat_modifier": "chat_modifier",
     })
-    workflow.add_edge("chat_modifier", "critic")
+    # CORRECTION : arête conditionnelle au lieu de 2 arêtes statiques
+    # (les 2 arêtes statiques causaient un fan-out → INVALID_CONCURRENT_GRAPH_UPDATE)
+    workflow.add_conditional_edges("chat_modifier", route_after_chat_modifier, {
+        "critic":        "critic",
+        "human_review": "human_review",
+    })
 
     # Boucle 2 : Human Review → CDC Watermark → ETL ou Chat Modifier
+    # interrupt_before=["human_review"] gère la pause HITL — pas de self-loop nécessaire
     workflow.add_conditional_edges("human_review", route_after_human_review, {
         "cdc_watermark":  "cdc_watermark",
         "chat_modifier": "chat_modifier",
     })
-    workflow.add_edge("chat_modifier", "human_review")
 
     # P3-05 : CDC Watermark → ETL T-SQL Generator
     workflow.add_edge("cdc_watermark", "etl_tsql_generator")
@@ -329,11 +347,12 @@ def create_agent_workflow():
     workflow.add_edge("airflow_generator", "dbt_generator")
     workflow.add_edge("dbt_generator",     END)
 
-    # Disabled checkpointer due to DataFrame msgpack serialization issues
-    # MemorySaver cannot serialize pandas DataFrames even with reducers
-    # memory = MemorySaver()
+    # Using MemorySaver with serde=None to avoid DataFrame serialization issues
+    # The exclude_dataframes reducer in app_state.py handles DataFrame fields
+    memory = MemorySaver(serde=None)
     return workflow.compile(
-        # checkpointer=memory,
+        checkpointer=memory,
+        interrupt_before=["human_review"],
     )
 
 

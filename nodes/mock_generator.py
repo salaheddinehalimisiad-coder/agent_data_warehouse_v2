@@ -14,7 +14,7 @@ def mock_generator_node(state: AgentState) -> dict:
     
     logical_model = state.get("logical_model", {})
     if not logical_model:
-        return {"execution_log": state.get("execution_log", []) + ["[Synthesizer] ⚠️ SKIP — Modèle logique manquant"]}
+        return {"execution_log": ["[Synthesizer] ⚠️ SKIP — Modèle logique manquant"]}
 
     llm = get_llm(temperature=0.7, task_type="code") # Température plus haute pour de la donnée créative/variée
     
@@ -43,10 +43,10 @@ Ta mission est de générer un script d'insertion SQL de données factices (Mock
             mock_sql = mock_sql.split("```")[1].split("```")[0].strip()
             
         return {
-            "execution_log": state.get("execution_log", []) + ["[Synthesizer] ✅ Données factices générées avec succès (Seed Data)"],
+            "execution_log": ["[Synthesizer] ✅ Données factices générées avec succès (Seed Data)"],
             "mock_data_sql": mock_sql
         }
 
     except Exception as e:
         logger.error(f"[Synthesizer] Error: {e}")
-        return {"execution_log": state.get("execution_log", []) + [f"[Synthesizer] ⚠️ Erreur de génération: {str(e)}"]}
+        return {"execution_log": [f"[Synthesizer] ⚠️ Erreur de génération: {str(e)}"]}

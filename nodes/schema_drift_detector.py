@@ -108,5 +108,5 @@ def schema_drift_detector_node(state: AgentState) -> dict:
         "schema_fingerprint":    current_fingerprint,
         "schema_drift_detected": drift_detected,
         "schema_drift_details":  drift_details,
-        "execution_log": state.get("execution_log", []) + [log_entry],
+        "execution_log": [log_entry],
     }

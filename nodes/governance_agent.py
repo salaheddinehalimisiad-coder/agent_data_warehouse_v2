@@ -19,13 +19,11 @@ def governance_agent_node(state: AgentState) -> dict:
         return {
             "governance_report": {"pii_columns_detected": [], "compliance_score": 0, "masking_sql": "", "error": "no_model"},
             "masking_sql": "",
-            "execution_log": state.get("execution_log", []) + [
-                "[Governance] ❌ SKIP — Modèle logique manquant, audit impossible"
-            ],
+            "execution_log": ["[Governance] ❌ SKIP — Modèle logique manquant, audit impossible"],
         }
 
     llm = get_llm(temperature=0)
-    
+
     prompt = f"""Tu es un Data Protection Officer (DPO) et Expert en Gouvernance de Données.
 Ta mission est d'auditer le schéma logique du Data Warehouse pour détecter les PII (Personnally Identifiable Information) et générer des règles de masquage des données.
 
@@ -49,11 +47,14 @@ Génère la réponse strictemnt en format JSON sans rien d'autre :
   "masking_sql": "-- Vue securisee ou DDM:\\nCREATE OR REPLACE VIEW secure_dim_client AS SELECT ..., MASK_STRING(email) as email FROM dim_client;"
 }}
 """
-    
+
     try:
-        resp = llm.invoke(prompt)
+        resp = call_with_retry(llm, prompt, max_retries=2)
         raw_text = extract_text(resp)
-        
+
+        if not raw_text or not raw_text.strip():
+            raise ValueError("LLM returned empty response")
+
         # Nettoyage Markdown
         if "```json" in raw_text:
             raw_text = raw_text.split("```json")[1].split("```")[0].strip()
@@ -63,16 +64,21 @@ Génère la réponse strictemnt en format JSON sans rien d'autre :
         gov_report = json.loads(raw_text)
         masking_sql = gov_report.get("masking_sql", "")
         detected = gov_report.get("pii_columns_detected", [])
-        
+
         log_msg = f"[Governance] ✅ Audit Sécurité Terminé : {len(detected)} PII identifiée(s), Score GDPR: {gov_report.get('compliance_score', 100)}%"
         logger.info(log_msg)
-        
+
         return {
-            "execution_log": state.get("execution_log", []) + [log_msg],
+            "execution_log": [log_msg],
             "governance_report": gov_report,
             "masking_sql": masking_sql
         }
 
     except Exception as e:
         logger.error(f"[Governance] Error: {e}")
-        return {"execution_log": state.get("execution_log", []) + [f"[Governance] ⚠️ Impossible d'exécuter l'audit: {str(e)}"]}
+        # Fallback : rapport vide mais ne bloque pas le pipeline
+        return {
+            "execution_log": [f"[Governance] ⚠️ Audit échoué (LLM vide/timeout) : {str(e)[:80]} — Fallback vide"],
+            "governance_report": {"pii_columns_detected": [], "compliance_score": 100, "masking_sql": "", "error": str(e)},
+            "masking_sql": ""
+        }

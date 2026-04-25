@@ -108,14 +108,53 @@ def _safe_db_name(target: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_]", "_", target)[:64] or "restored_db"
 
 
+def _get_sqlserver_backup_dir() -> Path:
+    """Retourne le répertoire backup de SQL Server depuis le registre Windows."""
+    if platform.system() != "Windows":
+        return None
+    try:
+        import winreg
+        for instance in ["MSSQL17.MSSQLSERVER", "MSSQL16.MSSQLSERVER", "MSSQL15.MSSQLSERVER",
+                         "MSSQL15.SQLEXPRESS", "MSSQL14.MSSQLSERVER"]:
+            try:
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                    rf"SOFTWARE\Microsoft\Microsoft SQL Server\{instance}\MSSQLServer")
+                val, _ = winreg.QueryValueEx(key, "BackupDirectory")
+                winreg.CloseKey(key)
+                p = Path(val)
+                if p.exists():
+                    return p
+            except Exception:
+                continue
+    except Exception:
+        pass
+    # Fallback: chercher dans Program Files
+    for candidate in Path("C:/Program Files/Microsoft SQL Server").glob("MSSQL*/MSSQL/Backup"):
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def _resolve_bak_path_for_sql_server(bak_path: str) -> str:
     """
-    Résout le chemin du .bak TEL QUE VU par SQL Server :
-      • Windows local : chemin direct
-      • Docker Linux  : chemin remappé via SQLSERVER_BACKUP_MOUNT_DIR
+    Résout le chemin du .bak TEL QUE VU par SQL Server.
+    Sur Windows : copie le fichier dans le répertoire Backup de SQL Server
+    pour contourner les restrictions d'accès aux dossiers utilisateur.
+    Sur Linux/Docker : chemin remappé via SQLSERVER_BACKUP_MOUNT_DIR.
     """
     if platform.system() == "Windows":
-        return str(Path(bak_path).resolve())
+        src = Path(bak_path).resolve()
+        sql_backup_dir = _get_sqlserver_backup_dir()
+        if sql_backup_dir and sql_backup_dir != src.parent:
+            try:
+                dest = sql_backup_dir / src.name
+                import shutil
+                shutil.copy2(str(src), str(dest))
+                logger.info(f"[BAK] Fichier copié vers répertoire SQL Server : {dest}")
+                return str(dest)
+            except Exception as e:
+                logger.warning(f"[BAK] Impossible de copier vers {sql_backup_dir}: {e} — utilisation du chemin direct")
+        return str(src)
     mount = os.getenv("SQLSERVER_BACKUP_MOUNT_DIR", "/var/opt/mssql/backup")
     return str(Path(mount) / Path(bak_path).name)
 

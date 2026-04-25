@@ -215,6 +215,24 @@ async def _run_inner_impl(session_id: str, config: dict) -> None:
     try:
         async for event in wf.astream(initial, config=tc, stream_mode="updates"):
             for node, output in event.items():
+                # ── Pause HITL : interrupt_before=["human_review"] ─────────────
+                if node == "__interrupt__":
+                    current = _pipeline_states.get(session_id, {})
+                    sse.set_agent_status(session_id, "human_review", "running")
+                    sse.set_stage(session_id, "awaiting_human_review")
+                    sse.broadcast(session_id, "pipeline_status", {"status": "awaiting_review"})
+                    sse.broadcast(session_id, "human_review_required", {
+                        "sql_ddl":               current.get("sql_ddl", ""),
+                        "critic_review":         current.get("critic_review", ""),
+                        "critic_approved":       current.get("critic_approved", False),
+                        "schema_drift_detected": current.get("schema_drift_detected", False),
+                        "schema_drift_details":  current.get("schema_drift_details", ""),
+                        "previous_sql_ddl":      current.get("previous_sql_ddl", ""),
+                        "logical_model_version": current.get("logical_model_version", 0),
+                        "logical_model":         current.get("logical_model", {}),
+                    })
+                    return  # Pause propre — LangGraph reprend via astream(None, tc)
+
                 sse.set_agent_status(session_id, node, "running")
                 sse.log_event(session_id, f"▶️  {AGENT_LABELS.get(node, node)} en cours...")
 
@@ -252,26 +270,6 @@ async def _run_inner_impl(session_id: str, config: dict) -> None:
                 if node in _PERSIST_AFTER:
                     await asyncio.to_thread(_persist, session_id)
 
-                # ── Pause d'interactivité : validation humaine ─────────────────────────────────────────
-                if node == "human_review":
-                    current = _pipeline_states.get(session_id, {})
-                    # Skip pause if auto-approved (testing mode)
-                    if current.get("is_validated", False):
-                        sse.log_event(session_id, "👤 Human Review auto-approved - continuing pipeline")
-                    else:
-                        sse.set_stage(session_id, "awaiting_human_review")
-                        sse.broadcast(session_id, "human_review_required", {
-                            "sql_ddl":               current.get("sql_ddl", ""),
-                            "critic_review":         current.get("critic_review", ""),
-                            "critic_approved":       current.get("critic_approved", False),
-                            "schema_drift_detected": current.get("schema_drift_detected", False),
-                            "schema_drift_details":  current.get("schema_drift_details", ""),
-                            "previous_sql_ddl":      current.get("previous_sql_ddl", ""),
-                            "logical_model_version": current.get("logical_model_version", 0),
-                            "logical_model":         current.get("logical_model", {}),
-                        })
-                        return
-                
                 if node == "human_review_dq":
                     current = _pipeline_states.get(session_id, {})
                     sse.set_stage(session_id, "awaiting_dq_review")
@@ -311,6 +309,10 @@ async def resume_pipeline(session_id: str, validated: bool, comment: str = "") -
     _merge(session_id, {"is_validated": validated, "hitl_comment": comment or ""})
 
     sse.log_event(session_id, f"👤 {'✅ Validé' if validated else '✏️ Modification demandée'}")
+    sse.set_agent_status(session_id, "human_review", "done")
+    if validated:
+        # chat_modifier est skippé quand on valide → marquer done pour que le stage passe au vert
+        sse.set_agent_status(session_id, "chat_modifier", "done")
     sse.set_stage(session_id, "etl_generation" if validated else "model_revision")
 
     existing = _pipeline_tasks.get(session_id)
@@ -357,6 +359,24 @@ async def _stream_continue(session_id: str, tc: dict) -> None:
     try:
         async for event in wf.astream(None, config=tc, stream_mode="updates"):
             for node, output in event.items():
+                # ── Pause HITL : interrupt_before=["human_review"] ─────────────
+                if node == "__interrupt__":
+                    current = _pipeline_states.get(session_id, {})
+                    sse.set_agent_status(session_id, "human_review", "running")
+                    sse.set_stage(session_id, "awaiting_human_review")
+                    sse.broadcast(session_id, "pipeline_status", {"status": "awaiting_review"})
+                    sse.broadcast(session_id, "human_review_required", {
+                        "sql_ddl":               current.get("sql_ddl", ""),
+                        "critic_review":         current.get("critic_review", ""),
+                        "critic_approved":       current.get("critic_approved", False),
+                        "schema_drift_detected": current.get("schema_drift_detected", False),
+                        "schema_drift_details":  current.get("schema_drift_details", ""),
+                        "previous_sql_ddl":      current.get("previous_sql_ddl", ""),
+                        "logical_model_version": current.get("logical_model_version", 0),
+                        "logical_model":         current.get("logical_model", {}),
+                    })
+                    return  # Pause propre — LangGraph reprend via astream(None, tc)
+
                 sse.set_agent_status(session_id, node, "running")
                 sse.log_event(session_id, f"▶️  {AGENT_LABELS.get(node, node)} en cours...")
 
@@ -392,21 +412,6 @@ async def _stream_continue(session_id: str, tc: dict) -> None:
                 if node in _PERSIST_AFTER:
                     await asyncio.to_thread(_persist, session_id)
 
-                if node == "human_review":
-                    current = _pipeline_states.get(session_id, {})
-                    sse.set_stage(session_id, "awaiting_human_review")
-                    sse.broadcast(session_id, "human_review_required", {
-                        "sql_ddl":               current.get("sql_ddl", ""),
-                        "critic_review":         current.get("critic_review", ""),
-                        "critic_approved":       current.get("critic_approved", False),
-                        "schema_drift_detected": current.get("schema_drift_detected", False),
-                        "schema_drift_details":  current.get("schema_drift_details", ""),
-                        "previous_sql_ddl":      current.get("previous_sql_ddl", ""),
-                        "logical_model_version": current.get("logical_model_version", 0),
-                        "logical_model":         current.get("logical_model", {}),
-                    })
-                    return
-
                 if node == "human_review_dq":
                     current = _pipeline_states.get(session_id, {})
                     sse.set_stage(session_id, "awaiting_dq_review")
@@ -432,16 +437,19 @@ async def _stream_continue(session_id: str, tc: dict) -> None:
 # ─── Chat → relance ───────────────────────────────────────────────────────────
 
 async def send_chat_and_resume(session_id: str, message: str, context: str = "sql") -> dict:
-    """Envoie un message utilisateur ET relance le pipeline depuis human_review."""
+    """Envoie un message utilisateur ET relance le pipeline vers chat_modifier."""
     wf  = _get_wf()
     sse = _get_sse()
     tc  = {"configurable": {"thread_id": session_id}}
 
     await wf.aupdate_state(tc, {
         "messages":     [HumanMessage(content=message)],
-        "is_validated": False,
+        "is_validated": False,  # FIX: Doit être False pour router vers chat_modifier
     }, as_node="human_review")
 
+    _merge(session_id, {"is_validated": False})  # FIX
+    sse.set_stage(session_id, "model_revision")
+    sse.broadcast(session_id, "pipeline_status", {"status": "running"})  # Réveille le front
     sse.log_event(session_id, f"💬 Demande : {message[:80]}")
 
     existing = _pipeline_tasks.get(session_id)
@@ -452,7 +460,7 @@ async def send_chat_and_resume(session_id: str, message: str, context: str = "sq
 
     state = _pipeline_states.get(session_id, {})
     return {
-        "reply":         "Modification envoyée. Le Critic va re-valider...",
+        "reply":         "Modification envoyée. L'agent applique les changements...",
         "sql_ddl":       state.get("sql_ddl", ""),
         "critic_review": state.get("critic_review", ""),
         "etl_code":      state.get("etl_code", "") if context == "etl" else None,

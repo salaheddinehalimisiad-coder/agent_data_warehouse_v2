@@ -53,8 +53,9 @@ Write-Host "   Backend FastAPI  -> http://localhost:8000" -ForegroundColor Gray
 Write-Host "   Frontend React   -> http://localhost:5173" -ForegroundColor Gray
 Write-Host ""
 
-Start-Process powershell -ArgumentList "-NoExit", "-Command", ".\.venv\Scripts\Activate.ps1; .\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8000" -WindowStyle Normal
+$projectDir = $PSScriptRoot
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$projectDir'; .\.venv\Scripts\Activate.ps1; .\.venv\Scripts\python.exe -m uvicorn api.server:app --reload --port 8000" -WindowStyle Normal
 Start-Sleep -Seconds 2
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "npm.cmd run dev" -WindowStyle Normal
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$projectDir'; npm.cmd run dev" -WindowStyle Normal
 
 Write-Host "Serveurs demarres ! Ouvrez http://localhost:5173" -ForegroundColor Green

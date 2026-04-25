@@ -63,7 +63,7 @@ def healer_node(state: AgentState) -> dict:
         return {
             "etl_status": "failed",
             "retry_count": retry_count + 1,
-            "execution_log": state.get("execution_log", []) + ["[Healer] SKIP — rien à corriger"]
+            "execution_log": ["[Healer] SKIP — rien à corriger"]
         }
 
     llm = get_llm(temperature=0.2, task_type="code")
@@ -82,7 +82,7 @@ def healer_node(state: AgentState) -> dict:
         return {
             "etl_status": "failed",
             "retry_count": retry_count + 1,
-            "execution_log": state.get("execution_log", []) + [f"[Healer] ERREUR LLM : {e}"]
+            "execution_log": [f"[Healer] ERREUR LLM : {e}"]
         }
 
     # Extraction précise via marqueurs
@@ -111,7 +111,7 @@ def healer_node(state: AgentState) -> dict:
         return {
             "etl_status": "failed",
             "retry_count": retry_count + 1,
-            "execution_log": state.get("execution_log", []) + [
+            "execution_log": [
                 f"[Healer] ⚠️ Correction n°{retry_count} échouée (SQL invalide)"
             ]
         }
@@ -129,7 +129,7 @@ def healer_node(state: AgentState) -> dict:
         "retry_count": retry_count + 1,
         "clean_action": clean_action,
         "heal_history": updated_heal_history,
-        "execution_log": state.get("execution_log", []) + [
+        "execution_log": [
             f"[Healer] 🔧 Correction n°{retry_count} : {heal_summary or 'appliquée'}"
         ],
     }

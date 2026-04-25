@@ -17,6 +17,7 @@ from nodes.etl_executor import (
     _test_connection,
     _verify_tables_created,
 )
+from nodes.etl_loader import _save_session_to_disk
 
 logger = logging.getLogger(__name__)
 
@@ -34,45 +35,57 @@ def etl_initializer_node(state: AgentState) -> dict:
     dw_config = state.get("dw_connection_config", {})
     sql_ddl   = state.get("sql_ddl", "")
     user_prefix = state.get("user_prefix", "dw")
-    exec_log  = state.get("execution_log", [])
 
     if not sql_ddl:
         return {
             "etl_status": "failed",
             "etl_error": "No SQL DDL available",
-            "execution_log": exec_log + ["[ETL INITIALIZER] ❌ No DDL"]
+            "execution_log": ["[ETL INITIALIZER] ❌ No DDL"]
         }
 
+    new_logs = []
     try:
         # 1. Test connexion DW
         engine = _build_engine(dw_config)
         _test_connection(engine)
-        exec_log.append("[ETL INITIALIZER] ✅ DW connection verified")
+        new_logs.append("[ETL INITIALIZER] ✅ DW connection verified")
 
         # 2. Exécuter le DDL en AUTOCOMMIT
-        _execute_ddl(engine, sql_ddl)
-        exec_log.append("[ETL INITIALIZER] ✅ DDL executed")
+        ddl_err = _execute_ddl(engine, sql_ddl)
+        if ddl_err:
+            return {
+                "etl_status": "failed",
+                "etl_error": f"DDL execution error: {ddl_err}",
+                "execution_log": new_logs + [f"[ETL INITIALIZER] ❌ DDL error: {ddl_err[:200]}"]
+            }
+        new_logs.append("[ETL INITIALIZER] ✅ DDL executed")
 
         # 3. Vérifier que les tables sont créées
-        tables_created = _verify_tables_created(engine, user_prefix)
-        if not tables_created:
+        n_tables, table_names = _verify_tables_created(engine, user_prefix)
+        if not n_tables:
             return {
                 "etl_status": "failed",
                 "etl_error": "No tables created after DDL execution",
-                "execution_log": exec_log + ["[ETL INITIALIZER] ❌ No tables created"]
+                "execution_log": new_logs + ["[ETL INITIALIZER] ❌ No tables created"]
             }
 
-        exec_log.append(f"[ETL INITIALIZER] ✅ {len(tables_created)} tables created: {', '.join(str(t) for t in tables_created)}")
+        new_logs.append(f"[ETL INITIALIZER] ✅ {n_tables} tables created: {', '.join(table_names)}")
+
+        # Persist model to disk immediately so OLAP can read it without waiting for ETL load
+        session_id    = state.get("session_id", "unknown")
+        logical_model = state.get("logical_model", {})
+        _save_session_to_disk(session_id, logical_model, user_prefix, dw_config)
+        new_logs.append("[ETL INITIALIZER] ✅ Modèle persisté sur disque (OLAP ready)")
 
         return {
             "etl_status": "success",
             "etl_error": None,
-            "execution_log": exec_log,
+            "execution_log": new_logs,
         }
     except Exception as e:
         logger.error(f"[ETL INITIALIZER] Error: {e}", exc_info=True)
         return {
             "etl_status": "failed",
             "etl_error": str(e),
-            "execution_log": exec_log + [f"[ETL INITIALIZER] ❌ Error: {e}"]
+            "execution_log": new_logs + [f"[ETL INITIALIZER] ❌ Error: {e}"]
         }

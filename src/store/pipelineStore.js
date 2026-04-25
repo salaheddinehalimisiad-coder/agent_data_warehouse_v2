@@ -111,6 +111,22 @@ const INITIAL_PIPELINE_STATE = {
   pipelineError:        null,
 };
 
+// ─── Helpers localStorage ─────────────────────────────────────────────────────
+
+function _lsGet(key, fallback = null) {
+  try {
+    const v = localStorage.getItem(key);
+    if (v === null) return fallback;
+    return JSON.parse(v);
+  } catch { return fallback; }
+}
+function _lsSet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* ignore quota */ }
+}
+function _lsDel(...keys) {
+  keys.forEach(k => { try { localStorage.removeItem(k); } catch { } });
+}
+
 export const usePipelineStore = create((set, get) => ({
   // ─── Auth ─────────────────────────────────────────────────────────────────
   userId:     null,
@@ -118,6 +134,11 @@ export const usePipelineStore = create((set, get) => ({
   authToken:  null,
 
   ...INITIAL_PIPELINE_STATE,
+  // Restauration des champs critiques depuis localStorage (survie au refresh)
+  sessionId:        _lsGet('ps_sessionId',        null),
+  generatedQueries: _lsGet('ps_generatedQueries', []),
+  lineage:          _lsGet('ps_lineage',          null),
+  loadMetrics:      _lsGet('ps_loadMetrics',      null),
 
   _sseCleanup: null,
 
@@ -146,12 +167,15 @@ export const usePipelineStore = create((set, get) => ({
 
   resetPipeline: () => {
     get()._sseCleanup?.();
+    _lsDel('ps_sessionId', 'ps_generatedQueries', 'ps_lineage', 'ps_loadMetrics');
     set({ ...INITIAL_PIPELINE_STATE, _sseCleanup: null });
   },
 
   startPipeline: async (connectionConfig, dwConnectionConfig) => {
     const { userId, userPrefix, authToken } = get();
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    _lsSet('ps_sessionId', sessionId);
+    _lsDel('ps_generatedQueries');
 
     set({ ...INITIAL_PIPELINE_STATE, sessionId, pipelineStatus: 'starting' });
 
@@ -366,8 +390,8 @@ function _handleSSEEvent(type, data, set, get) {
         dqReport:             data.dq_report             || null,
         dqScore:              data.dq_score              ?? null,
         dqAlerts:             data.dq_alerts             || [],
-        lineage:              data.lineage               || null,
-        loadMetrics:          data.load_metrics          || null,
+        lineage:              data.lineage               || _lsGet('ps_lineage',      null),
+        loadMetrics:          data.load_metrics          || _lsGet('ps_loadMetrics',   null),
         executiveSummary:     data.executive_summary     || '',
         visualizations:       data.visualizations        || [],
         nodeDurations:        data.node_durations        || {},
@@ -378,7 +402,7 @@ function _handleSSEEvent(type, data, set, get) {
         mockDataSql:          data.mock_data_sql         || null,
         sourceMetadata:       data.source_metadata       || null,
         // Phase 3
-        generatedQueries:     data.generated_queries     || [],
+        generatedQueries:     data.generated_queries     || _lsGet('ps_generatedQueries', []),
         queryResults:         data.query_results         || [],
         etlMode:              data.etl_mode              || null,
         etlWatermarks:        data.etl_watermarks        || null,
@@ -404,8 +428,8 @@ function _handleSSEEvent(type, data, set, get) {
       if (u.dq_report             !== undefined) patch.dqReport              = u.dq_report;
       if (u.dq_score              !== undefined) patch.dqScore               = u.dq_score;
       if (u.dq_alerts             !== undefined) patch.dqAlerts              = u.dq_alerts;
-      if (u.lineage               !== undefined) patch.lineage               = u.lineage;
-      if (u.load_metrics          !== undefined) patch.loadMetrics           = u.load_metrics;
+      if (u.lineage               !== undefined) { patch.lineage      = u.lineage;      _lsSet('ps_lineage',      u.lineage);      }
+      if (u.load_metrics          !== undefined) { patch.loadMetrics = u.load_metrics; _lsSet('ps_loadMetrics', u.load_metrics); }
       if (u.executive_summary     !== undefined) patch.executiveSummary      = u.executive_summary;
       if (u.visualizations          !== undefined) patch.visualizations        = u.visualizations;
       if (u.node_durations         !== undefined) patch.nodeDurations         = u.node_durations;
@@ -416,7 +440,10 @@ function _handleSSEEvent(type, data, set, get) {
       if (u.mock_data_sql          !== undefined) patch.mockDataSql           = u.mock_data_sql;
       if (u.source_metadata        !== undefined) patch.sourceMetadata        = u.source_metadata;
       // Phase 3
-      if (u.generated_queries      !== undefined) patch.generatedQueries      = u.generated_queries;
+      if (u.generated_queries      !== undefined) {
+        patch.generatedQueries = u.generated_queries;
+        _lsSet('ps_generatedQueries', u.generated_queries);
+      }
       if (u.query_results          !== undefined) patch.queryResults          = u.query_results;
       if (u.etl_mode               !== undefined) patch.etlMode              = u.etl_mode;
       if (u.etl_watermarks         !== undefined) patch.etlWatermarks        = u.etl_watermarks;
@@ -440,6 +467,11 @@ function _handleSSEEvent(type, data, set, get) {
       set({ executionLog: [...(get().executionLog || []), data.message] });
       break;
 
+    case 'pipeline_status':
+      if (data?.status === 'awaiting_review') {
+        set({ pipelineStatus: 'awaiting_review' });
+      }
+      break;
     case 'human_review_required':
       set({
         pipelineStatus:       'awaiting_review',

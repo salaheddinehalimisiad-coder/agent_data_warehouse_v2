@@ -82,7 +82,7 @@ def explorer_node(state: AgentState) -> dict:
         logger.info(f"[Explorer] Métadonnées extraites : {list(metadata.keys())}")
         return {
             "source_metadata": metadata,
-            "execution_log": state.get("execution_log", []) + [
+            "execution_log": [
                 f"[Explorer] Source analysée ({source_type}) — {len(metadata)} table(s) détectée(s)"
             ]
         }
@@ -91,7 +91,7 @@ def explorer_node(state: AgentState) -> dict:
         logger.error(f"[Explorer] Erreur lors de l'exploration : {e}")
         return {
             "source_metadata": {},
-            "execution_log": state.get("execution_log", []) + [f"[Explorer] ERREUR : {e}"]
+            "execution_log": [f"[Explorer] ERREUR : {e}"]
         }
 
 

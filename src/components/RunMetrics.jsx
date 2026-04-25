@@ -128,11 +128,21 @@ function FactCard({ factName, metrics }) {
 }
 
 function grade(rate, rejected) {
-  if (rate >= 95 && rejected === 0) return { g: 'A+', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' };
-  if (rate >= 90 && rejected <= 2)  return { g: 'A',  color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' };
-  if (rate >= 80)                   return { g: 'B',  color: 'text-indigo-400',  bg: 'bg-indigo-500/10  border-indigo-500/30' };
-  if (rate >= 60)                   return { g: 'C',  color: 'text-amber-400',   bg: 'bg-amber-500/10   border-amber-500/30' };
-  return                                   { g: 'F',  color: 'text-rose-400',    bg: 'bg-rose-500/10    border-rose-500/30' };
+  let score;
+  if (rate >= 99 && rejected === 0) score = 20;
+  else if (rate >= 95 && rejected === 0) score = 19;
+  else if (rate >= 95) score = 18;
+  else if (rate >= 90) score = 17;
+  else if (rate >= 85) score = 15;
+  else if (rate >= 80) score = 14;
+  else if (rate >= 70) score = 12;
+  else if (rate >= 60) score = 10;
+  else if (rate >= 50) score = 8;
+  else score = Math.max(0, Math.round(rate / 5));
+
+  const color = score >= 16 ? 'text-emerald-400' : score >= 12 ? 'text-indigo-400' : score >= 8 ? 'text-amber-400' : 'text-rose-400';
+  const bg    = score >= 16 ? 'bg-emerald-500/10 border-emerald-500/30' : score >= 12 ? 'bg-indigo-500/10 border-indigo-500/30' : score >= 8 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-rose-500/10 border-rose-500/30';
+  return { g: `${score}/20`, color, bg };
 }
 
 export default function RunMetrics() {
@@ -277,7 +287,7 @@ export default function RunMetrics() {
         </div>
         <div className="flex items-center gap-2">
           <span className={`text-[11px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${runGrade.bg} ${runGrade.color}`}>
-            Grade {runGrade.g}
+            Note {runGrade.g}
           </span>
           <button
             onClick={handleDownload}
@@ -300,8 +310,8 @@ export default function RunMetrics() {
           <div className="relative group mx-2">
              <div className={`absolute inset-0 blur-3xl opacity-20 transition-all duration-1000 rounded-full ${runGrade.color.replace('text-', 'bg-')}`} />
              <div className={`relative w-20 h-20 rounded-2xl border flex flex-col items-center justify-center bg-black/40 backdrop-blur-xl transition-all shadow-2xl ${runGrade.bg.replace('bg-opacity-10', 'bg-opacity-60')}`}>
-                <span className={`text-3xl font-black italic tracking-tighter ${runGrade.color}`}>{runGrade.g}</span>
-                <span className="text-[8px] font-black uppercase text-slate-500 tracking-widest mt-1">Grade</span>
+                <span className={`text-2xl font-black italic tracking-tighter ${runGrade.color}`}>{runGrade.g}</span>
+                <span className="text-[8px] font-black uppercase text-slate-500 tracking-widest mt-1">Note</span>
              </div>
           </div>
 

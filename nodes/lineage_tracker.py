@@ -38,7 +38,7 @@ def lineage_tracker_node(state: AgentState) -> dict:
     if not logical_model or not source_meta:
         return {
             "lineage": {},
-            "execution_log": state.get("execution_log", []) + [
+            "execution_log": [
                 "[Lineage] SKIP — modèle ou métadonnées absents"
             ],
         }
@@ -59,7 +59,7 @@ def lineage_tracker_node(state: AgentState) -> dict:
 
     return {
         "lineage": lineage,
-        "execution_log": state.get("execution_log", []) + [log_msg],
+        "execution_log": [log_msg],
     }
 
 

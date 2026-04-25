@@ -55,7 +55,7 @@ def critic_node(state: AgentState) -> dict:
                 "❌ ÉCHEC CRITIQUE : Le modèle logique est vide ou ne contient aucune table de faits. "
                 "L'étape Schema Modeling a échoué — aucune validation possible."
             ),
-            "execution_log": state.get("execution_log", []) + [
+            "execution_log": [
                 "[Critic] ❌ REFUS — logical_model vide/invalide, modeler a échoué"
             ],
         }
@@ -68,7 +68,7 @@ def critic_node(state: AgentState) -> dict:
                 "❌ Le modèle logique ne contient aucune dimension. "
                 "Un Star Schema nécessite au minimum une table de faits et une dimension."
             ),
-            "execution_log": state.get("execution_log", []) + [
+            "execution_log": [
                 "[Critic] ❌ REFUS — aucune dimension dans le modèle"
             ],
         }
@@ -81,42 +81,16 @@ def critic_node(state: AgentState) -> dict:
                 "❌ Le DDL SQL généré est vide, en erreur ou insuffisant. "
                 "La modélisation n'a pas produit de script de création de tables valide."
             ),
-            "execution_log": state.get("execution_log", []) + [
+            "execution_log": [
                 "[Critic] ❌ REFUS — DDL vide/insuffisant"
             ],
         }
 
-    # ── Tentative avec LLM ───────────────────────────────────────────────────
-    try:
-        llm = get_llm(temperature=0)
-        # Detect FakeChatModel to force auto-approval for algorithm-generated schemas
-        if hasattr(llm, '_llm_type') and llm._llm_type == "fake-chat-model":
-            logger.warning("[Critic] FakeChatModel détecté — audit structurel automatique forcé")
-            return _auto_structural_audit(state, sql_ddl)
-        
-        chain = CRITIC_PROMPT | llm
-        response = call_with_retry(chain, {"sql_ddl": sql_ddl})
-        review_text = extract_text(response)
-
-        verdict_match = re.search(
-            r"VERDICT:\s*(APPROVED|NEEDS_REVISION)", review_text, re.IGNORECASE
-        )
-        is_approved = bool(verdict_match and verdict_match.group(1).upper() == "APPROVED")
-        verdict_label = "✅ APPROVED" if is_approved else "⚠️ NEEDS_REVISION"
-        logger.info(f"[Critic] Verdict LLM : {verdict_label}")
-
-        return {
-            "critic_review": review_text,
-            "critic_approved": is_approved,
-            "execution_log": state.get("execution_log", []) + [
-                f"[Critic] Verdict : {verdict_label}"
-            ],
-        }
-
-    except Exception as e:
-        logger.warning(f"[Critic] ⚠️ LLM indisponible ({type(e).__name__}) — audit structurel automatique")
-        # ── Fallback : Audit structurel automatique sans LLM ─────────────────────
-        return _auto_structural_audit(state, sql_ddl)
+    # ── Audit structurel immédiat (sans LLM) ────────────────────────────────
+    # Le LLM Blaze est lent et peu fiable. L'audit structurel est suffisant
+    # pour valider un schema OLAP : la Human Review reste la vraie porte de contrôle.
+    logger.info("[Critic] Audit structurel direct (bypass LLM)")
+    return _auto_structural_audit(state, sql_ddl)
 
 
 def _auto_structural_audit(state: AgentState, sql_ddl: str) -> dict:
@@ -184,7 +158,7 @@ def _auto_structural_audit(state: AgentState, sql_ddl: str) -> dict:
     return {
         "critic_review": review_text,
         "critic_approved": is_approved,
-        "execution_log": state.get("execution_log", []) + [
+        "execution_log": [
             f"[Critic] {verdict_label} — audit structurel automatique (score {score}/6)"
         ],
     }
