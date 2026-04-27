@@ -343,15 +343,16 @@ def restore_sqlserver_backup(bak_path: str, target_db: str) -> dict:
                 "diagnostic": diagnostic,
             }
 
-        # ── RESTORE FILELISTONLY pour extraire les logical names ─────────────
+        # ── RESTORE FILELISTONLY pour extraire TOUS les logical names ───────
         bak_escaped = bak_sql_path.replace("'", "''")
         cursor.execute(f"RESTORE FILELISTONLY FROM DISK = N'{bak_escaped}'")
         cols  = [d[0] for d in cursor.description]
         files = [dict(zip(cols, r)) for r in cursor.fetchall()]
 
-        logical_data = next((r["LogicalName"] for r in files if r.get("Type") == "D"), None)
-        logical_log  = next((r["LogicalName"] for r in files if r.get("Type") == "L"), None)
-        if not logical_data:
+        data_files = [r for r in files if r.get("Type") in ("D", "S")]  # D=data, S=filestream
+        log_files  = [r for r in files if r.get("Type") == "L"]
+
+        if not data_files:
             cursor.close(); conn.close()
             return {
                 "success": False,
@@ -360,17 +361,27 @@ def restore_sqlserver_backup(bak_path: str, target_db: str) -> dict:
                 "diagnostic": diagnostic,
             }
 
-        # ── Chemins de destination des fichiers MDF/LDF ──────────────────────
+        # ── Chemins de destination des fichiers MDF/NDF/LDF ─────────────────
         if platform.system() == "Windows":
             cursor.execute("SELECT SERVERPROPERTY('InstanceDefaultDataPath')")
             r = cursor.fetchone()
             data_dir = r[0].rstrip("\\") if r and r[0] else "C:\\temp"
         else:
             data_dir = os.getenv("SQLSERVER_DATA_DIR", "/var/opt/mssql/data")
-        mdf_path = str(Path(data_dir) / f"{safe_db}.mdf")
-        ldf_path = str(Path(data_dir) / f"{safe_db}_log.ldf")
 
         esc = lambda s: s.replace("'", "''")
+
+        # Build MOVE clause for every logical file in the backup
+        move_parts = []
+        for i, f in enumerate(data_files):
+            ext = ".mdf" if i == 0 else f"_data{i + 1}.ndf"
+            dest = str(Path(data_dir) / f"{safe_db}{ext}")
+            move_parts.append(f"MOVE N'{esc(f['LogicalName'])}' TO N'{esc(dest)}'")
+        for i, f in enumerate(log_files):
+            suffix = "_log.ldf" if i == 0 else f"_log{i + 1}.ldf"
+            dest = str(Path(data_dir) / f"{safe_db}{suffix}")
+            move_parts.append(f"MOVE N'{esc(f['LogicalName'])}' TO N'{esc(dest)}'")
+        logger.info(f"[BAK] {len(data_files)} data file(s), {len(log_files)} log file(s) → {len(move_parts)} MOVE clause(s)")
 
         # ── Nettoyage si la DB existe déjà ──────────────────────────────────
         cursor.execute(f"""
@@ -386,12 +397,12 @@ def restore_sqlserver_backup(bak_path: str, target_db: str) -> dict:
         """)
 
         # ── RESTORE DATABASE ────────────────────────────────────────────────
+        move_sql = ",\n              ".join(move_parts)
         restore_sql = f"""
             RESTORE DATABASE [{safe_db}]
             FROM DISK = N'{esc(bak_sql_path)}'
             WITH
-              MOVE N'{esc(logical_data)}' TO N'{esc(mdf_path)}',
-              MOVE N'{esc(logical_log or logical_data + "_log")}' TO N'{esc(ldf_path)}',
+              {move_sql},
               REPLACE, RECOVERY, STATS = 5
         """
         logger.info(f"[BAK] RESTORE DATABASE [{safe_db}] ...")
@@ -682,6 +693,18 @@ def _format_restore_error(e: Exception, backup_major: Optional[int] = None, serv
             "SQL Server n'a pas pu créer les fichiers de données (.mdf/.ldf). "
             "Vérifiez les permissions du dossier de données SQL Server et qu'il reste assez d'espace disque."
         )
+    # Erreur 3234 : fichier logique manquant dans les clauses MOVE
+    if "3234" in s or "Logical file" in s:
+        return (
+            "Le backup contient plusieurs fichiers logiques et tous n'ont pas été pris en compte. "
+            "Vérifiez que le fichier .bak n'est pas corrompu (RESTORE VERIFYONLY)."
+        )
+    # Erreur accès fichier backup (droit SQL Server service)
+    if "3201" in s or "cannot open backup device" in s.lower() or "operating system error 5" in s.lower():
+        return (
+            "SQL Server ne peut pas accéder au fichier de backup (accès refusé). "
+            "Sur Windows, exécutez : icacls \"<dossier_uploads_bak>\" /grant \"NT Service\\MSSQLSERVER:(OI)(CI)R\" /T"
+        )
     # Fallback
     return f"La restauration a échoué : {s}"
 
@@ -721,23 +744,219 @@ _BRIDGE_IMAGE_CANDIDATES = {
 _BRIDGE_IMAGES = {k: v[0] for k, v in _BRIDGE_IMAGE_CANDIDATES.items()}
 
 
+# ── Mode WSL2 fallback ───────────────────────────────────────────────────────
+# Quand Docker Desktop est cassé/absent, on bascule sur Docker Engine
+# installé dans la distro Ubuntu WSL2. Ce flag est positionné par
+# _ensure_docker_running() et lu par toutes les fonctions Docker du bridge.
+_DOCKER_USE_WSL: bool = False
+_DOCKER_WSL_DISTRO: str = "Ubuntu"
+
+
+def _docker_cmd() -> List[str]:
+    """Retourne le préfixe de commande Docker adapté au mode actif."""
+    if _DOCKER_USE_WSL:
+        return ["wsl", "-d", _DOCKER_WSL_DISTRO, "--", "docker"]
+    return ["docker"]
+
+
+def _win_to_wsl_path(win_path: str) -> str:
+    """Convertit un chemin Windows en chemin WSL2 (/mnt/c/…)."""
+    p = str(Path(win_path).resolve())
+    drive = p[0].lower()
+    rest  = p[2:].replace("\\", "/")
+    return f"/mnt/{drive}{rest}"
+
+
 def _docker_cli_available() -> Tuple[bool, str]:
-    """Vérifie que `docker` est installé et que le daemon répond. Renvoie (ok, info_ou_erreur)."""
+    """
+    Vérifie que Docker est accessible (Desktop ou WSL2).
+    Renvoie (True, version) si prêt, (False, err) sinon.
+    """
+    global _DOCKER_USE_WSL
+    cmd = _docker_cmd()
     try:
         r = subprocess.run(
-            ["docker", "version", "--format", "{{.Server.Version}}"],
-            capture_output=True, text=True, timeout=6
+            cmd + ["info", "--format", "{{.ServerVersion}}"],
+            capture_output=True, text=True, timeout=10
         )
-        if r.returncode == 0 and r.stdout.strip():
-            return True, r.stdout.strip()
+        version = r.stdout.strip()
+        if r.returncode == 0 and version:
+            return True, version
         err = (r.stderr or r.stdout or "docker daemon injoignable").strip()
-        return False, err[:200]
+        return False, err[:300]
     except FileNotFoundError:
-        return False, "Docker CLI introuvable — installez Docker Desktop ou Docker Engine."
+        return False, "Docker CLI introuvable."
     except subprocess.TimeoutExpired:
-        return False, "docker version a dépassé 6s — le daemon Docker ne répond pas."
+        return False, "docker info timeout."
     except Exception as e:
         return False, f"Erreur Docker : {e}"
+
+
+def _wsl_docker_available() -> Tuple[bool, str]:
+    """Vérifie que Docker Engine tourne dans la distro Ubuntu WSL2."""
+    try:
+        r = subprocess.run(
+            ["wsl", "-d", _DOCKER_WSL_DISTRO, "--", "docker",
+             "info", "--format", "{{.ServerVersion}}"],
+            capture_output=True, text=True, timeout=15
+        )
+        version = r.stdout.strip()
+        if r.returncode == 0 and version:
+            return True, version
+        return False, (r.stderr or r.stdout or "").strip()[:200]
+    except Exception as e:
+        return False, str(e)[:200]
+
+
+def _wsl_docker_start() -> Tuple[bool, str]:
+    """Démarre le daemon Docker dans Ubuntu WSL2 si pas encore actif."""
+    # Déjà actif ?
+    ok, ver = _wsl_docker_available()
+    if ok:
+        return True, ver
+    # Démarrage via service
+    try:
+        subprocess.run(
+            ["wsl", "-d", _DOCKER_WSL_DISTRO, "-u", "root", "--",
+             "service", "docker", "start"],
+            capture_output=True, text=True, timeout=30
+        )
+    except Exception as e:
+        return False, f"Impossible de démarrer Docker WSL2 : {e}"
+    # Attente courte (5 tentatives × 3s)
+    for _ in range(5):
+        time.sleep(3)
+        ok2, ver2 = _wsl_docker_available()
+        if ok2:
+            return True, ver2
+    return False, "Docker WSL2 n'a pas démarré après 15s."
+
+
+def _find_docker_desktop_exe() -> Optional[str]:
+    """Localise Docker Desktop.exe sur Windows via registre puis chemins standards."""
+    if platform.system() != "Windows":
+        return None
+    try:
+        import winreg
+        for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            for subkey in (
+                r"SOFTWARE\Docker Inc.\Docker Desktop",
+                r"SOFTWARE\WOW6432Node\Docker Inc.\Docker Desktop",
+            ):
+                try:
+                    with winreg.OpenKey(root, subkey) as k:
+                        install_dir, _ = winreg.QueryValueEx(k, "InstallPath")
+                        c = os.path.join(install_dir, "Docker Desktop.exe")
+                        if os.path.exists(c):
+                            return c
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    for p in [
+        r"C:\Program Files\Docker\Docker\Docker Desktop.exe",
+        os.path.join(os.environ.get("PROGRAMFILES", r"C:\Program Files"),
+                     "Docker", "Docker", "Docker Desktop.exe"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                     "Docker", "Docker Desktop.exe"),
+    ]:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def _ensure_docker_running(emit=None) -> Tuple[bool, str]:
+    """
+    Vérifie que Docker est actif. Si le daemon n'est pas démarré et que Docker Desktop
+    est installé (Windows), le lance automatiquement et attend jusqu'à 3 min (WSL2 lent).
+    """
+    _emit = emit or (lambda _: None)
+
+    ok, info = _docker_cli_available()
+    if ok:
+        return True, info
+
+    if platform.system() != "Windows":
+        return False, info
+
+    desktop_exe = _find_docker_desktop_exe()
+    if not desktop_exe:
+        return False, (
+            "Docker Desktop introuvable. "
+            "Téléchargez-le sur https://www.docker.com/products/docker-desktop/ "
+            "puis relancez l'opération."
+        )
+
+    # Vérifie si Docker Desktop est déjà lancé (daemon WSL2 pas encore prêt)
+    already_running = False
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq Docker Desktop.exe", "/NH"],
+            capture_output=True, text=True, timeout=5
+        ).stdout
+        already_running = "Docker Desktop.exe" in out
+    except Exception:
+        pass
+
+    docker_cli_exe = _find_docker_desktop_exe().replace("Docker Desktop.exe", "DockerCli.exe") if desktop_exe else None
+
+    if already_running:
+        _emit({"phase": "preflight", "status": "progress",
+               "message": "Docker Desktop tourne — activation du Linux Engine..."})
+        logger.info("[BRIDGE] Docker Desktop process détecté, activation du Linux Engine...")
+        # Tenter de réveiller le Linux Engine via DockerCli
+        if docker_cli_exe and os.path.exists(docker_cli_exe):
+            try:
+                subprocess.Popen([docker_cli_exe, "-SwitchLinuxEngine"],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(3)
+            except Exception:
+                pass
+    else:
+        _emit({"phase": "preflight", "status": "progress",
+               "message": "Lancement de Docker Desktop..."})
+        logger.info(f"[BRIDGE] Lancement Docker Desktop : {desktop_exe}")
+        try:
+            os.startfile(desktop_exe)  # type: ignore[attr-defined]
+        except AttributeError:
+            subprocess.Popen([desktop_exe])
+        except Exception as e:
+            return False, f"Impossible de lancer Docker Desktop : {e}"
+        time.sleep(8)
+
+    # Attente longue : WSL2 + Linux Engine peut prendre jusqu'à 5 minutes
+    MAX_WAIT = 300
+    POLL     = 5
+    for i in range(MAX_WAIT // POLL):
+        time.sleep(POLL)
+        elapsed = (i + 1) * POLL
+        ok2, info2 = _docker_cli_available()
+        if ok2:
+            _emit({"phase": "preflight", "status": "progress",
+                   "message": f"✅ Docker daemon prêt ({elapsed}s) — version {info2}."})
+            return True, info2
+        if elapsed % 30 == 0:
+            _emit({"phase": "preflight", "status": "progress",
+                   "message": f"Attente Docker Desktop... {elapsed}s / {MAX_WAIT}s"})
+
+    # ── Fallback : Docker Engine dans Ubuntu WSL2 ────────────────────────────
+    _emit({"phase": "preflight", "status": "progress",
+           "message": "Docker Desktop indisponible — tentative via Docker Engine WSL2 (Ubuntu)..."})
+    logger.info("[BRIDGE] Fallback : démarrage Docker dans Ubuntu WSL2...")
+    ok_wsl, ver_wsl = _wsl_docker_start()
+    if ok_wsl:
+        global _DOCKER_USE_WSL
+        _DOCKER_USE_WSL = True
+        _emit({"phase": "preflight", "status": "progress",
+               "message": f"✅ Docker WSL2 prêt (Ubuntu, v{ver_wsl})."})
+        logger.info(f"[BRIDGE] Docker WSL2 actif — v{ver_wsl}")
+        return True, ver_wsl
+
+    return False, (
+        f"Docker Desktop n'a pas répondu après {MAX_WAIT}s et Docker WSL2 a aussi échoué. "
+        "Ouvrez Docker Desktop manuellement (icône verte dans la barre des tâches), "
+        "puis re-cliquez sur 'Démarrer le pont Docker'."
+    )
 
 
 def _find_free_tcp_port(start: int = 14331, limit: int = 50) -> int:
@@ -947,7 +1166,7 @@ def docker_bridge_restore(
         emit = lambda _ev: None  # noqa: E731
 
     emit({"phase": "preflight", "status": "progress", "message": "Vérification du daemon Docker..."})
-    ok, info = _docker_cli_available()
+    ok, info = _ensure_docker_running(emit)
     if not ok:
         return {
             "success": False,
@@ -1071,65 +1290,92 @@ def docker_bridge_restore(
         logger.info(f"[BRIDGE] Lecture du header + RESTORE FILELISTONLY...")
 
         # Script T-SQL qui gère la restauration complète en un seul batch
-        mdf_path = f"/var/opt/mssql/data/{safe_db}.mdf"
-        ldf_path = f"/var/opt/mssql/data/{safe_db}_log.ldf"
+        # Gère N fichiers de données (MDF + NDF) et M fichiers de log (LDF)
+        data_dir_container = "/var/opt/mssql/data"
 
         restore_tsql = f"""
 SET NOCOUNT ON;
+
+-- ── Lire tous les fichiers logiques du backup ──────────────────────────────
 IF OBJECT_ID('tempdb..#fl') IS NOT NULL DROP TABLE #fl;
-CREATE TABLE #fl (
-    LogicalName NVARCHAR(128), PhysicalName NVARCHAR(260), Type CHAR(1),
-    FileGroupName NVARCHAR(128) NULL, Size NUMERIC(20,0), MaxSize NUMERIC(20,0),
-    FileId BIGINT, CreateLSN NUMERIC(25,0), DropLSN NUMERIC(25,0) NULL,
-    UniqueId UNIQUEIDENTIFIER, ReadOnlyLSN NUMERIC(25,0) NULL,
-    ReadWriteLSN NUMERIC(25,0) NULL, BackupSizeInBytes BIGINT,
-    SourceBlockSize INT, FileGroupId INT, LogGroupGUID UNIQUEIDENTIFIER NULL,
-    DifferentialBaseLSN NUMERIC(25,0) NULL, DifferentialBaseGUID UNIQUEIDENTIFIER NULL,
-    IsReadOnly BIT, IsPresent BIT, TDEThumbprint VARBINARY(32) NULL,
-    SnapshotUrl NVARCHAR(360) NULL
-);
+CREATE TABLE #fl (LogicalName NVARCHAR(128), PhysicalName NVARCHAR(260), Type CHAR(1));
+BEGIN TRY
+    INSERT INTO #fl (LogicalName, PhysicalName, Type)
+        SELECT LogicalName, PhysicalName, Type FROM sys.fn_virtualfilestats(NULL,NULL) WHERE 1=0; -- schema probe
+END TRY BEGIN CATCH END CATCH;
+-- Insertion réelle via RESTORE FILELISTONLY
+DELETE FROM #fl;
 BEGIN TRY
     INSERT INTO #fl EXEC ('RESTORE FILELISTONLY FROM DISK = N''{esc_bak}''');
 END TRY
 BEGIN CATCH
-    -- Les images plus récentes ont une colonne en plus : on retente sans strict schema
-    DROP TABLE #fl;
-    CREATE TABLE #fl (LogicalName NVARCHAR(128), PhysicalName NVARCHAR(260), Type CHAR(1));
-    INSERT INTO #fl (LogicalName, PhysicalName, Type)
-      SELECT LogicalName, PhysicalName, Type
-      FROM OPENROWSET(BULK N'{esc_bak}', SINGLE_BLOB) x
-      WHERE 1=0; -- placeholder, on bascule sur parse XML si besoin
-    THROW;
+    -- Fallback schéma minimal (colonnes extra ignorées)
+    DELETE FROM #fl;
+    EXEC ('
+        SELECT LogicalName, PhysicalName, Type
+        INTO #fl_tmp FROM (RESTORE FILELISTONLY FROM DISK = N''{esc_bak}'') x;
+        INSERT INTO #fl SELECT LogicalName, PhysicalName, Type FROM #fl_tmp;
+    ');
 END CATCH;
 
-DECLARE @data NVARCHAR(128), @log NVARCHAR(128);
-SELECT TOP 1 @data = LogicalName FROM #fl WHERE Type = 'D';
-SELECT TOP 1 @log  = LogicalName FROM #fl WHERE Type = 'L';
-
-IF @data IS NULL
+IF NOT EXISTS (SELECT 1 FROM #fl WHERE Type IN (''D'',''S''))
 BEGIN
-    RAISERROR('Aucun fichier de données trouvé dans le backup', 16, 1);
+    RAISERROR(''Aucun fichier de données trouvé dans le backup'', 16, 1);
     RETURN;
 END
 
+-- ── Construire dynamiquement toutes les clauses MOVE ──────────────────────
+DECLARE @moves NVARCHAR(MAX) = N'';
+DECLARE @d_idx INT = 0, @l_idx INT = 0;
+DECLARE @lname NVARCHAR(128), @ftype CHAR(1), @dest NVARCHAR(260);
+
+DECLARE fl_cur CURSOR FAST_FORWARD FOR
+    SELECT LogicalName, Type FROM #fl WHERE Type IN (''D'',''S'',''L'') ORDER BY Type DESC, LogicalName;
+OPEN fl_cur;
+FETCH NEXT FROM fl_cur INTO @lname, @ftype;
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    IF @ftype IN (''D'',''S'')
+    BEGIN
+        SET @d_idx = @d_idx + 1;
+        SET @dest = CASE @d_idx
+            WHEN 1 THEN N'{data_dir_container}/{safe_db}.mdf'
+            ELSE N'{data_dir_container}/{safe_db}_data' + CAST(@d_idx AS NVARCHAR) + N'.ndf'
+        END;
+    END
+    ELSE
+    BEGIN
+        SET @l_idx = @l_idx + 1;
+        SET @dest = CASE @l_idx
+            WHEN 1 THEN N'{data_dir_container}/{safe_db}_log.ldf'
+            ELSE N'{data_dir_container}/{safe_db}_log' + CAST(@l_idx AS NVARCHAR) + N'.ldf'
+        END;
+    END
+    IF @moves != N'' SET @moves = @moves + N', ';
+    SET @moves = @moves + N'MOVE N''' + @lname + N''' TO N''' + @dest + N'''';
+    FETCH NEXT FROM fl_cur INTO @lname, @ftype;
+END
+CLOSE fl_cur; DEALLOCATE fl_cur;
+
+-- ── Nettoyage base existante ───────────────────────────────────────────────
 IF DB_ID(N'{safe_db}') IS NOT NULL
 BEGIN
     DECLARE @st NVARCHAR(60);
     SELECT @st = state_desc FROM sys.databases WHERE name = N'{safe_db}';
-    IF @st = 'RESTORING'
-        EXEC ('DROP DATABASE [{safe_db}]');
+    IF @st = N'RESTORING'
+        EXEC (N'DROP DATABASE [{safe_db}]');
     ELSE
-        EXEC ('ALTER DATABASE [{safe_db}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE');
+        EXEC (N'ALTER DATABASE [{safe_db}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE');
 END
 
-DECLARE @sql NVARCHAR(MAX) = N'RESTORE DATABASE [{safe_db}] FROM DISK = N''' + '{esc_bak}' + N''' WITH MOVE N''' + @data + N''' TO N''' + '{mdf_path}' + N''', ';
-IF @log IS NOT NULL
-    SET @sql = @sql + N'MOVE N''' + @log + N''' TO N''' + '{ldf_path}' + N''', ';
-SET @sql = @sql + N'REPLACE, RECOVERY, STATS = 10';
+-- ── RESTORE DATABASE avec toutes les clauses MOVE ─────────────────────────
+DECLARE @sql NVARCHAR(MAX);
+SET @sql = N'RESTORE DATABASE [{safe_db}] FROM DISK = N''{esc_bak}'' WITH '
+         + @moves
+         + N', REPLACE, RECOVERY, STATS = 10';
 EXEC (@sql);
 
 BEGIN TRY ALTER DATABASE [{safe_db}] SET MULTI_USER; END TRY BEGIN CATCH END CATCH;
-
 SELECT 'OK' AS Status;
 """
 

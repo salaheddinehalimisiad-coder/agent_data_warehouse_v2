@@ -1,321 +1,228 @@
-// src/components/ExportPanel.jsx — Strategic Deployment & Asset Export (V3 Premium)
+// src/components/ExportPanel.jsx — Icon Grid v4.0 (5 exports only)
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Download, FileText, Mail, Check,
-  Loader2, X, ChevronRight, AlertTriangle,
-  Database, Code2, ShieldCheck, Box, Zap,
-  Send, Sparkles, Hash, Wind, Package, DatabaseZap,
-  FileSpreadsheet, BarChart3, FileArchive
+  FileSpreadsheet, FileArchive, Braces, Database, HardDrive,
+  Check, Loader2, AlertTriangle, X, Download,
 } from 'lucide-react';
 import { usePipelineStore } from '../store/pipelineStore';
 import { apiClient } from '../api/client';
 
-function ExportCard({ label, sublabel, icon: Icon, onClick, disabled, loading, success, colorCls }) {
+// ─── The 5 export definitions ────────────────────────────────────────────────
+const EXPORTS = [
+  {
+    key:      'xlsx',
+    label:    'Rapport Excel',
+    sub:      '9 feuilles · KPI · Graphiques',
+    ext:      '.xlsx',
+    icon:     FileSpreadsheet,
+    color:    { bg: 'bg-emerald-500/10', border: 'border-emerald-500/25', icon: 'text-emerald-400', glow: '#10b981' },
+    endpoint: 'export-xlsx',
+    mime:     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  },
+  {
+    key:      'csv',
+    label:    'CSV Bundle',
+    sub:      '1 fichier par table · UTF-8',
+    ext:      '.zip',
+    icon:     FileArchive,
+    color:    { bg: 'bg-cyan-500/10', border: 'border-cyan-500/25', icon: 'text-cyan-400', glow: '#06b6d4' },
+    endpoint: 'export-csv',
+    mime:     'application/zip',
+  },
+  {
+    key:      'json',
+    label:    'Structural JSON',
+    sub:      'Métadonnées · DDL · Lignage',
+    ext:      '.json',
+    icon:     Braces,
+    color:    { bg: 'bg-indigo-500/10', border: 'border-indigo-500/25', icon: 'text-indigo-400', glow: '#6366f1' },
+    endpoint: 'export-json',
+    mime:     'application/json',
+  },
+  {
+    key:      'sql',
+    label:    'Logical Schema',
+    sub:      'DDL T-SQL complet · Schéma étoile',
+    ext:      '.sql',
+    icon:     Database,
+    color:    { bg: 'bg-violet-500/10', border: 'border-violet-500/25', icon: 'text-violet-400', glow: '#8b5cf6' },
+    endpoint: null, // local download from store
+    mime:     'text/sql',
+  },
+  {
+    key:      'bak',
+    label:    'Backup SQL Server',
+    sub:      'Snapshot du Data Warehouse',
+    ext:      '.bak',
+    icon:     HardDrive,
+    color:    { bg: 'bg-amber-500/10', border: 'border-amber-500/25', icon: 'text-amber-400', glow: '#f59e0b' },
+    endpoint: 'export-bak',
+    mime:     'application/octet-stream',
+  },
+];
+
+// ─── Icon Card ────────────────────────────────────────────────────────────────
+function IconCard({ def, loading, success, disabled, onClick }) {
+  const { label, sub, ext, icon: Icon, color } = def;
+  const isLoading = loading === def.key;
+  const isSuccess = success === def.key;
+
   return (
-    <button
+    <motion.button
       onClick={onClick}
-      disabled={disabled || loading}
-      className={`group relative w-full flex items-center gap-4 p-4 rounded-3xl border transition-all overflow-hidden ${
-        disabled 
-        ? 'opacity-20 grayscale border-white/5 cursor-not-allowed'
-        : `bg-white/[0.02] border-white/5 hover:border-${colorCls}-500/30 hover:bg-white/[0.04] shadow-sm`
-      }`}
+      disabled={disabled || isLoading}
+      whileHover={!disabled && !isLoading ? { scale: 1.03, y: -2 } : {}}
+      whileTap={!disabled && !isLoading ? { scale: 0.97 } : {}}
+      className={`relative flex flex-col items-center justify-center gap-3 p-6 rounded-3xl border transition-all overflow-hidden group
+        ${disabled
+          ? 'opacity-25 grayscale border-white/5 cursor-not-allowed'
+          : `${color.bg} ${color.border} hover:shadow-lg cursor-pointer`
+        }`}
+      style={!disabled ? { boxShadow: isSuccess ? `0 0 20px ${color.glow}40` : undefined } : undefined}
     >
-      <div className={`p-3 rounded-2xl border transition-all ${
-        success ? 'bg-emerald-500 text-white border-emerald-400' :
-        loading ? 'bg-white/5 border-white/10' :
-        `bg-white/5 border-white/10 text-slate-500 group-hover:bg-${colorCls}-500/10 group-hover:text-${colorCls}-400 group-hover:border-${colorCls}-500/20`
-      }`}>
-        {loading ? <Loader2 size={18} className="animate-spin" /> : 
-         success ? <Check size={18} /> : 
-         <Icon size={18} />}
-      </div>
-      
-      <div className="flex-1 text-left">
-        <p className={`text-[11px] font-black uppercase tracking-widest ${disabled ? 'text-slate-600' : 'text-white'}`}>{label}</p>
-        <p className="text-[9px] text-slate-500 font-medium uppercase tracking-tighter mt-0.5">{sublabel}</p>
-      </div>
-
-      <div className="shrink-0 transition-transform group-hover:translate-x-1">
-         <ChevronRight size={14} className={disabled ? 'text-slate-800' : 'text-slate-700'} />
-      </div>
-
-      {loading && (
-        <motion.div 
-          layoutId="loadingLine" 
-          className="absolute bottom-0 left-0 h-0.5 bg-indigo-500" 
-          animate={{ width: ['0%', '100%'] }} 
-          transition={{ duration: 1.5, repeat: Infinity }} 
+      {/* Glow pulse on success */}
+      {isSuccess && (
+        <motion.div
+          initial={{ opacity: 0.6, scale: 0.8 }}
+          animate={{ opacity: 0, scale: 2 }}
+          transition={{ duration: 0.8 }}
+          className="absolute inset-0 rounded-3xl"
+          style={{ background: `radial-gradient(circle, ${color.glow}30, transparent)` }}
         />
       )}
-    </button>
+
+      {/* Icon container */}
+      <div className={`relative w-14 h-14 rounded-2xl flex items-center justify-center border transition-all
+        ${isSuccess ? 'bg-emerald-500 border-emerald-400' : `${color.bg} ${color.border} group-hover:scale-110`}`}
+        style={{ transition: 'transform 0.2s ease' }}
+      >
+        {isLoading ? (
+          <Loader2 size={22} className="animate-spin text-white" />
+        ) : isSuccess ? (
+          <Check size={22} className="text-white" />
+        ) : (
+          <Icon size={22} className={color.icon} />
+        )}
+      </div>
+
+      {/* Labels */}
+      <div className="text-center space-y-0.5">
+        <p className={`text-[12px] font-black uppercase tracking-wider ${disabled ? 'text-slate-600' : 'text-white'}`}>
+          {label}
+        </p>
+        <p className="text-[9px] text-slate-500 font-medium">{sub}</p>
+      </div>
+
+      {/* Extension badge */}
+      <span className={`text-[8px] font-black font-mono px-2 py-0.5 rounded-full border ${color.bg} ${color.border} ${color.icon}`}>
+        {ext}
+      </span>
+
+      {/* Loading progress bar */}
+      {isLoading && (
+        <motion.div
+          className="absolute bottom-0 left-0 h-0.5 rounded-full"
+          style={{ background: color.glow }}
+          animate={{ width: ['0%', '90%'] }}
+          transition={{ duration: 2, ease: 'easeInOut', repeat: Infinity }}
+        />
+      )}
+    </motion.button>
   );
 }
 
+// ─── Main ────────────────────────────────────────────────────────────────────
 export default function ExportPanel({ onClose }) {
-  const { sessionId, pipelineStatus, etlStatus, userPrefix, sqlDDL, airflowDag, dbtProject, mockDataSql } = usePipelineStore();
-  const [email, setEmail]           = useState('');
-  const [includePdf, setIncludePdf] = useState(true);
-  const [loading, setLoading]       = useState(null); 
-  const [success, setSuccess]       = useState(null);
-  const [error, setError]           = useState('');
+  const { sessionId, pipelineStatus, etlStatus, userPrefix, sqlDDL } = usePipelineStore();
+  const [loading, setLoading] = useState(null);
+  const [success, setSuccess] = useState(null);
+  const [error,   setError]   = useState('');
 
-  // Un session_id suffit pour exporter — le backend renvoie ce qu'il a dans le state.
-  // Les cartes sont activées dès que le pipeline est complet ou qu'on a un session_id.
-  const canExport = !!sessionId;
+  const canExport   = !!sessionId;
   const pipelineDone = pipelineStatus === 'complete' || etlStatus === 'success';
 
-  const flashSuccess = (key) => {
+  const flash = (key) => {
     setSuccess(key);
     setTimeout(() => setSuccess(null), 3000);
   };
 
-  const handleDownloadPdf = async () => {
+  const download = async (def) => {
     if (!sessionId) return;
-    setLoading('pdf'); setError('');
-    try {
-      const base = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const resp = await fetch(`${base}/api/export-pdf?session_id=${sessionId}`, {
-        headers: apiClient.getHeaders()
-      });
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(text);
-      }
-      const blob = await resp.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `rapport_${userPrefix}_${sessionId}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      flashSuccess('pdf');
-    } catch (e) {
-      setError(`PDF Protocol Fault: ${e.message}`);
-    } finally {
-      setLoading(null);
-    }
-  };
+    setError('');
 
-  const handleDownloadJson = async () => {
-    if (!sessionId) return;
-    setLoading('json'); setError('');
-    try {
-      const base = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const resp = await fetch(`${base}/api/export-json?session_id=${sessionId}`, {
-        headers: apiClient.getHeaders()
-      });
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Status ${resp.status}: ${text}`);
-      }
-      const data = await resp.json();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    // Local SQL download (no API call)
+    if (def.key === 'sql') {
+      if (!sqlDDL) { setError('DDL SQL non encore généré'); return; }
+      const blob = new Blob([sqlDDL], { type: 'text/sql' });
       const url  = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = `archive_${userPrefix}_${sessionId.substring(0,8)}.json`;
+      a.href = url;
+      a.download = `schema_${userPrefix}_${sessionId.substring(0, 8)}.sql`;
       a.click();
       URL.revokeObjectURL(url);
-      flashSuccess('json');
-    } catch (e) {
-      setError(`JSON Synthesis Fault: ${e.message}`);
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const handleDownloadKtr = async () => {
-    if (!sessionId) return;
-    setLoading('ktr'); setError('');
-    try {
-      const base = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const resp = await fetch(`${base}/api/export-ktr?session_id=${sessionId}`, {
-        headers: apiClient.getHeaders()
-      });
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Status ${resp.status}: ${text}`);
-      }
-      const blob = await resp.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `${userPrefix}_etl_pipeline.ktr`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      flashSuccess('ktr');
-    } catch (e) {
-      setError(`KTR Export Fault: ${e.message}`);
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const handleDownloadAirflow = async () => {
-    if (!sessionId) return;
-    setLoading('airflow'); setError('');
-    try {
-      const base = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const resp = await fetch(`${base}/api/export-airflow?session_id=${sessionId}`, {
-        headers: apiClient.getHeaders()
-      });
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Status ${resp.status}: ${text}`);
-      }
-      const blob = await resp.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `${userPrefix}_etl_dag.py`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      flashSuccess('airflow');
-    } catch (e) {
-      setError(`Airflow Export Fault: ${e.message}`);
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const handleDownloadDbt = async () => {
-    if (!sessionId) return;
-    setLoading('dbt'); setError('');
-    try {
-      const base = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const resp = await fetch(`${base}/api/export-dbt?session_id=${sessionId}`, {
-        headers: apiClient.getHeaders()
-      });
-      if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Status ${resp.status}: ${text}`);
-      }
-      const blob = await resp.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `${userPrefix}_dbt_project.zip`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      flashSuccess('dbt');
-    } catch (e) {
-      setError(`DBT Export Fault: ${e.message}`);
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  const handleDownloadSql = () => {
-    const ddl = sqlDDL;
-    if (!ddl) {
-      setError('SQL DDL not yet generated');
+      flash('sql');
       return;
     }
-    const blob = new Blob([ddl], { type: 'text/sql' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `schema_${userPrefix}_${sessionId?.substring(0,8)}.sql`;
-    a.click();
-    URL.revokeObjectURL(url);
-    flashSuccess('sql');
-  };
 
-  // ── BI exports (XLSX / CSV bundle / Power BI template) ───────────────────
-  const _downloadBlobEndpoint = async (endpoint, key, filename, errLabel) => {
-    if (!sessionId) return;
-    setLoading(key); setError('');
+    // API-based downloads
+    setLoading(def.key);
     try {
       const base = import.meta.env.VITE_API_URL || '';
-      const resp = await fetch(`${base}/api/${endpoint}?session_id=${sessionId}`, {
+      const resp = await fetch(`${base}/api/${def.endpoint}?session_id=${sessionId}`, {
         headers: apiClient.getHeaders(),
       });
       if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Status ${resp.status}: ${text}`);
+        const txt = await resp.text();
+        throw new Error(`HTTP ${resp.status}: ${txt.substring(0, 200)}`);
       }
+
       const blob = await resp.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename;
+      const url  = window.URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+
+      // Build filename
+      const prefix = userPrefix || 'dw';
+      const sid    = sessionId.substring(0, 8);
+      const names  = {
+        xlsx: `rapport_${prefix}_${sid}.xlsx`,
+        csv:  `csv_bundle_${prefix}_${sid}.zip`,
+        json: `archive_${prefix}_${sid}.json`,
+        bak:  `${prefix}_dw_${sid}.bak`,
+      };
+      a.download = names[def.key] || `export_${def.key}`;
       a.click();
       window.URL.revokeObjectURL(url);
-      flashSuccess(key);
+      flash(def.key);
     } catch (e) {
-      setError(`${errLabel}: ${e.message}`);
+      setError(`${def.label} : ${e.message}`);
     } finally {
       setLoading(null);
     }
   };
 
-  const handleDownloadXlsx = () =>
-    _downloadBlobEndpoint('export-xlsx', 'xlsx',
-      `rapport_${userPrefix}_${sessionId?.substring(0,8)}.xlsx`,
-      'Excel Export Fault');
-
-  const handleDownloadCsvBundle = () =>
-    _downloadBlobEndpoint('export-csv', 'csv',
-      `csv_bundle_${userPrefix}_${sessionId?.substring(0,8)}.zip`,
-      'CSV Bundle Fault');
-
-  const handleDownloadPowerBI = () =>
-    _downloadBlobEndpoint('export-powerbi', 'powerbi',
-      `powerbi_bundle_${userPrefix}_${sessionId?.substring(0,8)}.zip`,
-      'Power BI Bundle Fault');
-
-  const handleDownloadMockData = () => {
-    if (!mockDataSql) {
-      setError('Mock data not yet generated');
-      return;
-    }
-    const blob = new Blob([mockDataSql], { type: 'text/sql' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `seed_${userPrefix}_${sessionId?.substring(0,8)}.sql`;
-    a.click();
-    URL.revokeObjectURL(url);
-    flashSuccess('mock');
-  };
-
-  const handleSendEmail = async () => {
-    if (!email.trim() || !sessionId) return;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError('Neural Identifier (Email) Invalid');
-      return;
-    }
-    setLoading('email'); setError('');
-    try {
-      const base = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const resp = await fetch(`${base}/api/notify-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sessionId, email, include_pdf: includePdf }),
-      });
-      const data = await resp.json();
-      if (data.sent) {
-        flashSuccess('email');
-      } else {
-        setError('Transmission Failed - SMTP Cluster Unreachable');
-      }
-    } catch (e) {
-      setError(`Broadcast Fault: ${e.message}`);
-    } finally {
-      setLoading(null);
-    }
+  const isDisabled = (def) => {
+    if (!canExport) return true;
+    // .bak and .sql require pipeline done
+    if ((def.key === 'bak' || def.key === 'sql') && !pipelineDone) return true;
+    return false;
   };
 
   return (
-    <div className="h-full overflow-y-auto p-6 custom-scrollbar">
-      
-      {/* Strategic Header */}
-      <div className="px-8 py-6 border-b border-white/[0.06] bg-black/40 flex items-center justify-between shrink-0">
+    <div className="h-full flex flex-col bg-[#050508] overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] shrink-0">
         <div className="flex items-center gap-3">
-           <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-              <Download size={14} className="text-indigo-400" />
-           </div>
-           <div>
-              <h3 className="text-sm font-black text-white italic tracking-tighter uppercase">Deployment Assets</h3>
-              <p className="text-[8px] text-slate-500 font-black tracking-widest uppercase mt-0.5">Session: {sessionId?.substring(0,12)}</p>
-           </div>
+          <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+            <Download size={14} className="text-indigo-400" />
+          </div>
+          <div>
+            <h3 className="text-[13px] font-black text-white uppercase tracking-tight">Exports & Livrables</h3>
+            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+              {sessionId ? `Session · ${sessionId.substring(0, 12)}` : 'En attente de session'}
+            </p>
+          </div>
         </div>
         {onClose && (
           <button onClick={onClose} className="p-2 rounded-xl text-slate-600 hover:text-white bg-white/5 hover:bg-white/10 transition-all">
@@ -324,142 +231,64 @@ export default function ExportPanel({ onClose }) {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
-        
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
         {!canExport && (
-          <div className="flex items-center gap-3 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/10 text-[10px] text-amber-400 font-bold uppercase tracking-widest italic animate-pulse">
-            <AlertTriangle size={14} className="shrink-0" />
-            Launch sequence incomplete
-          </div>
+          <motion.div
+            initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+            className="flex items-center gap-3 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/10 text-amber-400 text-[10px] font-bold uppercase tracking-widest"
+          >
+            <AlertTriangle size={14} className="shrink-0 animate-pulse" />
+            Démarrez un pipeline pour activer les exports
+          </motion.div>
         )}
 
-        {/* Export Sectors */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-3 px-2 mb-2">
-             <Box size={14} className="text-slate-600" />
-             <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Master Artifacts</span>
-          </div>
-
-          <ExportCard
-            label="Neural Intelligence PDF" sublabel="Complete DDL + Quality Audit"
-            icon={FileText} colorCls="rose"
-            onClick={handleDownloadPdf} disabled={!canExport} loading={loading === 'pdf'} success={success === 'pdf'}
-          />
-
-          <ExportCard
-            label="Excel Multi-Sheet" sublabel="Power BI / Tableau Ready (.xlsx)"
-            icon={FileSpreadsheet} colorCls="emerald"
-            onClick={handleDownloadXlsx} disabled={!canExport} loading={loading === 'xlsx'} success={success === 'xlsx'}
-          />
-
-          <ExportCard
-            label="CSV Bundle" sublabel="UTF-8 BOM · 1 file per table (.zip)"
-            icon={FileArchive} colorCls="cyan"
-            onClick={handleDownloadCsvBundle} disabled={!canExport} loading={loading === 'csv'} success={success === 'csv'}
-          />
-
-          <ExportCard
-            label="Power BI Connect Pack" sublabel="Power Query M + DAX guide (.zip)"
-            icon={BarChart3} colorCls="amber"
-            onClick={handleDownloadPowerBI} disabled={!canExport} loading={loading === 'powerbi'} success={success === 'powerbi'}
-          />
-
-          <ExportCard
-            label="Structural JSON" sublabel="Raw Metadata Synthesis"
-            icon={Hash} colorCls="indigo"
-            onClick={handleDownloadJson} disabled={!canExport} loading={loading === 'json'} success={success === 'json'}
-          />
-
-          <ExportCard 
-            label="Logical Schema" sublabel="Raw SQL DDL Structure"
-            icon={Database} colorCls="indigo"
-            onClick={handleDownloadSql} disabled={!canExport || !pipelineDone} loading={loading === 'sql'} success={success === 'sql'}
-          />
-
-          <ExportCard 
-            label="Airflow Orchestrator DAG" sublabel="Native Python Scheduling"
-            icon={Wind} colorCls="cyan"
-            onClick={handleDownloadAirflow} disabled={!canExport || !pipelineDone} loading={loading === 'airflow'} success={success === 'airflow'}
-          />
-
-          <ExportCard 
-            label="dbt Analytics Models" sublabel="SQL Transformation Project"
-            icon={Package} colorCls="orange"
-            onClick={handleDownloadDbt} disabled={!canExport || !pipelineDone} loading={loading === 'dbt'} success={success === 'dbt'}
-          />
-
-          <ExportCard 
-            label="Mock Data Generator" sublabel="Seed SQL Scripts"
-            icon={DatabaseZap} colorCls="pink"
-            onClick={handleDownloadMockData} disabled={!canExport || !pipelineDone} loading={loading === 'mock'} success={success === 'mock'}
-          />
-
-          <ExportCard 
-            label="Pentaho KTR Engine" sublabel="Production ETL Runtime"
-            icon={Code2} colorCls="emerald"
-            onClick={handleDownloadKtr} disabled={!canExport || !pipelineDone} loading={loading === 'ktr'} success={success === 'ktr'}
-          />
+        {/* Icon grid — 2 columns */}
+        <div className="grid grid-cols-2 gap-4">
+          {EXPORTS.map(def => (
+            <IconCard
+              key={def.key}
+              def={def}
+              loading={loading}
+              success={success}
+              disabled={isDisabled(def)}
+              onClick={() => download(def)}
+            />
+          ))}
         </div>
 
-        {/* Broadcast System */}
-        <div className="space-y-4 pt-4 border-t border-white/5">
-           <div className="flex items-center gap-3 px-2 mb-2">
-              <Send size={14} className="text-slate-600" />
-              <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Neural Broadcast</span>
-           </div>
-
-           <div className="space-y-4">
-              <div className="relative group/input">
-                 <input
-                   type="email" value={email} onChange={e => setEmail(e.target.value)}
-                   placeholder="neural@agent.network"
-                   disabled={!canExport}
-                   className="w-full bg-black border border-white/10 rounded-2xl px-5 py-4 text-xs text-white font-bold tracking-tight focus:border-indigo-500/50 outline-none transition-all placeholder:text-slate-800 disabled:opacity-20 shadow-inner"
-                 />
-                 <Mail size={14} className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-800 group-focus-within/input:text-indigo-500 transition-colors" />
-              </div>
-
-              <button 
-                onClick={() => setIncludePdf(!includePdf)}
-                className="flex items-center justify-between w-full p-2.5 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all cursor-pointer"
-              >
-                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] ml-2">Attach Logic PDF</span>
-                 <div className={`w-10 h-5 rounded-full transition-all relative ${includePdf ? 'bg-indigo-600' : 'bg-slate-800'}`}>
-                    <motion.div animate={{ x: includePdf ? 22 : 4 }} className="absolute top-1 w-3 h-3 rounded-full bg-white shadow-xl" />
-                 </div>
-              </button>
-
-              <button
-                onClick={handleSendEmail}
-                disabled={!canExport || !email.trim() || loading === 'email'}
-                className="w-full h-14 bg-white text-black font-black text-xs uppercase tracking-[0.2em] rounded-2xl shadow-[0_10px_30px_rgba(255,255,255,0.1)] hover:shadow-white/20 transition-all hover:bg-slate-100 flex items-center justify-center gap-3 active:scale-95 disabled:opacity-20 italic"
-              >
-                {loading === 'email' ? <Loader2 size={16} className="animate-spin" /> : 
-                 success === 'email' ? <ShieldCheck size={16} className="text-emerald-500" /> : 
-                 <Sparkles size={16} className="text-indigo-600" />}
-                {success === 'email' ? 'TRANSMITTED' : 'ESTABLISH BROADCAST'}
-              </button>
-           </div>
+        {/* Status info */}
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${pipelineDone ? 'bg-emerald-500' : canExport ? 'bg-amber-500 animate-pulse' : 'bg-slate-700'}`} />
+          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">
+            {pipelineDone
+              ? 'Pipeline complet — tous les exports disponibles'
+              : canExport
+              ? 'Pipeline en cours — Excel, CSV et JSON disponibles'
+              : 'En attente du pipeline'}
+          </span>
         </div>
 
-        {/* Global Fault Report */}
+        {/* Error */}
         <AnimatePresence>
           {error && (
             <motion.div
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-              className="flex items-center gap-3 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] font-black uppercase tracking-tight italic"
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+              className="flex items-start gap-3 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-[10px] font-bold"
             >
-              <Zap size={14} className="shrink-0 fill-rose-500/20" />
-              Fault Detect: {error}
+              <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+              <span className="leading-relaxed">{error}</span>
+              <button onClick={() => setError('')} className="ml-auto shrink-0 hover:opacity-70"><X size={12} /></button>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Aesthetic Footer */}
-      <div className="px-8 py-4 border-t border-white/5 flex items-center justify-between text-[8px] font-black text-slate-800 uppercase tracking-[0.3em] font-mono italic">
-         <span>Protocol V3.0 SP1</span>
-         <span>SECURE NODE 0127</span>
+      {/* Footer */}
+      <div className="px-6 py-3 border-t border-white/5 text-center">
+        <span className="text-[8px] font-black text-slate-800 uppercase tracking-[0.3em] font-mono">
+          Agent DW v3.0 · Export Engine
+        </span>
       </div>
     </div>
   );

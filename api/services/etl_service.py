@@ -10,8 +10,16 @@ CORRECTIONS v3.0 :
 import asyncio
 import logging
 import json
+import random
+import time
 from typing import Dict
 from langchain_core.messages import HumanMessage
+
+# Durée minimale d'affichage par étape (UI pacing — n'affecte pas les calculs)
+_STEP_MIN_SEC = (15, 25)
+
+# Nœuds qui bloquent/pausent : pas de délai artificiel
+_NO_DELAY_NODES = {"__interrupt__", "human_review", "human_review_dq"}
 
 logger = logging.getLogger(__name__)
 
@@ -180,13 +188,23 @@ async def _run_inner_impl(session_id: str, config: dict) -> None:
 
     c_config = config.get("connection_config", {})
     is_bak   = c_config.get("type", "").lower() == "bak"
+    user_prefix = config.get("user_prefix", "dw")
+    
+    # FIX: Set up DW config with a separate database name
+    dw_config = config.get("dw_connection_config", {}).copy()
+    if is_bak:
+        # For .bak files, ensure DW database is separate from source database
+        # Use {user_prefix}_DW as the DW database name
+        dw_db_name = f"{user_prefix}_DW"
+        dw_config["database"] = dw_db_name
+        logger.info(f"[Pipeline] DW database set to: {dw_db_name} (separate from restored source)")
 
     initial = {
         "messages": [],
         "connection_config":    c_config,
-        "dw_connection_config": config.get("dw_connection_config", {}),
+        "dw_connection_config": dw_config,
         "user_id":     config.get("user_id", 1),
-        "user_prefix": config.get("user_prefix", "dw"),
+        "user_prefix": user_prefix,
         "session_id":  session_id,
         # États par défaut
         "is_validated": False, "critic_approved": False,
@@ -233,6 +251,7 @@ async def _run_inner_impl(session_id: str, config: dict) -> None:
                     })
                     return  # Pause propre — LangGraph reprend via astream(None, tc)
 
+                _node_start = time.monotonic()
                 sse.set_agent_status(session_id, node, "running")
                 sse.log_event(session_id, f"▶️  {AGENT_LABELS.get(node, node)} en cours...")
 
@@ -262,6 +281,13 @@ async def _run_inner_impl(session_id: str, config: dict) -> None:
                                       "Vérifiez que l'Explorer a bien extrait les métadonnées source.",
                         })
                         return
+
+                # ── Délai minimum par étape (UI pacing) ─────────────────────────
+                if node not in _NO_DELAY_NODES:
+                    _elapsed = time.monotonic() - _node_start
+                    _min_dur = random.uniform(*_STEP_MIN_SEC)
+                    if _elapsed < _min_dur:
+                        await asyncio.sleep(_min_dur - _elapsed)
 
                 sse.set_agent_status(session_id, node, "done")
                 sse.log_event(session_id, f"✅ {AGENT_LABELS.get(node, node)} terminé")
@@ -377,6 +403,7 @@ async def _stream_continue(session_id: str, tc: dict) -> None:
                     })
                     return  # Pause propre — LangGraph reprend via astream(None, tc)
 
+                _sc_start = time.monotonic()
                 sse.set_agent_status(session_id, node, "running")
                 sse.log_event(session_id, f"▶️  {AGENT_LABELS.get(node, node)} en cours...")
 
@@ -397,7 +424,7 @@ async def _stream_continue(session_id: str, tc: dict) -> None:
                         sse.set_agent_status(session_id, "modeler", "error")
                         sse.log_event(
                             session_id,
-                            "❌ Schema Modeling FAILED — modèle vide/invalide, aucune fact_table générée",
+                            "❌ Schema Modeling FAILED — modèle vide/invalide, aucune fait_table générée",
                             level="error",
                         )
                         sse.pipeline_complete(session_id, False, {
@@ -405,6 +432,13 @@ async def _stream_continue(session_id: str, tc: dict) -> None:
                             "reason": "Le modèle logique est vide ou ne contient aucune table de faits.",
                         })
                         return
+
+                # ── Délai minimum par étape (UI pacing) ─────────────────────────
+                if node not in _NO_DELAY_NODES:
+                    _sc_elapsed = time.monotonic() - _sc_start
+                    _sc_min = random.uniform(*_STEP_MIN_SEC)
+                    if _sc_elapsed < _sc_min:
+                        await asyncio.sleep(_sc_min - _sc_elapsed)
 
                 sse.set_agent_status(session_id, node, "done")
                 sse.log_event(session_id, f"✅ {AGENT_LABELS.get(node, node)} terminé")

@@ -65,6 +65,13 @@ def explorer_node(state: AgentState) -> dict:
     logger.info("--- AGENT EXPLORER : Analyse de la source ---")
     config = state.get("connection_config", {})
     source_type = config.get("type", "csv")
+    
+    # FIX: Pass restored_db from state to _explore_sql for bak type
+    dw_config = state.get("dw_connection_config", {})
+    if source_type == "bak":
+        # Ensure restored_db is in config for _explore_sql
+        config = config.copy()
+        config["restored_db"] = state.get("restored_db") or config.get("restored_db")
 
     try:
         if source_type == "csv":
@@ -72,7 +79,7 @@ def explorer_node(state: AgentState) -> dict:
         elif source_type in ("excel", "xlsx", "xls"):
             metadata = _explore_excel(config)
         elif source_type in ("mysql", "postgresql", "postgres", "sqlite", "sqlserver", "mssql", "bak"):
-            metadata = _explore_sql(config, state.get("dw_connection_config"))
+            metadata = _explore_sql(config, dw_config)
         elif source_type == "rest_api":
             metadata = _explore_rest_api(config)
         else:
@@ -153,7 +160,10 @@ def _explore_sql(config: dict, dw_config: dict = None) -> Dict[str, Any]:
     if db_type == "bak":
         host     = dw_config.get("host", "localhost")
         port     = dw_config.get("port", 1433)
-        database = config.get("restored_db", dw_config.get("database", ""))
+        # FIX: Validate restored_db - must not be empty
+        database = config.get("restored_db") or dw_config.get("database")
+        if not database:
+            raise ValueError("restored_db is required for .bak source type - database name cannot be empty")
         user     = dw_config.get("user", "sa")
         password = dw_config.get("password", "")
         db_type  = "sqlserver"

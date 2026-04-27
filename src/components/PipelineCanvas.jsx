@@ -294,9 +294,11 @@ function ProgressBar({ stages, agentStatuses, currentAgent, pipelineStatus }) {
 }
 
 // Durée minimale d'affichage du statut "running" pour chaque étape (ms)
-const MIN_RUNNING_MS = 1800;
+// FIX: Augmenté pour rendre les étapes ETL visuellement crédibles (pas un "flash")
+const MIN_RUNNING_MS = 2500;
 // Gap visuel entre la fin d'une étape ETL et le début de la suivante (ms)
-const ETL_STEP_GAP   = 700;
+// FIX: Augmenté pour bien séparer les étapes Extract → Transform → Load
+const ETL_STEP_GAP   = 1200;
 // Chaîne ETL séquentielle : chaque agent attend la fin visuelle du précédent
 const ETL_CHAIN = ['etl_extractor', 'etl_transformer', 'etl_loader'];
 
@@ -313,10 +315,14 @@ export default function PipelineCanvas() {
   const runningStart = useRef({});
   const doneShownAt  = useRef({});
   const [visualStatus, setVisualStatus] = useState({});
+  // FIX: Stocke les timers par agent pour ne pas les annuler quand d'autres agents changent
+  const agentTimers = useRef({});
 
   useEffect(() => {
-    const timers = [];
     Object.entries(agentStatuses).forEach(([agent, status]) => {
+      // Si on a déjà un timer en cours pour cet agent, ne pas en recréer un
+      if (agentTimers.current[agent]) return;
+
       if (status === 'running') {
         // Pour les agents ETL (sauf le premier), attendre que le précédent
         // ait affiché 'done' depuis au moins ETL_STEP_GAP ms.
@@ -328,25 +334,49 @@ export default function PipelineCanvas() {
           const elapsed    = Date.now() - prevDoneAt;
           if (elapsed < ETL_STEP_GAP) runDelay = ETL_STEP_GAP - elapsed;
         }
-        const t = setTimeout(() => {
-          runningStart.current[agent] = Date.now();
-          setVisualStatus(prev => ({ ...prev, [agent]: 'running' }));
-        }, runDelay);
-        timers.push(t);
+
+        // Appliquer immédiatement le statut visuel
+        runningStart.current[agent] = Date.now();
+        setVisualStatus(prev => ({ ...prev, [agent]: 'running' }));
+
+        // Programmer la fin du statut "running" (minimum duration)
+        agentTimers.current[agent] = setTimeout(() => {
+          delete agentTimers.current[agent];
+        }, runDelay + MIN_RUNNING_MS);
+
       } else if (status === 'done') {
         const started = runningStart.current[agent] || 0;
         const elapsed = Date.now() - started;
         const delay   = Math.max(0, MIN_RUNNING_MS - elapsed);
-        const t = setTimeout(() => {
+
+        // FIX: Si l'agent n'a pas encore atteint le temps minimum en "running",
+        // on retarde le passage visuel à "done" pour respecter MIN_RUNNING_MS
+        if (elapsed < MIN_RUNNING_MS && visualStatus[agent] !== 'done') {
+          agentTimers.current[agent] = setTimeout(() => {
+            doneShownAt.current[agent] = Date.now();
+            setVisualStatus(prev => ({ ...prev, [agent]: 'done' }));
+            delete agentTimers.current[agent];
+          }, delay);
+        } else {
+          // Temps minimum déjà atteint, appliquer immédiatement
           doneShownAt.current[agent] = Date.now();
           setVisualStatus(prev => ({ ...prev, [agent]: 'done' }));
-        }, delay);
-        timers.push(t);
+        }
+
       } else {
         setVisualStatus(prev => ({ ...prev, [agent]: status }));
       }
     });
-    return () => timers.forEach(clearTimeout);
+
+    // Cleanup: annule uniquement les timers des agents qui ont été supprimés
+    return () => {
+      Object.keys(agentTimers.current).forEach(agent => {
+        if (!agentStatuses[agent]) {
+          clearTimeout(agentTimers.current[agent]);
+          delete agentTimers.current[agent];
+        }
+      });
+    };
   }, [agentStatuses]);
 
   // Merge : visualStatus prend le dessus sur agentStatuses pour le rendu

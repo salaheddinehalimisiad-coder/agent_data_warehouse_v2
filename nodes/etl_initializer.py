@@ -45,6 +45,33 @@ def etl_initializer_node(state: AgentState) -> dict:
 
     new_logs = []
     try:
+        # FIX: Create DW database if it doesn't exist (for .bak flow with separate DW)
+        import pyodbc
+        dw_db_name = dw_config.get("database", "data_warehouse")
+        
+        # Connect to master first to create the DW database
+        master_config = dw_config.copy()
+        master_config["database"] = "master"
+        master_engine = _build_engine(master_config)
+        
+        try:
+            from sqlalchemy import text
+            with master_engine.connect() as conn:
+                conn.execution_options(isolation_level="AUTOCOMMIT")
+                conn.execute(text(f"""
+                    IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = N'{dw_db_name}')
+                    BEGIN
+                        CREATE DATABASE [{dw_db_name}]
+                    END
+                """))
+                conn.commit()
+                conn.close()
+            new_logs.append(f"[ETL INITIALIZER] ✅ Database '{dw_db_name}' created/verified")
+        except Exception as e:
+            logger.warning(f"[ETL INITIALIZER] DB creation check failed (may already exist): {e}")
+        finally:
+            master_engine.dispose()
+        
         # 1. Test connexion DW
         engine = _build_engine(dw_config)
         _test_connection(engine)

@@ -680,107 +680,1243 @@ def _sanitize_sheet_name(name: str) -> str:
     return clean[:31]
 
 
+
+# ─── Palette & styles partagés ────────────────────────────────────────────────
+
+_C = {
+    "navy":    "1E3A5F",
+    "blue":    "2563EB",
+    "teal":    "0EA5E9",
+    "indigo":  "4F46E5",
+    "green":   "059669",
+    "green2":  "D1FAE5",
+    "amber":   "D97706",
+    "amber2":  "FEF3C7",
+    "red":     "DC2626",
+    "red2":    "FEE2E2",
+    "white":   "FFFFFF",
+    "light":   "F8FAFC",
+    "gray1":   "F1F5F9",
+    "gray2":   "E2E8F0",
+    "gray3":   "CBD5E1",
+    "gray4":   "94A3B8",
+    "dark":    "0F172A",
+    "gold":    "B45309",
+    "gold2":   "FFF7ED",
+    "purple":  "7C3AED",
+    "purple2": "EDE9FE",
+    "row_alt": "EFF6FF",
+}
+
+def _mk_font(bold=False, size=10, color="0F172A", italic=False, name="Calibri"):
+    from openpyxl.styles import Font
+    return Font(name=name, size=size, bold=bold, color=color, italic=italic)
+
+def _mk_fill(color_hex):
+    from openpyxl.styles import PatternFill
+    return PatternFill("solid", fgColor=color_hex)
+
+def _mk_border(style="thin", color="CBD5E1"):
+    from openpyxl.styles import Border, Side
+    s = Side(style=style, color=color)
+    return Border(left=s, right=s, top=s, bottom=s)
+
+def _mk_align(h="left", v="center", wrap=False):
+    from openpyxl.styles import Alignment
+    return Alignment(horizontal=h, vertical=v, wrap_text=wrap)
+
+def _col_letter(n):
+    from openpyxl.utils import get_column_letter
+    return get_column_letter(n)
+
+def _set_row_height(ws, row, h):
+    ws.row_dimensions[row].height = h
+
+def _header_cell(ws, row, col, text, bg=None, fg="FFFFFF", size=10, bold=True, h="left", merge_to=None):
+    cell = ws.cell(row=row, column=col, value=text)
+    cell.font    = _mk_font(bold=bold, size=size, color=fg)
+    cell.fill    = _mk_fill(bg or _C["navy"])
+    cell.alignment = _mk_align(h=h, v="center")
+    if merge_to:
+        ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=merge_to)
+    return cell
+
+def _data_cell(ws, row, col, value, bg=None, fg=None, bold=False, size=10,
+               h="left", border=True, num_fmt=None, wrap=False):
+    cell = ws.cell(row=row, column=col, value=value)
+    cell.font  = _mk_font(bold=bold, size=size, color=fg or _C["dark"])
+    if bg:
+        cell.fill = _mk_fill(bg)
+    if border:
+        cell.border = _mk_border("thin", _C["gray3"])
+    cell.alignment = _mk_align(h=h, v="center", wrap=wrap)
+    if num_fmt:
+        cell.number_format = num_fmt
+    return cell
+
+def _section_title(ws, row, col, text, colspan=10, bg=None):
+    c = ws.cell(row=row, column=col, value=f"  {text}")
+    c.font      = _mk_font(bold=True, size=11, color=_C["white"])
+    c.fill      = _mk_fill(bg or _C["blue"])
+    c.alignment = _mk_align(h="left", v="center")
+    ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=col + colspan - 1)
+    _set_row_height(ws, row, 22)
+    return c
+
+def _spacer(ws, row, n_cols=15):
+    for c in range(1, n_cols + 1):
+        cell = ws.cell(row=row, column=c, value="")
+        cell.fill = _mk_fill(_C["light"])
+    _set_row_height(ws, row, 8)
+
+def _set_cols(ws, widths: dict):
+    for col_letter, w in widths.items():
+        ws.column_dimensions[col_letter].width = w
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feuille 1 : TABLEAU DE BORD
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ws_dashboard(wb, state: dict, session_id: str):
+    ws = wb.active
+    ws.title = "🎯 Tableau de Bord"
+
+    # ── Bandeau titre ─────────────────────────────────────────────────────────
+    ws.merge_cells("A1:N4")
+    title_cell = ws["A1"]
+    title_cell.value     = "RAPPORT DÉCISIONNEL — DATA WAREHOUSE"
+    title_cell.font      = _mk_font(bold=True, size=20, color=_C["white"], name="Calibri")
+    title_cell.fill      = _mk_fill(_C["navy"])
+    title_cell.alignment = _mk_align(h="center", v="center")
+    for r in range(1, 5):
+        _set_row_height(ws, r, 18)
+
+    # Sous-titre
+    ws.merge_cells("A5:N5")
+    sub = ws["A5"]
+    dts = datetime.now().strftime("%d %B %Y — %H:%M")
+    sub.value     = f"  Pipeline ID : {session_id}   ·   Généré le {dts}   ·   Préfixe : {state.get('user_prefix','dw').upper()}"
+    sub.font      = _mk_font(italic=True, size=10, color=_C["white"])
+    sub.fill      = _mk_fill(_C["indigo"])
+    sub.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, 5, 18)
+
+    # ── KPI Cards ─────────────────────────────────────────────────────────────
+    _spacer(ws, 6)
+
+    kpi_row   = 7
+    kpi_items = [
+        ("A", "Score Qualité Données", f"{state.get('dq_score',0)}/100",  _C["indigo"], _C["purple2"]),
+        ("C", "Statut ETL",            (state.get("etl_status") or "N/A").upper(), _C["green"], _C["green2"]),
+        ("E", "Mode ETL",              (state.get("etl_mode") or "N/A").upper(),   _C["amber"],  _C["amber2"]),
+        ("G", "Version Schéma",        f"v{state.get('logical_model_version',1)}",  _C["blue"],   _C["row_alt"]),
+        ("I", "Auto-corrections",      str(len(state.get("heal_history",[]) or [])), _C["gold"],  _C["gold2"]),
+        ("K", "Alertes DQ",            str(len(state.get("dq_alerts",[]) or [])),    _C["red"],   _C["red2"]),
+    ]
+    for col_letter, label, value, accent, bg in kpi_items:
+        col_n = ord(col_letter) - 64
+        # Fusion 2 colonnes par KPI
+        ws.merge_cells(start_row=kpi_row,   start_column=col_n, end_row=kpi_row,   end_column=col_n+1)
+        ws.merge_cells(start_row=kpi_row+1, start_column=col_n, end_row=kpi_row+1, end_column=col_n+1)
+        ws.merge_cells(start_row=kpi_row+2, start_column=col_n, end_row=kpi_row+2, end_column=col_n+1)
+
+        lbl_cell = ws.cell(row=kpi_row,   column=col_n, value=label)
+        val_cell = ws.cell(row=kpi_row+1, column=col_n, value=value)
+        sep_cell = ws.cell(row=kpi_row+2, column=col_n, value="")
+
+        lbl_cell.font      = _mk_font(bold=True,  size=9,  color=_C["white"])
+        lbl_cell.fill      = _mk_fill(accent)
+        lbl_cell.alignment = _mk_align(h="center", v="center")
+        lbl_cell.border    = _mk_border("medium", accent)
+
+        val_cell.font      = _mk_font(bold=True,  size=16, color=accent)
+        val_cell.fill      = _mk_fill(bg)
+        val_cell.alignment = _mk_align(h="center", v="center")
+        val_cell.border    = _mk_border("medium", accent)
+
+        sep_cell.fill   = _mk_fill(bg)
+        sep_cell.border = _mk_border("medium", accent)
+
+        _set_row_height(ws, kpi_row,   16)
+        _set_row_height(ws, kpi_row+1, 30)
+        _set_row_height(ws, kpi_row+2, 6)
+
+    _spacer(ws, kpi_row+3)
+
+    # ── Résumé pour décideurs ─────────────────────────────────────────────────
+    r = kpi_row + 4
+    _section_title(ws, r, 1, "📋  SYNTHÈSE POUR DÉCIDEURS", colspan=14)
+    r += 1
+
+    dq = state.get("dq_score", 0)
+    etl_ok = state.get("etl_status","") == "success"
+    n_dims = len((state.get("logical_model") or {}).get("dimension_tables", []))
+    n_heal = len(state.get("heal_history", []) or [])
+    n_alerts = len(state.get("dq_alerts", []) or [])
+    lm = state.get("logical_model") or {}
+    fact_name = (lm.get("fact_table") or {}).get("name", "N/A")
+    prefix = state.get("user_prefix", "dw")
+
+    dq_text = "✅ Excellente" if dq >= 90 else ("⚠️ Acceptable" if dq >= 70 else "❌ Insuffisante")
+    etl_text = "✅ ETL exécuté avec succès" if etl_ok else "⚠️ ETL non terminé ou en erreur"
+
+    summary_points = [
+        ("Qualité des données",    f"{dq_text} ({dq}/100) — {n_alerts} alerte(s) détectée(s)"),
+        ("Statut du pipeline",     etl_text),
+        ("Schéma Data Warehouse",  f"Modèle en étoile : 1 table de faits '{prefix}_{fact_name}' + {n_dims} dimension(s)"),
+        ("Fiabilité",              f"{n_heal} auto-correction(s) appliquée(s) par le Healer"),
+        ("Mode de chargement",     f"{(state.get('etl_mode') or 'full_load').replace('_',' ').title()} — CDC activé" if state.get("etl_watermarks") else f"{(state.get('etl_mode') or 'full_load').replace('_',' ').title()}"),
+    ]
+
+    lm_metrics = state.get("load_metrics") or {}
+    total_rows = 0
+    if isinstance(lm_metrics, dict):
+        for v in lm_metrics.values():
+            if isinstance(v, dict):
+                total_rows += v.get("inserted", 0)
+            elif isinstance(v, (int, float)):
+                total_rows += v
+    if total_rows > 0:
+        summary_points.append(("Lignes chargées", f"{total_rows:,} enregistrements transférés dans le DW"))
+
+    node_dur = state.get("node_durations") or {}
+    total_dur = round(sum(float(v) for v in node_dur.values() if isinstance(v, (int, float))), 1)
+    if total_dur > 0:
+        summary_points.append(("Durée totale pipeline", f"{total_dur}s ({round(total_dur/60,1)} min)"))
+
+    for label, text in summary_points:
+        lbl_c = ws.cell(row=r, column=1, value=label)
+        lbl_c.font      = _mk_font(bold=True, size=10, color=_C["navy"])
+        lbl_c.fill      = _mk_fill(_C["gray1"])
+        lbl_c.alignment = _mk_align(h="left", v="center")
+        lbl_c.border    = _mk_border("thin", _C["gray3"])
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+
+        txt_c = ws.cell(row=r, column=4, value=text)
+        txt_c.font      = _mk_font(size=10, color=_C["dark"])
+        txt_c.fill      = _mk_fill(_C["white"])
+        txt_c.alignment = _mk_align(h="left", v="center", wrap=True)
+        txt_c.border    = _mk_border("thin", _C["gray3"])
+        ws.merge_cells(start_row=r, start_column=4, end_row=r, end_column=14)
+        _set_row_height(ws, r, 18)
+        r += 1
+
+    _spacer(ws, r); r += 1
+
+    # ── Table des métriques de chargement ─────────────────────────────────────
+    if isinstance(lm_metrics, dict) and lm_metrics:
+        _section_title(ws, r, 1, "📦  MÉTRIQUES DE CHARGEMENT PAR TABLE", colspan=14)
+        r += 1
+        hdrs = ["Table", "Lignes insérées", "Lignes rejetées", "Lignes mises à jour", "Total traité"]
+        for ci, h in enumerate(hdrs, start=1):
+            c = ws.cell(row=r, column=ci, value=h)
+            c.font      = _mk_font(bold=True, size=9, color=_C["white"])
+            c.fill      = _mk_fill(_C["teal"])
+            c.alignment = _mk_align(h="center", v="center")
+            c.border    = _mk_border("thin", _C["teal"])
+        _set_row_height(ws, r, 16); r += 1
+
+        for tbl, metrics in lm_metrics.items():
+            if isinstance(metrics, dict):
+                ins = metrics.get("inserted", 0)
+                rej = metrics.get("rejected", 0)
+                upd = metrics.get("updated", 0)
+                tot = ins + rej + upd
+            elif isinstance(metrics, (int, float)):
+                ins, rej, upd, tot = int(metrics), 0, 0, int(metrics)
+            else:
+                continue
+            alt = _C["row_alt"] if r % 2 == 0 else _C["white"]
+            for ci, val in enumerate([str(tbl), ins, rej, upd, tot], start=1):
+                c = ws.cell(row=r, column=ci, value=val)
+                c.font      = _mk_font(size=9, bold=(ci == 1))
+                c.fill      = _mk_fill(alt)
+                c.alignment = _mk_align(h="right" if ci > 1 else "left", v="center")
+                c.border    = _mk_border("thin", _C["gray3"])
+                if ci > 1:
+                    c.number_format = "#,##0"
+            _set_row_height(ws, r, 15); r += 1
+
+    # Colonnes
+    _set_cols(ws, {"A":14,"B":14,"C":14,"D":14,"E":14,"F":14,"G":14,
+                   "H":14,"I":14,"J":14,"K":14,"L":14,"M":14,"N":14})
+    ws.freeze_panes = "A6"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feuille 2 : QUALITÉ DES DONNÉES
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ws_data_quality(wb, state: dict):
+    from openpyxl.chart import BarChart, PieChart, Reference
+    from openpyxl.chart.series import DataPoint
+
+    ws = wb.create_sheet("📊 Qualité Données")
+
+    dq_score  = state.get("dq_score", 0) or 0
+    dq_alerts = state.get("dq_alerts", []) or []
+    dq_report = state.get("dq_report", {}) or {}
+
+    # ── Bandeau ───────────────────────────────────────────────────────────────
+    ws.merge_cells("A1:L1")
+    h = ws["A1"]
+    h.value = "RAPPORT QUALITÉ DES DONNÉES"
+    h.font  = _mk_font(bold=True, size=14, color=_C["white"])
+    h.fill  = _mk_fill(_C["navy"])
+    h.alignment = _mk_align(h="center", v="center")
+    _set_row_height(ws, 1, 28)
+
+    # ── Score global ──────────────────────────────────────────────────────────
+    _spacer(ws, 2)
+    score_color = _C["green"] if dq_score >= 90 else (_C["amber"] if dq_score >= 70 else _C["red"])
+    score_bg    = _C["green2"] if dq_score >= 90 else (_C["amber2"] if dq_score >= 70 else _C["red2"])
+
+    ws.merge_cells("A3:C6")
+    sc = ws["A3"]
+    sc.value     = f"{dq_score}\n/100"
+    sc.font      = _mk_font(bold=True, size=28, color=score_color)
+    sc.fill      = _mk_fill(score_bg)
+    sc.alignment = _mk_align(h="center", v="center", wrap=True)
+    sc.border    = _mk_border("medium", score_color)
+
+    ws.merge_cells("D3:L3")
+    t1 = ws["D3"]
+    t1.value = "Score Qualité Global"
+    t1.font  = _mk_font(bold=True, size=12, color=_C["navy"])
+    t1.alignment = _mk_align(h="left", v="center")
+
+    ws.merge_cells("D4:L4")
+    t2 = ws["D4"]
+    verdict = "EXCELLENT" if dq_score >= 90 else ("ACCEPTABLE" if dq_score >= 70 else "CRITIQUE")
+    t2.value = verdict
+    t2.font  = _mk_font(bold=True, size=18, color=score_color)
+    t2.alignment = _mk_align(h="left", v="center")
+
+    ws.merge_cells("D5:L5")
+    t3 = ws["D5"]
+    n_err  = sum(1 for a in dq_alerts if a.get("severity") == "error")
+    n_warn = sum(1 for a in dq_alerts if a.get("severity") == "warning")
+    n_info = sum(1 for a in dq_alerts if a.get("severity") == "info")
+    t3.value = f"{len(dq_alerts)} alertes détectées : {n_err} erreur(s) critique(s) · {n_warn} avertissement(s) · {n_info} info(s)"
+    t3.font  = _mk_font(size=10, color=_C["dark"], italic=True)
+    t3.alignment = _mk_align(h="left", v="center")
+
+    for r in range(3, 7):
+        _set_row_height(ws, r, 22)
+
+    # ── Barre de progression textuelle ────────────────────────────────────────
+    _spacer(ws, 7)
+    ws.merge_cells("A8:L8")
+    bar_val = int(dq_score / 10)
+    bar_str = "█" * bar_val + "░" * (10 - bar_val) + f"  {dq_score}%"
+    bar_c = ws["A8"]
+    bar_c.value     = bar_str
+    bar_c.font      = _mk_font(bold=True, size=14, color=score_color)
+    bar_c.fill      = _mk_fill(_C["gray1"])
+    bar_c.alignment = _mk_align(h="center", v="center")
+    _set_row_height(ws, 8, 22)
+
+    _spacer(ws, 9)
+
+    # ── Données pour graphique (sévérité) ─────────────────────────────────────
+    chart_data_row = 10
+    ws.cell(row=chart_data_row, column=14, value="Sévérité").font = _mk_font(bold=True, color=_C["white"]); ws.cell(row=chart_data_row, column=14).fill = _mk_fill(_C["navy"])
+    ws.cell(row=chart_data_row, column=15, value="Nombre").font  = _mk_font(bold=True, color=_C["white"]); ws.cell(row=chart_data_row, column=15).fill  = _mk_fill(_C["navy"])
+    sev_data = [("Critique", n_err), ("Avertissement", n_warn), ("Information", n_info)]
+    for i, (sev, cnt) in enumerate(sev_data):
+        ws.cell(row=chart_data_row+1+i, column=14, value=sev)
+        ws.cell(row=chart_data_row+1+i, column=15, value=cnt)
+
+    if len(dq_alerts) > 0:
+        pie = PieChart()
+        pie.title  = "Répartition des alertes DQ"
+        pie.style  = 10
+        pie.width  = 12; pie.height = 9
+        cats  = Reference(ws, min_col=14, min_row=chart_data_row+1, max_row=chart_data_row+3)
+        data  = Reference(ws, min_col=15, min_row=chart_data_row,   max_row=chart_data_row+3)
+        pie.add_data(data, titles_from_data=True)
+        pie.set_categories(cats)
+        # Couleurs des segments
+        colors = ["DC2626", "D97706", "2563EB"]
+        from openpyxl.chart.series import DataPoint
+        from openpyxl.drawing.fill import PatternFillProperties
+        for i, hex_c in enumerate(colors):
+            pt = DataPoint(idx=i)
+            pt.graphicalProperties.solidFill = hex_c
+            pie.series[0].dPt.append(pt)
+        ws.add_chart(pie, "A10")
+
+    # ── Tableau des alertes ───────────────────────────────────────────────────
+    r = 26
+    _section_title(ws, r, 1, "⚠️  DÉTAIL DES ALERTES QUALITÉ", colspan=12)
+    r += 1
+
+    hdrs = ["#", "Sévérité", "Table", "Colonne", "Règle", "Détail"]
+    widths_dq = [3, 14, 18, 18, 18, 40]
+    for ci, h_text in enumerate(hdrs, start=1):
+        c = ws.cell(row=r, column=ci, value=h_text)
+        c.font      = _mk_font(bold=True, size=9, color=_C["white"])
+        c.fill      = _mk_fill(_C["indigo"])
+        c.alignment = _mk_align(h="center", v="center")
+        c.border    = _mk_border("thin", _C["indigo"])
+        ws.column_dimensions[_col_letter(ci)].width = widths_dq[ci-1]
+    _set_row_height(ws, r, 16); r += 1
+
+    SEV_STYLE = {
+        "error":   (_C["red"],   _C["red2"]),
+        "warning": (_C["amber"], _C["amber2"]),
+        "info":    (_C["blue"],  _C["row_alt"]),
+    }
+    if not dq_alerts:
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6)
+        c = ws.cell(row=r, column=1, value="✅  Aucune alerte — qualité des données irréprochable")
+        c.font = _mk_font(bold=True, size=10, color=_C["green"])
+        c.fill = _mk_fill(_C["green2"]); r += 1
+    else:
+        for idx, alert in enumerate(dq_alerts, start=1):
+            sev = alert.get("severity", "info")
+            fg, bg = SEV_STYLE.get(sev, (_C["blue"], _C["row_alt"]))
+            vals = [
+                idx,
+                sev.upper(),
+                alert.get("table", ""),
+                alert.get("column", ""),
+                alert.get("rule", ""),
+                alert.get("detail", ""),
+            ]
+            for ci, val in enumerate(vals, start=1):
+                c = ws.cell(row=r, column=ci, value=val)
+                c.font      = _mk_font(bold=(ci == 2), size=9, color=fg if ci == 2 else _C["dark"])
+                c.fill      = _mk_fill(bg if ci == 2 else (_C["row_alt"] if idx % 2 == 0 else _C["white"]))
+                c.alignment = _mk_align(h="left" if ci > 2 else "center", v="center", wrap=(ci == 6))
+                c.border    = _mk_border("thin", _C["gray3"])
+            _set_row_height(ws, r, 16); r += 1
+
+    # ── Rapport DQ détaillé ───────────────────────────────────────────────────
+    if isinstance(dq_report, dict) and dq_report:
+        _spacer(ws, r); r += 1
+        _section_title(ws, r, 1, "🔬  ANALYSE DQ DÉTAILLÉE PAR TABLE", colspan=12)
+        r += 1
+        for tbl_name, tbl_data in dq_report.items():
+            if not isinstance(tbl_data, dict):
+                continue
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=6)
+            c = ws.cell(row=r, column=1, value=f"  Table : {tbl_name}")
+            c.font  = _mk_font(bold=True, size=10, color=_C["white"])
+            c.fill  = _mk_fill(_C["teal"])
+            c.alignment = _mk_align(h="left", v="center")
+            _set_row_height(ws, r, 16); r += 1
+            for k, v in tbl_data.items():
+                if isinstance(v, dict):
+                    continue
+                lbl = ws.cell(row=r, column=1, value=str(k))
+                lbl.font = _mk_font(bold=True, size=9)
+                lbl.fill = _mk_fill(_C["gray1"])
+                lbl.border = _mk_border("thin", _C["gray3"])
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+                val = ws.cell(row=r, column=3, value=str(v))
+                val.font = _mk_font(size=9)
+                val.border = _mk_border("thin", _C["gray3"])
+                ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=6)
+                _set_row_height(ws, r, 14); r += 1
+
+    ws.freeze_panes = "A27"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feuille 3 : SCHÉMA EN ÉTOILE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ws_star_schema(wb, state: dict):
+    ws = wb.create_sheet("🏗️ Schéma Étoile")
+    lm     = state.get("logical_model") or {}
+    prefix = state.get("user_prefix", "dw")
+
+    ws.merge_cells("A1:L1")
+    h = ws["A1"]
+    h.value = "SCHÉMA EN ÉTOILE — MODÈLE LOGIQUE DU DATA WAREHOUSE"
+    h.font  = _mk_font(bold=True, size=14, color=_C["white"])
+    h.fill  = _mk_fill(_C["navy"])
+    h.alignment = _mk_align(h="center")
+    _set_row_height(ws, 1, 26)
+
+    fact = lm.get("fact_table") or {}
+    dims = lm.get("dimension_tables") or []
+    fact_tables_list = lm.get("fact_tables") or []
+    all_facts = ([fact] if fact and fact.get("name") else []) + fact_tables_list
+
+    r = 3
+    # ── Table(s) de Faits ─────────────────────────────────────────────────────
+    _section_title(ws, r, 1, "⭐  TABLE(S) DE FAITS", colspan=12, bg=_C["gold"])
+    r += 1
+
+    for fact_obj in all_facts:
+        fname = fact_obj.get("name", "fact_table")
+        full_name = f"{prefix}_{fname}"
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=12)
+        tc = ws.cell(row=r, column=1, value=f"  {full_name}")
+        tc.font = _mk_font(bold=True, size=11, color=_C["white"]); tc.fill = _mk_fill(_C["amber"])
+        tc.alignment = _mk_align(h="left", v="center")
+        _set_row_height(ws, r, 20); r += 1
+
+        col_hdrs = ["Colonne", "Type", "Rôle", "Référence", "Description"]
+        hdr_widths = [22, 14, 12, 22, 30]
+        for ci, h_text in enumerate(col_hdrs, start=1):
+            c = ws.cell(row=r, column=ci, value=h_text)
+            c.font  = _mk_font(bold=True, size=9, color=_C["white"])
+            c.fill  = _mk_fill(_C["gold"])
+            c.alignment = _mk_align(h="center"); c.border = _mk_border("thin", _C["amber"])
+            ws.column_dimensions[_col_letter(ci)].width = hdr_widths[ci-1]
+        _set_row_height(ws, r, 15); r += 1
+
+        ROLE_COLORS = {
+            "pk":     (_C["purple"], _C["purple2"]),
+            "fk":     (_C["blue"],   _C["row_alt"]),
+            "metric": (_C["green"],  _C["green2"]),
+            "date_sk":(_C["teal"],   "E0F7FA"),
+        }
+        for col in fact_obj.get("columns", []):
+            cname = col.get("name", "")
+            ctype = col.get("type", "")
+            crole = col.get("role", "")
+            cref  = col.get("references", "")
+            cdesc = col.get("description", col.get("desc", ""))
+            fg, bg = ROLE_COLORS.get(crole, (_C["dark"], _C["white"] if r % 2 else _C["row_alt"]))
+            for ci, val in enumerate([cname, ctype, crole.upper(), cref, cdesc], start=1):
+                c = ws.cell(row=r, column=ci, value=val)
+                c.font  = _mk_font(bold=(ci == 3), size=9, color=fg if ci == 3 else _C["dark"])
+                c.fill  = _mk_fill(bg)
+                c.alignment = _mk_align(h="left", v="center")
+                c.border = _mk_border("thin", _C["gray3"])
+            _set_row_height(ws, r, 14); r += 1
+        _spacer(ws, r); r += 1
+
+    # ── Dimensions ────────────────────────────────────────────────────────────
+    _section_title(ws, r, 1, "◇  TABLES DE DIMENSIONS", colspan=12, bg=_C["blue"])
+    r += 1
+
+    for dim in dims:
+        dname     = dim.get("name", "dim")
+        full_name = f"{prefix}_{dname}"
+        desc      = dim.get("description", dim.get("desc", ""))
+
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=12)
+        tc = ws.cell(row=r, column=1, value=f"  {full_name}" + (f"   —   {desc}" if desc else ""))
+        tc.font = _mk_font(bold=True, size=11, color=_C["white"])
+        tc.fill = _mk_fill(_C["indigo"])
+        tc.alignment = _mk_align(h="left", v="center")
+        _set_row_height(ws, r, 20); r += 1
+
+        for ci, h_text in enumerate(["Colonne", "Type", "Rôle", "Clé de substitution", "Description"], start=1):
+            c = ws.cell(row=r, column=ci, value=h_text)
+            c.font  = _mk_font(bold=True, size=9, color=_C["white"])
+            c.fill  = _mk_fill(_C["blue"])
+            c.alignment = _mk_align(h="center"); c.border = _mk_border("thin", _C["blue"])
+        _set_row_height(ws, r, 15); r += 1
+
+        for col in dim.get("columns", []):
+            cname = col.get("name", "")
+            ctype = col.get("type", "")
+            crole = col.get("role", "")
+            csk   = "SK" if crole == "pk" else ""
+            cdesc = col.get("description", col.get("desc", ""))
+            alt = _C["row_alt"] if r % 2 == 0 else _C["white"]
+            for ci, val in enumerate([cname, ctype, crole.upper(), csk, cdesc], start=1):
+                c = ws.cell(row=r, column=ci, value=val)
+                c.font  = _mk_font(bold=(crole == "pk"), size=9,
+                                   color=_C["purple"] if crole == "pk" else _C["dark"])
+                c.fill  = _mk_fill(_C["purple2"] if crole == "pk" else alt)
+                c.alignment = _mk_align(h="left"); c.border = _mk_border("thin", _C["gray3"])
+            _set_row_height(ws, r, 14); r += 1
+        _spacer(ws, r); r += 1
+
+    # ── Stats schéma ──────────────────────────────────────────────────────────
+    _spacer(ws, r); r += 1
+    _section_title(ws, r, 1, "📐  STATISTIQUES DU SCHÉMA", colspan=12, bg=_C["teal"])
+    r += 1
+    total_cols = sum(len(d.get("columns",[])) for d in dims) + sum(len(f.get("columns",[])) for f in all_facts)
+    stats = [
+        ("Tables de faits", len(all_facts)),
+        ("Tables de dimensions", len(dims)),
+        ("Total colonnes", total_cols),
+        ("Version du modèle", state.get("logical_model_version", 1)),
+        ("Critic approuvé", "✅ OUI" if state.get("critic_approved") else "⚠️ Sous réserve"),
+    ]
+    for lbl, val in stats:
+        for ci, v in enumerate([lbl, val], start=1):
+            c = ws.cell(row=r, column=ci, value=v)
+            c.font  = _mk_font(bold=(ci==1), size=10, color=_C["navy"] if ci==1 else _C["dark"])
+            c.fill  = _mk_fill(_C["gray1"] if ci==1 else _C["white"])
+            c.alignment = _mk_align(h="left" if ci==1 else "right")
+            c.border = _mk_border("thin", _C["gray3"])
+            if ci == 1:
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+            else:
+                ws.merge_cells(start_row=r, start_column=4, end_row=r, end_column=6)
+        _set_row_height(ws, r, 16); r += 1
+
+    ws.freeze_panes = "A3"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feuille 4 : PERFORMANCE ETL
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ws_etl_performance(wb, state: dict):
+    from openpyxl.chart import BarChart, Reference
+
+    ws = wb.create_sheet("⚡ Performance ETL")
+
+    ws.merge_cells("A1:L1")
+    h = ws["A1"]
+    h.value = "PERFORMANCE & MÉTRIQUES ETL"
+    h.font  = _mk_font(bold=True, size=14, color=_C["white"])
+    h.fill  = _mk_fill(_C["navy"])
+    h.alignment = _mk_align(h="center")
+    _set_row_height(ws, 1, 26)
+
+    node_dur  = state.get("node_durations") or {}
+    lm_metrics = state.get("load_metrics") or {}
+    heal_hist  = state.get("heal_history") or []
+    watermarks = state.get("etl_watermarks") or {}
+
+    r = 3
+    # ── Durées par nœud ────────────────────────────────────────────────────────
+    _section_title(ws, r, 1, "⏱️  DURÉES D'EXÉCUTION PAR AGENT", colspan=8)
+    r += 1
+
+    AGENT_LABELS_XL = {
+        "explorer": "🔍 Explorer", "data_quality": "📊 Data Quality",
+        "drift_detector": "🌊 Drift Detector", "modeler": "🧠 Modeler",
+        "critic": "⚖️ Critic", "chat_modifier": "💬 Chat Modifier",
+        "cdc_watermark": "💧 CDC Watermark", "etl_tsql_generator": "⚙️ ETL Generator",
+        "etl_initializer": "🏗️ ETL Init", "etl_extractor": "📥 Extract",
+        "etl_transformer": "🔄 Transform", "etl_loader": "📤 Load",
+        "healer": "🔧 Healer", "lineage_tracker": "🗺️ Lineage",
+        "query_generator": "📊 Query Gen", "insight_generator": "💡 Insights",
+        "cataloger": "📚 Cataloger",
+    }
+
+    for ci, h_text in enumerate(["Agent", "Durée (s)", "Durée (hh:mm:ss)", "Statut"], start=1):
+        c = ws.cell(row=r, column=ci, value=h_text)
+        c.font  = _mk_font(bold=True, size=9, color=_C["white"])
+        c.fill  = _mk_fill(_C["teal"])
+        c.alignment = _mk_align(h="center")
+        c.border = _mk_border("thin", _C["teal"])
+    ws.column_dimensions["A"].width = 24
+    ws.column_dimensions["B"].width = 12
+    ws.column_dimensions["C"].width = 16
+    ws.column_dimensions["D"].width = 14
+    _set_row_height(ws, r, 15); r += 1
+
+    chart_labels = []
+    chart_values = []
+    total_secs   = 0
+
+    if node_dur:
+        sorted_nodes = sorted(node_dur.items(), key=lambda x: -float(x[1] if isinstance(x[1], (int,float)) else 0))
+        for node, dur in sorted_nodes:
+            dur_f = float(dur) if isinstance(dur, (int, float)) else 0
+            total_secs += dur_f
+            mins, secs = divmod(int(dur_f), 60)
+            hms = f"{mins:02d}:{secs:02d}"
+            status = "✅" if dur_f < 60 else ("⚠️" if dur_f < 180 else "🔴")
+            label = AGENT_LABELS_XL.get(node, node)
+            chart_labels.append(label)
+            chart_values.append(round(dur_f, 2))
+            alt = _C["row_alt"] if r % 2 == 0 else _C["white"]
+            for ci, val in enumerate([label, round(dur_f, 2), hms, status], start=1):
+                c = ws.cell(row=r, column=ci, value=val)
+                c.font  = _mk_font(size=9, bold=(ci==1))
+                c.fill  = _mk_fill(alt)
+                c.alignment = _mk_align(h="right" if ci==2 else "center" if ci in (3,4) else "left")
+                c.border = _mk_border("thin", _C["gray3"])
+                if ci == 2:
+                    c.number_format = "0.00"
+            _set_row_height(ws, r, 14); r += 1
+
+        # Total
+        for ci, val in enumerate(["TOTAL", round(total_secs,2), f"{int(total_secs//60):02d}:{int(total_secs%60):02d}", ""], start=1):
+            c = ws.cell(row=r, column=ci, value=val)
+            c.font  = _mk_font(bold=True, size=9, color=_C["white"])
+            c.fill  = _mk_fill(_C["navy"])
+            c.alignment = _mk_align(h="right" if ci==2 else "center" if ci in (3,4) else "left")
+            c.border = _mk_border("medium", _C["navy"])
+        _set_row_height(ws, r, 15); r += 1
+
+    # Données graphique (colonne cachée E-F)
+    chart_start_row = 3
+    ws.cell(row=chart_start_row, column=6, value="Agent").font = _mk_font(bold=True)
+    ws.cell(row=chart_start_row, column=7, value="Durée (s)").font = _mk_font(bold=True)
+    for i, (lbl, val) in enumerate(zip(chart_labels, chart_values)):
+        ws.cell(row=chart_start_row+1+i, column=6, value=lbl)
+        ws.cell(row=chart_start_row+1+i, column=7, value=val)
+
+    if chart_values:
+        bc = BarChart()
+        bc.type    = "bar"; bc.grouping = "clustered"
+        bc.title   = "Durée par agent (secondes)"
+        bc.style   = 10; bc.width = 18; bc.height = 12
+        bc.y_axis.title = "Secondes"; bc.x_axis.title = "Agent"
+        data = Reference(ws, min_col=7, min_row=chart_start_row, max_row=chart_start_row+len(chart_values))
+        cats = Reference(ws, min_col=6, min_row=chart_start_row+1, max_row=chart_start_row+len(chart_values))
+        bc.add_data(data, titles_from_data=True)
+        bc.set_categories(cats)
+        bc.series[0].graphicalProperties.solidFill = _C["blue"]
+        ws.add_chart(bc, "H3")
+
+    _spacer(ws, r); r += 1
+
+    # ── Métriques de chargement ───────────────────────────────────────────────
+    if isinstance(lm_metrics, dict) and lm_metrics:
+        _section_title(ws, r, 1, "📦  MÉTRIQUES DE CHARGEMENT", colspan=8)
+        r += 1
+        for ci, h_text in enumerate(["Table", "Insérées", "Rejetées", "Mises à jour"], start=1):
+            c = ws.cell(row=r, column=ci, value=h_text)
+            c.font  = _mk_font(bold=True, size=9, color=_C["white"])
+            c.fill  = _mk_fill(_C["green"])
+            c.alignment = _mk_align(h="center"); c.border = _mk_border("thin", _C["green"])
+        _set_row_height(ws, r, 15); r += 1
+
+        for tbl, metrics in lm_metrics.items():
+            ins = rej = upd = 0
+            if isinstance(metrics, dict):
+                ins = metrics.get("inserted",0); rej = metrics.get("rejected",0); upd = metrics.get("updated",0)
+            elif isinstance(metrics,(int,float)):
+                ins = int(metrics)
+            alt = _C["green2"] if r % 2 else _C["white"]
+            for ci, val in enumerate([str(tbl), ins, rej, upd], start=1):
+                c = ws.cell(row=r, column=ci, value=val)
+                c.font  = _mk_font(size=9, bold=(ci==1))
+                c.fill  = _mk_fill(alt)
+                c.alignment = _mk_align(h="right" if ci>1 else "left")
+                c.border = _mk_border("thin", _C["gray3"])
+                if ci > 1: c.number_format = "#,##0"
+            _set_row_height(ws, r, 14); r += 1
+
+    _spacer(ws, r); r += 1
+
+    # ── CDC Watermarks ─────────────────────────────────────────────────────────
+    if isinstance(watermarks, dict) and watermarks:
+        _section_title(ws, r, 1, "💧  WATERMARKS CDC (CHARGEMENT INCRÉMENTAL)", colspan=8, bg=_C["teal"])
+        r += 1
+        for ci, h_text in enumerate(["Table", "Colonne CDC", "Dernière valeur", "Mode"], start=1):
+            c = ws.cell(row=r, column=ci, value=h_text)
+            c.font  = _mk_font(bold=True, size=9, color=_C["white"])
+            c.fill  = _mk_fill(_C["teal"]); c.border = _mk_border("thin", _C["teal"])
+        _set_row_height(ws, r, 15); r += 1
+        for tbl, wm in watermarks.items():
+            if isinstance(wm, dict):
+                alt = _C["row_alt"] if r%2==0 else _C["white"]
+                for ci, val in enumerate([str(tbl), wm.get("column",""), str(wm.get("last_value","")), wm.get("mode","full_load")], start=1):
+                    c = ws.cell(row=r, column=ci, value=val)
+                    c.font  = _mk_font(size=9); c.fill = _mk_fill(alt)
+                    c.alignment = _mk_align(h="left"); c.border = _mk_border("thin", _C["gray3"])
+                _set_row_height(ws, r, 14); r += 1
+
+    _spacer(ws, r); r += 1
+
+    # ── Historique Healer ──────────────────────────────────────────────────────
+    if heal_hist:
+        _section_title(ws, r, 1, f"🔧  HISTORIQUE AUTO-CORRECTIONS HEALER ({len(heal_hist)})", colspan=8, bg=_C["amber"])
+        r += 1
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=8)
+        ws.cell(row=r, column=1, value="Correction").font = _mk_font(bold=True, size=9, color=_C["white"])
+        ws.cell(row=r, column=1).fill  = _mk_fill(_C["gold"])
+        ws.cell(row=r, column=1).border = _mk_border("thin", _C["gold"])
+        _set_row_height(ws, r, 15); r += 1
+        for h_item in heal_hist:
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=8)
+            c = ws.cell(row=r, column=1, value=str(h_item))
+            c.font  = _mk_font(size=9, color=_C["dark"])
+            c.fill  = _mk_fill(_C["amber2"])
+            c.alignment = _mk_align(h="left", wrap=True)
+            c.border = _mk_border("thin", _C["gray3"])
+            _set_row_height(ws, r, 18); r += 1
+
+    ws.column_dimensions["E"].width = 0.1  # cacher col données graphique
+    ws.freeze_panes = "A3"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feuille 5 : ANALYSES & RÉSULTATS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ws_analytics(wb, state: dict):
+    ws = wb.create_sheet("📈 Analyses & Résultats")
+
+    queries  = state.get("generated_queries") or []
+    q_results= state.get("query_results") or []
+
+    ws.merge_cells("A1:N1")
+    h = ws["A1"]
+    h.value = "ANALYSES ANALYTIQUES & RÉSULTATS OLAP"
+    h.font  = _mk_font(bold=True, size=14, color=_C["white"])
+    h.fill  = _mk_fill(_C["navy"]); h.alignment = _mk_align(h="center")
+    _set_row_height(ws, 1, 26)
+
+    r = 3
+    TYPE_COLORS = {
+        "kpi":          _C["gold"],
+        "trend":        _C["teal"],
+        "top_n":        _C["purple"],
+        "distribution": _C["green"],
+        "comparison":   _C["indigo"],
+        "detail":       _C["blue"],
+    }
+
+    for qi, query in enumerate(queries):
+        if not isinstance(query, dict):
+            continue
+        title = query.get("title", f"Requête {qi+1}")
+        desc  = query.get("description", "")
+        sql   = query.get("sql", "")
+        qtype = query.get("type", "detail")
+        accent = TYPE_COLORS.get(qtype, _C["blue"])
+
+        # Titre de la requête
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+        tc = ws.cell(row=r, column=1, value=f"  [{qtype.upper()}]  {title}")
+        tc.font  = _mk_font(bold=True, size=11, color=_C["white"])
+        tc.fill  = _mk_fill(accent); tc.alignment = _mk_align(h="left", v="center")
+        _set_row_height(ws, r, 20); r += 1
+
+        # Description
+        if desc:
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+            dc = ws.cell(row=r, column=1, value=f"  {desc}")
+            dc.font  = _mk_font(italic=True, size=9, color=_C["dark"])
+            dc.fill  = _mk_fill(_C["gray1"]); dc.alignment = _mk_align(h="left", v="center", wrap=True)
+            _set_row_height(ws, r, 16); r += 1
+
+        # SQL (fond sombre simulé)
+        if sql:
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+            sql_label = ws.cell(row=r, column=1, value="SQL :")
+            sql_label.font = _mk_font(bold=True, size=8, color=_C["teal"])
+            sql_label.fill = _mk_fill("1A2B3C")
+            _set_row_height(ws, r, 14); r += 1
+
+            for sql_line in sql.splitlines():
+                if not sql_line.strip():
+                    continue
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+                sc = ws.cell(row=r, column=1, value=f"  {sql_line}")
+                sc.font  = _mk_font(size=8, color="A5D6F7")
+                sc.fill  = _mk_fill("1A2B3C")
+                sc.alignment = _mk_align(h="left", v="center")
+                _set_row_height(ws, r, 13); r += 1
+
+        # Résultats
+        result = q_results[qi] if qi < len(q_results) else None
+        if isinstance(result, dict):
+            columns = result.get("columns") or []
+            rows    = result.get("rows") or []
+            error   = result.get("error")
+
+            if error:
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+                ec = ws.cell(row=r, column=1, value=f"  ❌ Erreur : {error}")
+                ec.font  = _mk_font(size=9, color=_C["red"])
+                ec.fill  = _mk_fill(_C["red2"]); _set_row_height(ws, r, 16); r += 1
+            elif columns:
+                # En-têtes résultats
+                for ci, col in enumerate(columns[:14], start=1):
+                    c = ws.cell(row=r, column=ci, value=col)
+                    c.font  = _mk_font(bold=True, size=9, color=_C["white"])
+                    c.fill  = _mk_fill(_C["indigo"])
+                    c.alignment = _mk_align(h="center"); c.border = _mk_border("thin", _C["indigo"])
+                    ws.column_dimensions[_col_letter(ci)].width = max(12, min(20, len(str(col))+4))
+                _set_row_height(ws, r, 15); r += 1
+
+                for row_data in (rows[:500] if rows else []):
+                    alt = _C["row_alt"] if r % 2 == 0 else _C["white"]
+                    if isinstance(row_data, list):
+                        vals = row_data[:14]
+                    elif isinstance(row_data, dict):
+                        vals = [row_data.get(c) for c in columns[:14]]
+                    else:
+                        vals = [str(row_data)]
+                    for ci, val in enumerate(vals, start=1):
+                        c = ws.cell(row=r, column=ci, value=_coerce_cell(val))
+                        c.font  = _mk_font(size=9)
+                        c.fill  = _mk_fill(alt)
+                        c.alignment = _mk_align(h="right" if isinstance(val,(int,float)) else "left")
+                        c.border = _mk_border("thin", _C["gray3"])
+                    _set_row_height(ws, r, 14); r += 1
+
+                # Total lignes
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=len(columns[:14]))
+                tc2 = ws.cell(row=r, column=1, value=f"  {len(rows)} lignes au total")
+                tc2.font  = _mk_font(bold=True, size=8, italic=True, color=_C["gray4"])
+                tc2.fill  = _mk_fill(_C["gray1"])
+                _set_row_height(ws, r, 12); r += 1
+            else:
+                ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+                nc = ws.cell(row=r, column=1, value="  Aucun résultat disponible — lancez la requête depuis le Query Runner")
+                nc.font  = _mk_font(italic=True, size=9, color=_C["gray4"])
+                nc.fill  = _mk_fill(_C["gray1"]); _set_row_height(ws, r, 14); r += 1
+        else:
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+            nc = ws.cell(row=r, column=1, value="  Résultats non encore générés — pipeline complet requis")
+            nc.font  = _mk_font(italic=True, size=9, color=_C["gray4"])
+            nc.fill  = _mk_fill(_C["gray1"]); _set_row_height(ws, r, 14); r += 1
+
+        _spacer(ws, r); r += 1
+
+    if not queries:
+        ws.merge_cells("A3:N5")
+        nc = ws["A3"]
+        nc.value     = "Aucune requête analytique générée — le pipeline doit être exécuté jusqu'à l'étape query_generator"
+        nc.font      = _mk_font(italic=True, size=11, color=_C["gray4"])
+        nc.fill      = _mk_fill(_C["gray1"]); nc.alignment = _mk_align(h="center", v="center")
+
+    ws.freeze_panes = "A3"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feuille 6 : CATALOGUE DE DONNÉES
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ws_catalog(wb, state: dict):
+    ws = wb.create_sheet("🗂️ Catalogue Données")
+
+    catalog = state.get("data_catalog") or {}
+    lm      = state.get("logical_model") or {}
+    prefix  = state.get("user_prefix", "dw")
+
+    ws.merge_cells("A1:J1")
+    h = ws["A1"]; h.value = "CATALOGUE DE DONNÉES — DOCUMENTATION MÉTIER"
+    h.font  = _mk_font(bold=True, size=14, color=_C["white"])
+    h.fill  = _mk_fill(_C["navy"]); h.alignment = _mk_align(h="center")
+    _set_row_height(ws, 1, 26)
+
+    r = 3
+
+    def _write_table_section(table_obj, table_type, bg_header):
+        nonlocal r
+        tname = table_obj.get("name","")
+        tdesc = table_obj.get("description", table_obj.get("desc",""))
+        full  = f"{prefix}_{tname}"
+
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=10)
+        tc = ws.cell(row=r, column=1, value=f"  {full}   [{table_type}]" + (f"   —   {tdesc}" if tdesc else ""))
+        tc.font = _mk_font(bold=True, size=11, color=_C["white"])
+        tc.fill = _mk_fill(bg_header); tc.alignment = _mk_align(h="left")
+        _set_row_height(ws, r, 20); r += 1
+
+        hdrs = ["Colonne", "Type SQL", "Rôle", "Nullable", "PK/FK", "Description métier"]
+        hw   = [22, 14, 10, 8, 12, 40]
+        for ci, h_text in enumerate(hdrs, start=1):
+            c = ws.cell(row=r, column=ci, value=h_text)
+            c.font  = _mk_font(bold=True, size=9, color=_C["white"])
+            c.fill  = _mk_fill(_C["teal"]); c.border = _mk_border("thin", _C["teal"])
+            c.alignment = _mk_align(h="center")
+            ws.column_dimensions[_col_letter(ci)].width = hw[ci-1]
+        _set_row_height(ws, r, 15); r += 1
+
+        for col in table_obj.get("columns", []):
+            cname = col.get("name",""); ctype = col.get("type","VARCHAR")
+            crole = col.get("role","attribute"); cdesc = col.get("description", col.get("desc",""))
+            nullable = "NON" if crole in ("pk","sk") else "OUI"
+            pk_fk = "PK" if crole=="pk" else ("FK → "+col.get("references","") if crole=="fk" else "")
+            alt = _C["purple2"] if crole=="pk" else (_C["row_alt"] if r%2==0 else _C["white"])
+            for ci, val in enumerate([cname, ctype, crole.upper(), nullable, pk_fk, cdesc], start=1):
+                c = ws.cell(row=r, column=ci, value=val)
+                c.font  = _mk_font(size=9, bold=(crole=="pk"))
+                c.fill  = _mk_fill(alt)
+                c.alignment = _mk_align(h="center" if ci in (3,4,5) else "left")
+                c.border = _mk_border("thin", _C["gray3"])
+            _set_row_height(ws, r, 14); r += 1
+        _spacer(ws, r); r += 1
+
+    _section_title(ws, r, 1, "⭐  TABLES DE FAITS", colspan=10, bg=_C["gold"])
+    r += 1
+    fact = lm.get("fact_table") or {}
+    if fact: _write_table_section(fact, "FACT", _C["amber"])
+    for f in lm.get("fact_tables", []):
+        _write_table_section(f, "FACT", _C["amber"])
+
+    _section_title(ws, r, 1, "◇  TABLES DE DIMENSIONS", colspan=10, bg=_C["blue"])
+    r += 1
+    for dim in lm.get("dimension_tables", []):
+        _write_table_section(dim, "DIMENSION", _C["indigo"])
+
+    # Catalogue externe si disponible
+    if isinstance(catalog, dict) and catalog:
+        _spacer(ws, r); r += 1
+        _section_title(ws, r, 1, "📚  CATALOGUE ÉTENDU", colspan=10, bg=_C["purple"])
+        r += 1
+        for tbl, meta in catalog.items():
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=10)
+            tc = ws.cell(row=r, column=1, value=f"  {tbl}")
+            tc.font = _mk_font(bold=True, size=10, color=_C["white"])
+            tc.fill = _mk_fill(_C["purple"]); tc.alignment = _mk_align(h="left")
+            _set_row_height(ws, r, 16); r += 1
+            if isinstance(meta, dict):
+                for k, v in meta.items():
+                    for ci, val in enumerate([k, str(v)[:200]], start=1):
+                        c = ws.cell(row=r, column=ci, value=val)
+                        c.font = _mk_font(bold=(ci==1), size=9)
+                        c.fill = _mk_fill(_C["purple2"] if ci==1 else _C["white"])
+                        c.border = _mk_border("thin", _C["gray3"])
+                        if ci==1: ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+                        else: ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=6)
+                    _set_row_height(ws, r, 14); r += 1
+
+    ws.freeze_panes = "A3"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feuille 7 : LIGNAGE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ws_lineage(wb, state: dict):
+    ws = wb.create_sheet("🔗 Lignage")
+
+    lineage = state.get("lineage") or {}
+
+    ws.merge_cells("A1:K1")
+    h = ws["A1"]; h.value = "LIGNAGE DES DONNÉES — SOURCE → DATA WAREHOUSE"
+    h.font  = _mk_font(bold=True, size=14, color=_C["white"])
+    h.fill  = _mk_fill(_C["navy"]); h.alignment = _mk_align(h="center")
+    _set_row_height(ws, 1, 26)
+
+    r = 3
+    _section_title(ws, r, 1, "🗺️  TRAÇABILITÉ COLONNE PAR COLONNE", colspan=10)
+    r += 1
+
+    hdrs   = ["Table DW", "Colonne DW", "Type DW", "Table Source", "Colonne Source", "Transformation", "Rôle"]
+    hw_lin = [22, 20, 12, 20, 20, 20, 12]
+    for ci, h_text in enumerate(hdrs, start=1):
+        c = ws.cell(row=r, column=ci, value=h_text)
+        c.font  = _mk_font(bold=True, size=9, color=_C["white"])
+        c.fill  = _mk_fill(_C["indigo"]); c.border = _mk_border("thin", _C["indigo"])
+        c.alignment = _mk_align(h="center")
+        ws.column_dimensions[_col_letter(ci)].width = hw_lin[ci-1]
+    _set_row_height(ws, r, 15); r += 1
+
+    TRANSFORM_COLORS_LIN = {
+        "DIRECT_LOAD":            _C["green"],
+        "GENERATE_SURROGATE_KEY": _C["purple"],
+        "DATE_PARSE":             _C["teal"],
+        "RENAME_AND_CAST":        _C["blue"],
+        "LOOKUP_SK":              _C["amber"],
+    }
+
+    if not lineage:
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=7)
+        nc = ws.cell(row=r, column=1, value="Lignage non disponible — pipeline ETL complet requis")
+        nc.font = _mk_font(italic=True, size=10, color=_C["gray4"])
+        nc.fill = _mk_fill(_C["gray1"]); nc.alignment = _mk_align(h="center")
+    else:
+        for dw_table, tdata in lineage.items():
+            if not isinstance(tdata, dict): continue
+            nodes  = tdata.get("nodes", [])
+            edges  = tdata.get("edges", [])
+            ttype  = tdata.get("type", "dimension")
+            node_map = {n["id"]: n for n in nodes}
+
+            for edge in edges:
+                from_node = node_map.get(edge.get("from", ""))
+                to_node   = node_map.get(edge.get("to", ""))
+                if not from_node or not to_node: continue
+
+                transform = edge.get("transform", "DIRECT_LOAD")
+                t_color   = TRANSFORM_COLORS_LIN.get(transform, _C["gray4"])
+                alt = _C["row_alt"] if r % 2 == 0 else _C["white"]
+                row_vals = [
+                    dw_table,
+                    to_node.get("label",""),
+                    to_node.get("role",""),
+                    from_node.get("table",""),
+                    from_node.get("label",""),
+                    transform,
+                    ttype.upper(),
+                ]
+                for ci, val in enumerate(row_vals, start=1):
+                    c = ws.cell(row=r, column=ci, value=val)
+                    c.font  = _mk_font(size=9, bold=(ci==1),
+                                       color=t_color if ci==6 else (
+                                           _C["amber"] if ci==7 and ttype=="fact" else
+                                           _C["indigo"] if ci==7 else _C["dark"]))
+                    c.fill  = _mk_fill(alt)
+                    c.alignment = _mk_align(h="center" if ci in (6,7) else "left")
+                    c.border = _mk_border("thin", _C["gray3"])
+                _set_row_height(ws, r, 14); r += 1
+
+    ws.freeze_panes = "A5"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feuille 8 : DDL SQL
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ws_ddl(wb, state: dict):
+    ws = wb.create_sheet("📜 DDL SQL")
+    ddl = str(state.get("sql_ddl") or "")
+
+    ws.merge_cells("A1:B1")
+    h = ws["A1"]; h.value = "DDL SQL SERVER — SCHÉMA DATA WAREHOUSE"
+    h.font = _mk_font(bold=True, size=14, color=_C["white"])
+    h.fill = _mk_fill(_C["navy"]); h.alignment = _mk_align(h="center")
+    _set_row_height(ws, 1, 26)
+
+    ws.column_dimensions["A"].width = 4
+    ws.column_dimensions["B"].width = 110
+
+    if not ddl:
+        ws.cell(row=3, column=1, value="DDL non disponible — modèle non encore généré")
+        ws.cell(row=3, column=1).font = _mk_font(italic=True, color=_C["gray4"])
+        return
+
+    r = 3
+    SQL_KW = {"CREATE","TABLE","ALTER","INDEX","ON","AS","SELECT","FROM","WHERE","PRIMARY","KEY",
+               "FOREIGN","REFERENCES","NOT","NULL","IDENTITY","INT","BIGINT","VARCHAR","NVARCHAR",
+               "DECIMAL","FLOAT","DATE","DATETIME","BIT","CONSTRAINT","DEFAULT","GO","USE","IF","BEGIN","END"}
+    COMMENT_COLOR = "6A9955"
+    KW_COLOR      = "569CD6"
+    STR_COLOR     = "CE9178"
+    NORMAL_COLOR  = "D4D4D4"
+    BG_CODE       = "1E1E1E"
+
+    for line in ddl.splitlines():
+        line_num = ws.cell(row=r, column=1, value=r-2)
+        line_num.font      = _mk_font(size=8, color="6E7681")
+        line_num.fill      = _mk_fill("161B22")
+        line_num.alignment = _mk_align(h="right", v="center")
+
+        stripped = line.strip()
+        # Détecter type de ligne pour colorisation
+        if stripped.startswith("--"):
+            color = COMMENT_COLOR
+        elif any(stripped.upper().startswith(kw) for kw in SQL_KW):
+            color = KW_COLOR
+        elif "'" in stripped:
+            color = STR_COLOR
+        else:
+            color = NORMAL_COLOR
+
+        code = ws.cell(row=r, column=2, value=line)
+        code.font      = _mk_font(size=9, color=color, name="Consolas")
+        code.fill      = _mk_fill(BG_CODE)
+        code.alignment = _mk_align(h="left", v="center")
+        _set_row_height(ws, r, 14); r += 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Feuille 9 : JOURNAL D'EXÉCUTION
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ws_execution_log(wb, state: dict):
+    ws = wb.create_sheet("📋 Journal Exécution")
+
+    exec_log = state.get("execution_log") or []
+
+    ws.merge_cells("A1:D1")
+    h = ws["A1"]; h.value = "JOURNAL D'EXÉCUTION DU PIPELINE"
+    h.font  = _mk_font(bold=True, size=14, color=_C["white"])
+    h.fill  = _mk_fill(_C["navy"]); h.alignment = _mk_align(h="center")
+    _set_row_height(ws, 1, 26)
+
+    for ci, h_text in enumerate(["#", "Entrée du journal", "Niveau", "Catégorie"], start=1):
+        c = ws.cell(row=2, column=ci, value=h_text)
+        c.font  = _mk_font(bold=True, size=9, color=_C["white"])
+        c.fill  = _mk_fill(_C["blue"]); c.border = _mk_border("thin", _C["blue"])
+        c.alignment = _mk_align(h="center")
+    ws.column_dimensions["A"].width = 5
+    ws.column_dimensions["B"].width = 100
+    ws.column_dimensions["C"].width = 12
+    ws.column_dimensions["D"].width = 18
+    _set_row_height(ws, 2, 15)
+
+    LOG_STYLE = {
+        "error":   (_C["red"],   _C["red2"]),
+        "warning": (_C["amber"], _C["amber2"]),
+        "success": (_C["green"], _C["green2"]),
+        "info":    (_C["blue"],  _C["row_alt"]),
+    }
+
+    for i, entry in enumerate(exec_log, start=1):
+        text = str(entry)
+        # Détecter le niveau
+        if "❌" in text or "ERROR" in text or "ERREUR" in text or "FAILED" in text:
+            level, cat = "error",   "ERREUR"
+        elif "⚠️" in text or "WARNING" in text or "DÉRIVE" in text or "drift" in text.lower():
+            level, cat = "warning", "AVERT."
+        elif "✅" in text or "succès" in text.lower() or "success" in text.lower() or "terminé" in text.lower():
+            level, cat = "success", "SUCCÈS"
+        elif "🔧" in text or "Healer" in text or "Heal" in text:
+            level, cat = "warning", "HEALER"
+        elif "🚀" in text or "Pipeline" in text:
+            level, cat = "info",    "PIPELINE"
+        else:
+            level, cat = "info",    "INFO"
+
+        fg, bg = LOG_STYLE.get(level, (_C["blue"], _C["row_alt"]))
+        r = i + 2
+        for ci, val in enumerate([i, text, level.upper(), cat], start=1):
+            c = ws.cell(row=r, column=ci, value=val)
+            c.font  = _mk_font(size=9, bold=(ci==3), color=fg if ci==3 else _C["dark"])
+            c.fill  = _mk_fill(bg if ci==3 else (_C["row_alt"] if i%2==0 else _C["white"]))
+            c.alignment = _mk_align(h="center" if ci in (1,3,4) else "left", v="center", wrap=(ci==2))
+            c.border = _mk_border("thin", _C["gray3"])
+        _set_row_height(ws, r, 16)
+
+    ws.freeze_panes = "A3"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FONCTION PRINCIPALE
+# ─────────────────────────────────────────────────────────────────────────────
+
 def generate_xlsx_report(state: dict, session_id: str) -> str:
     """
-    Génère un fichier .xlsx multi-feuilles prêt pour Power BI / Excel.
-      - Feuille "Overview" : métadonnées pipeline + DQ score
-      - Feuille "DDL"      : T-SQL complet
-      - 1 feuille par table de résultat (FACT_*, DIM_* ou query)
-    Retourne le chemin absolu du fichier créé.
+    Génère un rapport Excel professionnel 9 feuilles pour décideurs.
+    Feuilles : Tableau de Bord · Qualité Données · Schéma Étoile ·
+               Performance ETL · Analyses & Résultats · Catalogue ·
+               Lignage · DDL SQL · Journal Exécution
     """
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
 
     os.makedirs("outputs", exist_ok=True)
     xlsx_path = os.path.abspath(f"outputs/{session_id}_report.xlsx")
 
     wb = Workbook()
 
-    # ── Overview ─────────────────────────────────────────────────────────────
-    ws = wb.active
-    ws.title = "Overview"
-    header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill("solid", fgColor="6366F1")
+    try:
+        _ws_dashboard(wb, state, session_id)
+    except Exception as e:
+        logger.warning(f"[XLSX] Dashboard error: {e}")
 
-    ws.append(["Métrique", "Valeur"])
-    for c in ws[1]:
-        c.font = header_font
-        c.fill = header_fill
-        c.alignment = Alignment(horizontal="center")
+    for fn, name in [
+        (_ws_data_quality,   "Qualité Données"),
+        (_ws_star_schema,    "Schéma Étoile"),
+        (_ws_etl_performance,"Performance ETL"),
+        (_ws_analytics,      "Analyses"),
+        (_ws_catalog,        "Catalogue"),
+        (_ws_lineage,        "Lignage"),
+        (_ws_ddl,            "DDL"),
+        (_ws_execution_log,  "Journal"),
+    ]:
+        try:
+            fn(wb, state)
+        except Exception as e:
+            logger.warning(f"[XLSX] Feuille '{name}' error: {e}", exc_info=True)
 
-    meta_rows = [
-        ("Session ID", session_id),
-        ("Généré le", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-        ("User prefix", state.get("user_prefix") or ""),
-        ("Statut ETL", state.get("etl_status") or ""),
-        ("Mode ETL", state.get("etl_mode") or ""),
-        ("DQ score", state.get("dq_score") or ""),
-        ("Version modèle", state.get("logical_model_version") or 0),
-        ("Critic approuvé", str(state.get("critic_approved"))),
-        ("Healings", len(state.get("heal_history", []) or [])),
-    ]
-    for row in meta_rows:
-        ws.append(row)
-    ws.column_dimensions["A"].width = 22
-    ws.column_dimensions["B"].width = 60
-
-    # ── DDL ───────────────────────────────────────────────────────────────────
-    ddl = state.get("sql_ddl") or ""
-    if ddl:
-        ws_ddl = wb.create_sheet("DDL")
-        for line in str(ddl).splitlines():
-            ws_ddl.append([line])
-        ws_ddl.column_dimensions["A"].width = 120
-
-    # ── Tables de résultat ───────────────────────────────────────────────────
-    used = set()
-    n_tables = 0
-    for name, rows in _iter_result_tables(state):
-        title = _sanitize_sheet_name(name)
-        # dédup
-        base = title
-        i = 2
-        while title in used or title.lower() in ("overview", "ddl"):
-            title = f"{base[:27]}_{i}"
-            i += 1
-        used.add(title)
-
-        ws_t = wb.create_sheet(title)
-
-        # Normaliser rows : [dict]
-        first = rows[0] if rows else {}
-        if isinstance(first, dict):
-            cols = list(first.keys())
-        elif isinstance(first, (list, tuple)):
-            cols = [f"col_{i+1}" for i in range(len(first))]
-        else:
-            cols = ["value"]
-
-        ws_t.append(cols)
-        for c in ws_t[1]:
-            c.font = header_font
-            c.fill = header_fill
-
-        for r in rows[:10000]:  # cap 10k lignes par feuille
-            if isinstance(r, dict):
-                ws_t.append([_coerce_cell(r.get(c)) for c in cols])
-            elif isinstance(r, (list, tuple)):
-                ws_t.append([_coerce_cell(v) for v in r])
-            else:
-                ws_t.append([_coerce_cell(r)])
-        for col_idx, col_name in enumerate(cols, start=1):
-            ws_t.column_dimensions[chr(64 + col_idx)].width = min(
-                max(12, len(str(col_name)) + 2), 40
-            )
-        n_tables += 1
-
-    if n_tables == 0:
-        ws_empty = wb.create_sheet("No_Data")
-        ws_empty.append(["Aucune table de résultat n'a été trouvée dans le pipeline."])
-        ws_empty.append(["Relancez le pipeline jusqu'à l'étape ETL/Analyse pour générer des données."])
+    # Propriétés du classeur
+    try:
+        wb.properties.title   = "Rapport Data Warehouse"
+        wb.properties.subject = "Pipeline ETL — Rapport Décisionnel"
+        wb.properties.creator = "Agent Data Warehouse v3.0"
+        wb.properties.description = f"Session {session_id} — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        wb.properties.keywords = "data warehouse ETL OLAP decision"
+    except Exception:
+        pass
 
     wb.save(xlsx_path)
-    logger.info(f"[Export] XLSX généré : {xlsx_path} ({n_tables} tables)")
+    logger.info(f"[Export] XLSX premium généré : {xlsx_path}")
     return xlsx_path
 
 

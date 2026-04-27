@@ -10,6 +10,13 @@ logger = logging.getLogger(__name__)
 HEALER_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """Tu es le système immunitaire neural de l'Agent Data Warehouse. Ton rôle est de diagnostiquer et réparer les échecs du pipeline ETL.
 
+## IMPORTANT : Cible SQL Server (T-SQL)
+- Utilise **IDENTITY(1,1)** pour les colonnes auto-incrémentées (JAMAIS AUTO_INCREMENT)
+- Utilise **BIT** pour les booléens (JAMAIS TINYINT(1))
+- Utilise **NVARCHAR** pour les chaînes Unicode
+- Utilise **DATETIME2** pour les dates (plus précis que DATETIME)
+- Entoure les noms de tables/colonnes avec des crochets [nom]
+
 ## Ton expertise :
 1. **Schéma SQL (DDL)** : Corriger les types incompatibles, ajouter des longueurs (VARCHAR(MAX)), gérer les contraintes.
 2. **Qualité des Données** : Identifier les doublons, les valeurs NULL orphelines, ou les erreurs de format (dates invalides).
@@ -105,6 +112,11 @@ def healer_node(state: AgentState) -> dict:
         sql_part = re.sub(r"CLEAN_ACTION:.+", "", sql_part, flags=re.DOTALL).strip()
         sql_part = re.sub(r"^```(?:sql)?\n?", "", sql_part, flags=re.IGNORECASE|re.MULTILINE)
         sql_part = re.sub(r"```$", "", sql_part, flags=re.MULTILINE).strip()
+
+    # Normalisation MySQL → T-SQL (critical for SQL Server target)
+    sql_part = sql_part.replace("AUTO_INCREMENT", "IDENTITY(1,1)")
+    sql_part = sql_part.replace("TINYINT(1)", "BIT")
+    sql_part = sql_part.replace("DATETIME", "DATETIME2")  # SQL Server prefers DATETIME2
 
     if not sql_part or "CREATE " not in sql_part.upper():
         logger.warning("[Healer] SQL corrigé invalide — conservation de l'original")

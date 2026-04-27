@@ -33,7 +33,7 @@ function Field({ label, children, hint }) {
   );
 }
 
-export default function AuthModal({ isOpen, onClose }) {
+export default function AuthModal({ isOpen, onClose, onSuccess }) {
   const { setAuth } = usePipelineStore();
   const [mode,     setMode]     = useState('register');
   const [email,    setEmail]    = useState('');
@@ -64,7 +64,7 @@ export default function AuthModal({ isOpen, onClose }) {
         ? await apiClient.login(email, password)
         : await apiClient.register(email, password, prefix || 'dw');
       setAuth(data.token, data.user_id, data.prefix);
-      onClose();
+      onSuccess?.(); // FIX: Call onSuccess to redirect to dashboard
     } catch (err) {
       setError(err.message || "Erreur d'authentification.");
     } finally {

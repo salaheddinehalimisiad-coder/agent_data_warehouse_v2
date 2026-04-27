@@ -6,7 +6,7 @@ v3.0 — Nouveaux champs :
   dq_alerts : liste d'alertes DQ [{severity, table, column, rule, detail}]
   lineage   : graphe de lignage source → DW
 """
-from typing import Annotated, Any, Dict, List
+from typing import Annotated, Any, Dict, List, Optional
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 import operator
@@ -63,7 +63,7 @@ class AgentState(TypedDict, total=False):
     critic_approved:  bool
 
     # ─── Human-in-the-Loop ─────────────────────────────────────────────────
-    is_validated: bool
+    is_validated: Optional[bool]  # None=pending, True=approved, False=needs_revision
     hitl_comment: str
 
     # ─── ETL ──────────────────────────────────────────────────────────────

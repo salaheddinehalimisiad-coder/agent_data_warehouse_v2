@@ -613,9 +613,9 @@ export default function ConnectionModal({ isOpen, onClose }) {
                           🚀 Auto-fix Docker (4ᵉ solution)
                         </p>
                         <p className="text-[11px] text-slate-300 font-medium mt-1.5 leading-relaxed">
-                          Je peux démarrer automatiquement un conteneur SQL Server à la bonne version, y restaurer ton .bak, et basculer ta cible sur ce conteneur.
+                          Lance automatiquement un conteneur SQL Server à la bonne version, y restaure le .bak, et bascule la connexion sur ce conteneur.
                           <span className="block mt-1 text-[10px] text-slate-400">
-                            Nécessite Docker sur ta machine · ~5–10 min la première fois (pull de l'image ~1.5 Go).
+                            Docker Desktop est auto-démarré s'il est installé · ~5–10 min la 1ère fois (image ~1.5 Go).
                           </span>
                         </p>
 

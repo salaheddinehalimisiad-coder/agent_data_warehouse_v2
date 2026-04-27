@@ -81,7 +81,6 @@ def etl_loader_node(state: AgentState) -> dict:
     # Load DataFrames from module-level cache (bypasses LangGraph serialization)
     source_dfs = df_cache_load(session_id)
     source_df  = state.get("source_df") or (next(iter(source_dfs.values())) if source_dfs else None)
-    session_id    = state.get("session_id", "unknown")
     new_logs      = []
     clean_action  = state.get("clean_action", "NONE")
     dim_metrics   = state.get("dim_metrics", {})  # populated by etl_transformer

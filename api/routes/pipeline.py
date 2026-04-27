@@ -514,7 +514,7 @@ class ExecuteQueryRequest(BaseModel):
 @router.post("/execute-query")
 async def execute_query_direct(
     req: ExecuteQueryRequest,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_optional_user),
 ):
     """Exécute directement un SQL SELECT sur le DW de la session."""
     import re, pandas as pd
@@ -589,7 +589,7 @@ class OlapQueryRequest(BaseModel):
 @router.post("/olap")
 async def run_olap_query(
     req: OlapQueryRequest,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_optional_user),
 ):
     """Construit et exécute une requête OLAP multidimensionnelle."""
     from main import get_thread_state
@@ -638,7 +638,7 @@ async def run_olap_query(
 @router.get("/olap/schema")
 async def get_olap_schema(
     session_id: str = Query(...),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(get_optional_user),
 ):
     """Retourne le schéma OLAP (dimensions + mesures) pour le frontend."""
     from main import get_thread_state

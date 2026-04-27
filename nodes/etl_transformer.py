@@ -29,6 +29,7 @@ def etl_transformer_node(state: AgentState) -> dict:
         return {"etl_status": "failed", "etl_error": "No data to transform", "execution_log": ["[Transform] ❌ No data"]}
 
     try:
+        # Connect to target DW (no source type check needed - we only write to DW)
         dw_engine = _build_engine(dw_config)
         _test_connection(dw_engine)
 

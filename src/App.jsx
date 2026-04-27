@@ -170,7 +170,8 @@ export default function App() {
     if (token && uid) setAuth(token, parseInt(uid), prefix);
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme === 'light') setIsDarkMode(false);
-    if (!token) { setAppView('auth'); setShowAuth(true); }
+    // FIX: 'auth' n'est pas une vue valide, utiliser 'landing' avec modal auth ouvert
+    if (!token) { setAppView('landing'); setShowAuth(true); }
   }, []);
 
   useEffect(() => {
@@ -184,7 +185,7 @@ export default function App() {
     setTimeout(() => {
       setGoodbyeUser(null);
       logout();
-      setAppView('auth');
+      setAppView('landing'); // FIX: 'auth' n'existe pas, utiliser 'landing'
       setShowAuth(true);
     }, 2200);
   };
@@ -247,7 +248,16 @@ export default function App() {
       {/* Modals */}
       <AnimatePresence>
         {showConnection && <ConnectionModal isOpen onClose={() => setShowConnection(false)} />}
-        {showAuth       && <AuthModal       isOpen onClose={() => authToken && setShowAuth(false)} />}
+        {showAuth       && (
+          <AuthModal
+            isOpen
+            onClose={() => setShowAuth(false)}
+            onSuccess={() => {
+              setShowAuth(false);
+              setAppView('dashboard');
+            }}
+          />
+        )}
       </AnimatePresence>
 
       {/* Goodbye overlay */}

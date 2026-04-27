@@ -1106,15 +1106,23 @@ def _execute_ddl(engine, sql_ddl: str) -> str:
     if not statements:
         return "DDL vide après nettoyage."
 
+    conn_str = str(engine.url)
+    logger.info(f"[ExecuteDDL] Target DB: {conn_str.split('@')[-1] if '@' in conn_str else 'localhost'}")
+
     try:
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        # FIX v4.3 — Use explicit commit instead of AUTOCOMMIT isolation level
+        # which is unreliable with pyodbc/SQLAlchemy 2.0
+        with engine.connect() as conn:
             # Phase 1 — Drop existing tables so new schema is always applied fresh
             _drop_tables_for_ddl(conn, statements)
+            conn.commit()  # Ensure drops are committed
 
             # Phase 2 — Execute all DDL statements
+            executed = 0
             for stmt in statements:
                 try:
                     conn.execute(text(stmt))
+                    executed += 1
                 except Exception as stmt_err:
                     msg = str(stmt_err)
                     # Tolerate "already exists" for non-table objects (indexes, constraints…)
@@ -1122,7 +1130,12 @@ def _execute_ddl(engine, sql_ddl: str) -> str:
                         logger.info(f"[ExecuteDDL] ⊙ objet déjà existant (skipped) : {stmt[:60]}")
                         continue
                     logger.error(f"[ExecuteDDL] ❌ Statement: {stmt[:100]}... → {msg}")
+                    conn.rollback()
                     return f"Erreur SQL: {msg} (Statement: {stmt[:80]}...)"
+
+            # CRITICAL: Explicit commit before returning
+            conn.commit()
+            logger.info(f"[ExecuteDDL] ✅ {executed} statements committed successfully")
         return ""
     except Exception as e:
         logger.error(f"[ExecuteDDL] ❌ Global: {e}")
@@ -1134,8 +1147,19 @@ def _verify_tables_created(engine, user_prefix: str) -> Tuple[int, List[str]]:
     Vérifie activement que les tables 'user_prefix_%' existent bien dans la DB
     cible après l'exécution du DDL. Retourne (nb_tables, noms_complets).
     Utilisé par etl_initializer_node pour éviter les 'success' fantômes.
+
+    FIX v4.3 — Ajoute un délai de récupération pour la cohérence de connexion
+    et supporte les tables sans underscore (ex: 'prefixDimName').
     """
     from sqlalchemy import text
+    import time
+
+    # Essayer deux patterns: avec underscore (standard) et sans (fallback)
+    patterns = [
+        f"{user_prefix.replace('[', '[[]').replace('%', '[%]')}[_]%",  # prefix_tablename
+        f"{user_prefix.replace('[', '[[]').replace('%', '[%]')}%",      # prefixTablename (sans _)
+    ]
+
     sql = text("""
         SELECT TABLE_SCHEMA + '.' + TABLE_NAME AS full_name
         FROM INFORMATION_SCHEMA.TABLES
@@ -1143,19 +1167,23 @@ def _verify_tables_created(engine, user_prefix: str) -> Tuple[int, List[str]]:
           AND TABLE_NAME LIKE :p
         ORDER BY TABLE_NAME
     """)
-    try:
-        with engine.connect() as conn:
-            # SQL Server ne reconnaît pas \ comme escape sans clause ESCAPE.
-            # On utilise la notation bracket [_] pour échapper _ littéralement.
-            safe_prefix = user_prefix.replace("[", "[[]").replace("%", "[%]")
-            pattern = f"{safe_prefix}[_]%"
-            rows = conn.execute(sql, {"p": pattern}).fetchall()
-        names = [r[0] for r in rows]
-        logger.info(f"[_verify_tables_created] Pattern={pattern!r} → {len(names)} tables: {names}")
-        return len(names), names
-    except Exception as e:
-        logger.warning(f"[_verify_tables_created] {e}")
-        return 0, []
+
+    # FIX: Petit délai pour la cohérence de la connexion pyodbc
+    time.sleep(0.1)
+
+    for pattern in patterns:
+        try:
+            with engine.connect() as conn:
+                rows = conn.execute(sql, {"p": pattern}).fetchall()
+            names = [r[0] for r in rows]
+            if names:
+                logger.info(f"[_verify_tables_created] Pattern={pattern!r} → {len(names)} tables: {names}")
+                return len(names), names
+        except Exception as e:
+            logger.warning(f"[_verify_tables_created] Pattern={pattern!r} error: {e}")
+
+    logger.warning(f"[_verify_tables_created] Aucune table trouvée avec les patterns: {patterns}")
+    return 0, []
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1183,7 +1211,11 @@ def _read_source(config: dict, dw_config: dict = None):
             if not dw_config:
                 raise ValueError("DW config missing for 'bak' source type")
             source_cfg = dw_config.copy()
-            source_cfg["database"] = config.get("restored_db", dw_config.get("database"))
+            # FIX: Ensure restored_db is not None - fallback to dw_config.database or raise clear error
+            restored_db = config.get("restored_db") or dw_config.get("database")
+            if not restored_db:
+                raise ValueError("restored_db is required for .bak source type. Please configure the source database name.")
+            source_cfg["database"] = restored_db
             source_cfg["type"] = "sqlserver"
             src_engine = _build_engine(source_cfg)
         else:

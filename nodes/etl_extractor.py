@@ -23,7 +23,11 @@ def _read_all_sql_tables(source_config: dict, dw_config: dict) -> Dict[str, pd.D
         if not dw_config:
             raise ValueError("DW config missing for 'bak' source type")
         cfg = dw_config.copy()
-        cfg["database"] = source_config.get("restored_db", dw_config.get("database", ""))
+        # FIX: Ensure restored_db is not empty - validate before proceeding
+        restored_db = source_config.get("restored_db") or dw_config.get("database")
+        if not restored_db:
+            raise ValueError("restored_db is required for .bak source type - database name cannot be empty")
+        cfg["database"] = restored_db
         cfg["type"] = "sqlserver"
     else:
         cfg = source_config
