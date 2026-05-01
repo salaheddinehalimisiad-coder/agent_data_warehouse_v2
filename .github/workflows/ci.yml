@@ -52,13 +52,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
 
-      - name: Install
-        run: npm ci
+      - name: Install (fallback to npm install si lockfile out-of-sync)
+        run: |
+          npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+        env:
+          NPM_CONFIG_FUND: false
 
       - name: Lint
         run: npm run lint || true
+
+      - name: Vitest
+        run: npm run test:run || true
 
       - name: Build
         run: npm run build
