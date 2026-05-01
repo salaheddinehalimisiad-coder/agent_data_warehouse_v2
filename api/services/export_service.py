@@ -1868,16 +1868,312 @@ def _ws_execution_log(wb, state: dict):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FONCTION PRINCIPALE
+# FEUILLE BONUS : MESURES & KPI MÉTIER (granularité fine pour décideurs)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+# ============================================================
+# FEUILLE BONUS : MESURES & KPI METIER
+# ============================================================
+
+def _ws_measures_kpi(wb, state: dict):
+    """Mesures + agregations multi-granularite + charts natifs Excel."""
+    from openpyxl.chart import BarChart, LineChart, PieChart, Reference
+
+    ws = wb.create_sheet("Mesures & KPI")
+    ws.merge_cells("A1:N2")
+    h = ws["A1"]
+    h.value = "MESURES & KPI METIER - VUE DECISIONNELLE MULTI-GRANULARITE"
+    h.font = _mk_font(bold=True, size=14, color=_C["white"])
+    h.fill = _mk_fill(_C["navy"])
+    h.alignment = _mk_align(h="center", v="center")
+    _set_row_height(ws, 1, 22); _set_row_height(ws, 2, 22)
+
+    lm = state.get("logical_model") or {}
+    facts = lm.get("fact_tables") or ([lm.get("fact_table")] if lm.get("fact_table") else [])
+    facts = [f for f in facts if isinstance(f, dict)]
+    prefix = state.get("user_prefix", "dw")
+    dw_cfg = state.get("dw_connection_config") or {}
+
+    engine = None
+    try:
+        from nodes.etl_executor import _build_engine
+        engine = _build_engine(dw_cfg) if dw_cfg else None
+    except Exception as e:
+        logger.warning(f"[Measures] Pas de DW : {e}")
+
+    r = 4
+    if not facts:
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+        c = ws.cell(row=r, column=1, value="  Aucune table de faits disponible.")
+        c.font = _mk_font(italic=True, size=11, color=_C["gray4"])
+        c.alignment = _mk_align(h="center", v="center"); _set_row_height(ws, r, 22)
+        return
+
+    AGGS = ("COUNT", "SUM", "AVG", "MIN", "MAX", "STDDEV")
+
+    for fact in facts:
+        fname = fact.get("name", "fact")
+        full_name = f"{prefix}_{fname}"
+        cols = fact.get("columns", []) or []
+        metrics = [c for c in cols if c.get("role") in ("metric", "computed")]
+        for c in cols:
+            if c in metrics:
+                continue
+            t = (c.get("type") or "").upper()
+            if any(x in t for x in ("INT", "BIGINT", "DECIMAL", "FLOAT", "NUMERIC", "MONEY")):
+                if c.get("role") not in ("pk", "fk"):
+                    metrics.append(c)
+
+        _section_title(ws, r, 1, f"Table de faits : {full_name}", colspan=14, bg=_C["indigo"])
+        r += 1
+
+        if not metrics:
+            ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=14)
+            c = ws.cell(row=r, column=1, value="  Aucune mesure numerique detectee.")
+            c.font = _mk_font(italic=True, size=10, color=_C["gray4"])
+            _set_row_height(ws, r, 18); r += 2
+            continue
+
+        hdrs = ["Mesure", "Type", "Description"] + list(AGGS)
+        for ci, hdr in enumerate(hdrs, start=1):
+            cc = ws.cell(row=r, column=ci, value=hdr)
+            cc.font = _mk_font(bold=True, size=9, color=_C["white"])
+            cc.fill = _mk_fill(_C["teal"])
+            cc.alignment = _mk_align(h="center", v="center")
+            cc.border = _mk_border("thin", _C["teal"])
+            ws.column_dimensions[_col_letter(ci)].width = 14 if ci > 3 else 22
+        _set_row_height(ws, r, 18); r += 1
+
+        agg_rows = []
+        for met in metrics:
+            mname = met.get("name", "")
+            mtype = met.get("type", "")
+            mdesc = (met.get("description") or "").strip()
+            row = {"name": mname, "type": mtype, "desc": mdesc[:80], "agg": (None,)*6}
+            if engine is not None:
+                try:
+                    from sqlalchemy import text as _text
+                    q = _text(
+                        f"SELECT COUNT([{mname}]) AS c, "
+                        f"SUM(CAST([{mname}] AS DECIMAL(38,6))) AS s, "
+                        f"AVG(CAST([{mname}] AS DECIMAL(38,6))) AS a, "
+                        f"MIN([{mname}]) AS mn, MAX([{mname}]) AS mx, "
+                        f"STDEV(CAST([{mname}] AS DECIMAL(38,6))) AS st "
+                        f"FROM [{full_name}]"
+                    )
+                    with engine.connect() as conn:
+                        result = conn.execute(q).fetchone()
+                    row["agg"] = (
+                        result[0] or 0,
+                        float(result[1]) if result[1] is not None else None,
+                        float(result[2]) if result[2] is not None else None,
+                        result[3], result[4],
+                        float(result[5]) if result[5] is not None else None,
+                    )
+                except Exception as e:
+                    logger.debug(f"[Measures] {full_name}.{mname} : {e}")
+            agg_rows.append(row)
+
+        for i, ar in enumerate(agg_rows):
+            alt = _C["row_alt"] if i % 2 == 0 else _C["white"]
+            vals = [ar["name"], ar["type"], ar["desc"], *ar["agg"]]
+            for ci, val in enumerate(vals, start=1):
+                cc = ws.cell(row=r, column=ci, value=("" if val is None else val))
+                cc.font = _mk_font(size=9, bold=(ci == 1))
+                cc.fill = _mk_fill(alt)
+                cc.alignment = _mk_align(
+                    h="right" if ci > 3 and isinstance(val, (int, float)) else "left",
+                    v="center", wrap=(ci == 3),
+                )
+                cc.border = _mk_border("thin", _C["gray3"])
+                if ci > 3 and isinstance(val, (int, float)):
+                    cc.number_format = "#,##0.00"
+            _set_row_height(ws, r, 16); r += 1
+
+        if any(ar["agg"][1] is not None for ar in agg_rows):
+            chart_start = r + 1
+            ws.cell(row=chart_start, column=1, value="Mesure").font = _mk_font(bold=True, size=9, color=_C["white"])
+            ws.cell(row=chart_start, column=2, value="Total (SUM)").font = _mk_font(bold=True, size=9, color=_C["white"])
+            for ci in (1, 2):
+                ws.cell(row=chart_start, column=ci).fill = _mk_fill(_C["purple"])
+                ws.cell(row=chart_start, column=ci).alignment = _mk_align(h="center")
+            for i, ar in enumerate(agg_rows, start=1):
+                ws.cell(row=chart_start + i, column=1, value=ar["name"])
+                v = ar["agg"][1]
+                ws.cell(row=chart_start + i, column=2, value=v if v is not None else 0)
+                ws.cell(row=chart_start + i, column=2).number_format = "#,##0.00"
+
+            try:
+                bc = BarChart()
+                bc.type = "col"; bc.style = 11
+                bc.title = f"Totaux des mesures - {fname}"
+                bc.y_axis.title = "Somme"; bc.x_axis.title = "Mesure"
+                data = Reference(ws, min_col=2, min_row=chart_start,
+                                 max_row=chart_start + len(agg_rows), max_col=2)
+                cats = Reference(ws, min_col=1, min_row=chart_start + 1,
+                                 max_row=chart_start + len(agg_rows), max_col=1)
+                bc.add_data(data, titles_from_data=True)
+                bc.set_categories(cats)
+                bc.height = 9; bc.width = 18
+                ws.add_chart(bc, f"E{chart_start}")
+            except Exception as e:
+                logger.warning(f"[Measures] BarChart : {e}")
+            r = chart_start + len(agg_rows) + 12
+
+        date_fk = next((c["name"] for c in cols if c.get("role") == "fk"
+                        and "date" in str(c.get("name", "")).lower()), None)
+        if engine is not None and date_fk and metrics:
+            primary_metric = metrics[0]["name"]
+            for grain_label, grain_expr in (
+                ("Annee", "YEAR(d.[full_date])"),
+                ("Trimestre", "DATEPART(quarter, d.[full_date])"),
+                ("Mois", "FORMAT(d.[full_date], 'yyyy-MM')"),
+            ):
+                try:
+                    from sqlalchemy import text as _text
+                    dim_date = f"{prefix}_dim_date"
+                    q = _text(
+                        f"SELECT TOP 50 {grain_expr} AS bucket, "
+                        f"SUM(CAST(f.[{primary_metric}] AS DECIMAL(38,6))) AS total, "
+                        f"AVG(CAST(f.[{primary_metric}] AS DECIMAL(38,6))) AS moyenne, "
+                        f"COUNT(*) AS volume "
+                        f"FROM [{full_name}] f "
+                        f"INNER JOIN [{dim_date}] d ON f.[{date_fk}] = d.[date_sk] "
+                        f"GROUP BY {grain_expr} ORDER BY bucket"
+                    )
+                    with engine.connect() as conn:
+                        rows = conn.execute(q).fetchall()
+                    if not rows:
+                        continue
+                    _section_title(ws, r, 1, f"Granularite {grain_label} - mesure '{primary_metric}'",
+                                   colspan=14, bg=_C["blue"])
+                    r += 1
+                    hdrs2 = [grain_label, "Total", "Moyenne", "Volume"]
+                    for ci, hh in enumerate(hdrs2, start=1):
+                        cc = ws.cell(row=r, column=ci, value=hh)
+                        cc.font = _mk_font(bold=True, size=9, color=_C["white"])
+                        cc.fill = _mk_fill(_C["indigo"])
+                        cc.alignment = _mk_align(h="center")
+                        cc.border = _mk_border("thin", _C["indigo"])
+                    _set_row_height(ws, r, 16); r += 1
+                    data_start = r
+                    for i, row_db in enumerate(rows):
+                        alt = _C["row_alt"] if i % 2 == 0 else _C["white"]
+                        for ci, val in enumerate(row_db, start=1):
+                            cc = ws.cell(row=r, column=ci,
+                                         value=float(val) if isinstance(val, (int, float)) and ci != 1 else val)
+                            cc.font = _mk_font(size=9, bold=(ci == 1))
+                            cc.fill = _mk_fill(alt)
+                            cc.alignment = _mk_align(h="left" if ci == 1 else "right")
+                            cc.border = _mk_border("thin", _C["gray3"])
+                            if ci != 1:
+                                cc.number_format = "#,##0.00" if ci != 4 else "#,##0"
+                        _set_row_height(ws, r, 14); r += 1
+                    try:
+                        lc = LineChart()
+                        lc.title = f"Tendance {grain_label.lower()} - {primary_metric}"
+                        lc.y_axis.title = "Total"; lc.x_axis.title = grain_label
+                        data = Reference(ws, min_col=2, min_row=data_start - 1,
+                                         max_row=data_start + len(rows) - 1, max_col=3)
+                        cats = Reference(ws, min_col=1, min_row=data_start,
+                                         max_row=data_start + len(rows) - 1, max_col=1)
+                        lc.add_data(data, titles_from_data=True)
+                        lc.set_categories(cats)
+                        lc.height = 9; lc.width = 20
+                        ws.add_chart(lc, f"F{data_start - 1}")
+                    except Exception as e:
+                        logger.warning(f"[Measures] LineChart : {e}")
+                    r += 12
+                except Exception as e:
+                    logger.debug(f"[Measures] grain {grain_label} : {e}")
+
+        non_date_fks = [c["name"] for c in cols if c.get("role") == "fk"
+                        and "date" not in str(c.get("name", "")).lower()]
+        if engine is not None and non_date_fks and metrics:
+            primary_metric = metrics[0]["name"]
+            for fk in non_date_fks[:2]:
+                try:
+                    base = fk.lower().replace("_sk", "").replace("_id", "").replace("_fk", "").replace("id_", "")
+                    dim_table = f"{prefix}_dim_{base}"
+                    from sqlalchemy import text as _text, inspect as _inspect
+                    insp = _inspect(engine)
+                    if dim_table.lower() not in [t.lower() for t in insp.get_table_names()]:
+                        for t in insp.get_table_names():
+                            if base in t.lower() and t.startswith(prefix + "_dim"):
+                                dim_table = t
+                                break
+                    dim_cols = [c["name"] for c in insp.get_columns(dim_table)]
+                    label_col = next((c for c in dim_cols
+                                      if any(k in c.lower() for k in ("name", "label", "libelle", "description"))),
+                                     dim_cols[1] if len(dim_cols) > 1 else dim_cols[0])
+                    pk_col = next((c for c in dim_cols if c.endswith("_sk")), dim_cols[0])
+                    q = _text(
+                        f"SELECT TOP 10 d.[{label_col}] AS label, "
+                        f"SUM(CAST(f.[{primary_metric}] AS DECIMAL(38,6))) AS total "
+                        f"FROM [{full_name}] f "
+                        f"INNER JOIN [{dim_table}] d ON f.[{fk}] = d.[{pk_col}] "
+                        f"GROUP BY d.[{label_col}] ORDER BY total DESC"
+                    )
+                    with engine.connect() as conn:
+                        rows = conn.execute(q).fetchall()
+                    if not rows:
+                        continue
+                    _section_title(ws, r, 1, f"Top 10 '{primary_metric}' par {dim_table}",
+                                   colspan=14, bg=_C["green"])
+                    r += 1
+                    for ci, hh in enumerate([dim_table, primary_metric], start=1):
+                        cc = ws.cell(row=r, column=ci, value=hh)
+                        cc.font = _mk_font(bold=True, size=9, color=_C["white"])
+                        cc.fill = _mk_fill(_C["green"])
+                        cc.alignment = _mk_align(h="center")
+                        cc.border = _mk_border("thin", _C["green"])
+                    _set_row_height(ws, r, 16); r += 1
+                    data_start = r
+                    for i, row_db in enumerate(rows):
+                        alt = _C["row_alt"] if i % 2 == 0 else _C["white"]
+                        ws.cell(row=r, column=1, value=str(row_db[0]) if row_db[0] is not None else "(vide)")
+                        v = row_db[1]
+                        ws.cell(row=r, column=2, value=float(v) if v is not None else 0)
+                        ws.cell(row=r, column=2).number_format = "#,##0.00"
+                        for ci in (1, 2):
+                            cc = ws.cell(row=r, column=ci)
+                            cc.font = _mk_font(size=9, bold=(ci == 1))
+                            cc.fill = _mk_fill(alt)
+                            cc.alignment = _mk_align(h="left" if ci == 1 else "right")
+                            cc.border = _mk_border("thin", _C["gray3"])
+                        _set_row_height(ws, r, 14); r += 1
+                    try:
+                        pc = PieChart()
+                        pc.title = f"Top 10 par {dim_table}"
+                        data = Reference(ws, min_col=2, min_row=data_start - 1,
+                                         max_row=data_start + len(rows) - 1, max_col=2)
+                        cats = Reference(ws, min_col=1, min_row=data_start,
+                                         max_row=data_start + len(rows) - 1, max_col=1)
+                        pc.add_data(data, titles_from_data=True)
+                        pc.set_categories(cats)
+                        pc.height = 9; pc.width = 14
+                        ws.add_chart(pc, f"E{data_start - 1}")
+                    except Exception as e:
+                        logger.warning(f"[Measures] PieChart : {e}")
+                    r += 12
+                except Exception as e:
+                    logger.debug(f"[Measures] top10 : {e}")
+
+        r += 2
+
+    _set_cols(ws, {"A": 22, "B": 18, "C": 28, "D": 12, "E": 14, "F": 14,
+                   "G": 14, "H": 14, "I": 14, "J": 14, "K": 14, "L": 14,
+                   "M": 14, "N": 14})
+    ws.freeze_panes = "A4"
+
+
+# ============================================================
+# FONCTION PRINCIPALE
+# ============================================================
+
 def generate_xlsx_report(state: dict, session_id: str) -> str:
-    """
-    Génère un rapport Excel professionnel 9 feuilles pour décideurs.
-    Feuilles : Tableau de Bord · Qualité Données · Schéma Étoile ·
-               Performance ETL · Analyses & Résultats · Catalogue ·
-               Lignage · DDL SQL · Journal Exécution
-    """
+    """Genere un rapport Excel professionnel 10 feuilles pour decideurs."""
     from openpyxl import Workbook
 
     os.makedirs("outputs", exist_ok=True)
@@ -1891,32 +2187,32 @@ def generate_xlsx_report(state: dict, session_id: str) -> str:
         logger.warning(f"[XLSX] Dashboard error: {e}")
 
     for fn, name in [
-        (_ws_data_quality,   "Qualité Données"),
-        (_ws_star_schema,    "Schéma Étoile"),
-        (_ws_etl_performance,"Performance ETL"),
-        (_ws_analytics,      "Analyses"),
-        (_ws_catalog,        "Catalogue"),
-        (_ws_lineage,        "Lignage"),
-        (_ws_ddl,            "DDL"),
-        (_ws_execution_log,  "Journal"),
+        (_ws_measures_kpi,    "Mesures & KPI"),
+        (_ws_data_quality,    "Qualite Donnees"),
+        (_ws_star_schema,     "Schema Etoile"),
+        (_ws_etl_performance, "Performance ETL"),
+        (_ws_analytics,       "Analyses"),
+        (_ws_catalog,         "Catalogue"),
+        (_ws_lineage,         "Lignage"),
+        (_ws_ddl,             "DDL"),
+        (_ws_execution_log,   "Journal"),
     ]:
         try:
             fn(wb, state)
         except Exception as e:
             logger.warning(f"[XLSX] Feuille '{name}' error: {e}", exc_info=True)
 
-    # Propriétés du classeur
     try:
-        wb.properties.title   = "Rapport Data Warehouse"
-        wb.properties.subject = "Pipeline ETL — Rapport Décisionnel"
+        wb.properties.title = "Rapport Data Warehouse"
+        wb.properties.subject = "Pipeline ETL - Rapport Decisionnel"
         wb.properties.creator = "Agent Data Warehouse v3.0"
-        wb.properties.description = f"Session {session_id} — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        wb.properties.description = f"Session {session_id} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         wb.properties.keywords = "data warehouse ETL OLAP decision"
     except Exception:
         pass
 
     wb.save(xlsx_path)
-    logger.info(f"[Export] XLSX premium généré : {xlsx_path}")
+    logger.info(f"[Export] XLSX premium genere : {xlsx_path}")
     return xlsx_path
 
 
@@ -1936,15 +2232,7 @@ def _coerce_cell(v):
 
 
 def generate_csv_bundle(state: dict, session_id: str) -> bytes:
-    """
-    Génère un .zip contenant un .csv par table + un manifest.json.
-    Retourne les bytes du zip (pour Response directe).
-
-    Formats CSV compatibles Power BI / Tableau / Excel :
-      - encodage UTF-8-SIG (BOM) pour Excel Windows
-      - séparateur ','
-      - ligne de header
-    """
+    """Genere un .zip contenant un .csv par table + un manifest.json."""
     import io
     import csv
     import json as _json
@@ -1977,36 +2265,26 @@ def generate_csv_bundle(state: dict, session_id: str) -> bytes:
                         writer.writerow([_coerce_cell(v) for v in r])
                     else:
                         writer.writerow([_coerce_cell(r)])
-            # UTF-8-SIG pour qu'Excel ouvre correctement sans mojibake
-            data = "\ufeff" + csv_buf.getvalue()
+            data = "﻿" + csv_buf.getvalue()
             zf.writestr(f"{fname}.csv", data.encode("utf-8"))
             manifest["tables"].append({"name": name, "file": f"{fname}.csv", "rows": len(rows)})
             n_tables += 1
 
-        # DDL + manifest
         ddl = state.get("sql_ddl") or ""
         if ddl:
             zf.writestr("_schema.sql", str(ddl))
         zf.writestr("_manifest.json", _json.dumps(manifest, indent=2, ensure_ascii=False))
-
         if n_tables == 0:
             zf.writestr("README.txt",
-                        "Aucune table de résultat dans ce pipeline.\n"
-                        "Relancez l'analyse pour générer des données exploitables.\n")
+                        "Aucune table de resultat dans ce pipeline.\n"
+                        "Relancez l'analyse pour generer des donnees exploitables.\n")
 
     logger.info(f"[Export] CSV bundle : {n_tables} tables, {buf.tell()} bytes")
     return buf.getvalue()
 
 
 def generate_powerbi_template(state: dict, session_id: str) -> bytes:
-    """
-    Bundle Power BI : produit un zip contenant :
-      - connection.pqt              → M-query pour Get Data → SQL Server
-      - POWERBI_CONNECT.md          → instructions étape par étape
-      - schema.sql                  → DDL complet pour documentation
-      - tables_manifest.json        → liste des tables FACT/DIM détectées
-    Retourne les bytes du zip.
-    """
+    """Bundle Power BI : zip avec connection.pqt + README + schema.sql + manifest."""
     import io
     import json as _json
     import zipfile
@@ -2017,134 +2295,43 @@ def generate_powerbi_template(state: dict, session_id: str) -> bytes:
     db_name = state.get("target_database") or state.get("restored_db_name") or "agent_dw"
     user_prefix = state.get("user_prefix") or ""
 
-    # Noms de tables (après prefix si applicable)
     def _tn(t):
         if isinstance(t, dict):
             return t.get("name") or t.get("table_name") or ""
-        return str(t)
+        return str(t or "")
 
-    fact_names = [_tn(f) for f in facts if _tn(f)]
-    dim_names = [_tn(d) for d in dims if _tn(d)]
-    all_tables = fact_names + dim_names
+    fact_names = [_tn(f) for f in facts if f]
+    dim_names = [_tn(d) for d in dims if d]
+    all_tables = [t for t in fact_names + dim_names if t]
+    if user_prefix:
+        all_tables = [f"{user_prefix}_{t}" if not t.startswith(user_prefix + "_") else t for t in all_tables]
 
-    # ── Power Query M script (connexion + import FACT + DIM) ─────────────────
-    m_lines = [
-        "// Power Query M — Agent BI Auto-Generated Connection",
-        f"// Session : {session_id}",
-        f"// Généré le {datetime.now().isoformat()}",
-        "//",
-        "// INSTRUCTIONS :",
-        "//   1. Power BI Desktop → Accueil → Transformer les données → Éditeur avancé",
-        "//   2. Créer une nouvelle requête vide, coller ce script",
-        "//   3. Adapter Server et Database aux valeurs de VOTRE SQL Server",
-        "",
-        "let",
-        '    Server = "localhost,1433",',
-        f'    Database = "{db_name}",',
-        "    Source = Sql.Database(Server, Database, [CreateNavigationProperties=true])",
-        "in",
-        "    Source",
-    ]
-    pqt_content = "\n".join(m_lines)
+    pqt = "// Power BI Get Data - SQL Server Source\n"
+    pqt += f"// Database: {db_name}\n"
+    pqt += "let\n"
+    pqt += f'    Source = Sql.Database("YOUR_SERVER", "{db_name}")\n'
+    pqt += "in\n"
+    pqt += "    Source"
 
-    # ── README détaillé ──────────────────────────────────────────────────────
-    readme = f"""# Connexion Power BI ↔ Agent BI Data Warehouse
-
-**Session :** `{session_id}`
-**Base cible :** `{db_name}`
-**User prefix :** `{user_prefix}`
-
-## 1. Prérequis
-
-- **Power BI Desktop** installé (gratuit, https://aka.ms/pbidesktop)
-- Accès réseau au SQL Server qui héberge le DW (par défaut : `localhost,1433`
-  en Docker compose, ou l'IP du serveur)
-- Credentials SQL Server avec droits de `SELECT` sur la base `{db_name}`
-
-## 2. Connexion rapide (recommandée)
-
-1. Ouvrir **Power BI Desktop**
-2. **Accueil → Obtenir les données → SQL Server**
-3. Saisir :
-   - **Serveur** : `localhost,1433`  (ou `<ip_serveur>,1433`)
-   - **Base de données** : `{db_name}`
-4. Choisir **Import** (chargement en mémoire) ou **DirectQuery** (temps réel)
-5. Authentification : **Base de données** → user/mdp SQL Server
-6. Dans le navigateur, sélectionner les tables :
-"""
-    for f in fact_names:
-        readme += f"   - ✅ `{f}` (table de faits)\n"
-    for d in dim_names:
-        readme += f"   - ✅ `{d}` (dimension)\n"
-
-    readme += f"""
-## 3. Connexion avancée via Power Query (fichier `connection.pqt`)
-
-Le fichier `connection.pqt` inclus contient un script M prêt à coller :
-
-1. Dans Power BI Desktop → **Accueil → Transformer les données**
-2. **Accueil → Nouvelle source → Requête vide**
-3. **Accueil → Éditeur avancé** → coller le contenu de `connection.pqt`
-4. Adapter `Server` et `Database` si nécessaire
-
-## 4. Modèle de données (Star Schema)
-
-Le pipeline Agent BI a généré un schéma en étoile / constellation :
-
-- **{len(fact_names)} table(s) de faits** (FACT_*)
-- **{len(dim_names)} dimension(s)** (DIM_*)
-
-Power BI détectera automatiquement les relations via les **Surrogate Keys**
-(`*_sk` ou `{user_prefix}*_SK`). Si ce n'est pas le cas, créer manuellement
-les relations dans **Modélisation → Gérer les relations**.
-
-## 5. DAX de démarrage (optionnel)
-
-```dax
-// Mesure : nombre total de lignes de faits
-Total Lines = COUNTROWS({fact_names[0] if fact_names else 'FACT_TABLE'})
-
-// Mesure : dernière date chargée
-Last Load = MAX({fact_names[0] if fact_names else 'FACT_TABLE'}[LOAD_DATE])
-```
-
-## 6. Fichiers inclus dans ce bundle
-
-| Fichier | Description |
-|---------|-------------|
-| `connection.pqt` | Script Power Query M pour connexion automatique |
-| `POWERBI_CONNECT.md` | Ce guide |
-| `schema.sql` | DDL T-SQL complet (documentation) |
-| `tables_manifest.json` | Liste structurée des tables FACT/DIM |
-
-## 7. Autres outils BI
-
-Le DW est exposé en standard SQL Server → compatible avec :
-- **Tableau** (Connexion → Microsoft SQL Server)
-- **Excel** (Données → Obtenir les données → Depuis SQL Server)
-- **Looker Studio** (via connecteur JDBC / ODBC)
-- **Qlik Sense** (Connecteur SQL Server natif)
-
----
-
-_Généré automatiquement par Agent BI v5.0 — {datetime.now().strftime("%Y-%m-%d %H:%M")}_
-"""
+    readme = (
+        "# Power BI Bundle\n\n"
+        f"Connectez-vous a la base SQL Server `{db_name}` et importez les tables :\n\n"
+        + "\n".join(f"- {t}" for t in all_tables)
+        + "\n\nUtilisez le fichier `connection.pqt` comme M-query template.\n"
+    )
 
     manifest = {
         "session_id": session_id,
-        "user_prefix": user_prefix,
-        "target_database": db_name,
-        "generated_at": datetime.now().isoformat(),
-        "fact_tables": fact_names,
-        "dimension_tables": dim_names,
-        "all_tables": all_tables,
+        "database": db_name,
+        "tables": all_tables,
+        "facts": fact_names,
+        "dimensions": dim_names,
     }
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("connection.pqt", pqt_content)
+        zf.writestr("connection.pqt", pqt)
         zf.writestr("POWERBI_CONNECT.md", readme)
-        zf.writestr("schema.sql", str(state.get("sql_ddl") or "-- DDL non disponible"))
+        zf.writestr("schema.sql", state.get("sql_ddl", "") or "")
         zf.writestr("tables_manifest.json", _json.dumps(manifest, indent=2, ensure_ascii=False))
-    logger.info(f"[Export] PowerBI bundle : {len(all_tables)} tables, {buf.tell()} bytes")
     return buf.getvalue()

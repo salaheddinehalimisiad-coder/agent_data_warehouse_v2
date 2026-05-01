@@ -1,0 +1,94 @@
+# Git / dev
+.git
+.gitignore
+.github
+.vscode
+.idea
+*.md
+!README.md
+
+# Python
+.venv
+venv
+env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.pytest_cache
+.mypy_cache
+.tox
+
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+package-lock.json.bak
+
+# Build artifacts
+dist
+build
+*.egg
+
+# Frontend build cache
+.vite
+vite.config.js.timestamp-*
+.next
+.cache
+
+# Local data / outputs
+outputs/*
+!outputs/.gitkeep
+uploads/*
+!uploads/.gitkeep
+*.bak
+*.bacpac
+*.sql.bak
+*.csv.bak
+
+# Logs
+*.log
+backend.log
+backend_stdout.log
+backend_stderr.log
+server.log
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker
+docker-compose.override.yml
+
+# Tests
+.coverage
+htmlcov
+test-results
+coverage
+
+# Editor
+*.swp
+*.swo
+*~
+.history
+
+# Misc
+*.zip
+*.tar.gz
+*.tgz
+roadmap_*.docx
+rapport_*.docx
+roadmap_parsed.txt
+test_payload.json
+scratch
+fix_*.py

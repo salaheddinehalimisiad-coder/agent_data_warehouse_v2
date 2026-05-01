@@ -23,6 +23,7 @@ const NeuralBackground  = React.lazy(() => import('./components/NeuralBackground
 // ── Lazy
 const PipelineCanvas    = React.lazy(() => import('./components/PipelineCanvas'));
 const ChatInterface     = React.lazy(() => import('./components/ChatInterface'));
+const FloatingChatWidget = React.lazy(() => import('./components/FloatingChatWidget'));
 const HumanReviewPanel  = React.lazy(() => import('./components/HumanReviewPanel'));
 const DataExplorer      = React.lazy(() => import('./components/DataExplorer'));
 const ExecutionLog      = React.lazy(() => import('./components/ExecutionLog'));
@@ -503,60 +504,58 @@ export default function App() {
               </ErrorBoundary>
             </main>
 
-            {/* ── AI Sidebar ── */}
-            <aside style={{
-              display: 'flex', flexDirection: 'column', flexShrink: 0,
-              width: rightCollapsed ? 44 : 340,
-              background: 'rgba(10,13,26,0.55)',
-              borderLeft: '1px solid var(--border-subtle)',
-              transition: 'width 0.2s ease', overflow: 'hidden',
-            }}>
-              {/* Header */}
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: rightCollapsed ? 'center' : 'space-between',
-                padding: rightCollapsed ? '12px 0' : '10px 14px',
-                borderBottom: '1px solid var(--border-hair)', flexShrink: 0,
+            {/* ── Sidebar HumanReview (visible UNIQUEMENT pendant la pause de validation) ── */}
+            {pipelineStatus?.includes('review') && (
+              <aside style={{
+                display: 'flex', flexDirection: 'column', flexShrink: 0,
+                width: rightCollapsed ? 44 : 360,
+                background: 'rgba(10,13,26,0.65)',
+                borderLeft: '1px solid var(--border-subtle)',
+                transition: 'width 0.2s ease', overflow: 'hidden',
               }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: rightCollapsed ? 'center' : 'space-between',
+                  padding: rightCollapsed ? '12px 0' : '10px 14px',
+                  borderBottom: '1px solid var(--border-hair)', flexShrink: 0,
+                }}>
+                  {!rightCollapsed && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Sparkles size={12} style={{ color: '#f59e0b' }} />
+                      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#f59e0b' }}>
+                        Validation requise
+                      </span>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setRightCollapsed(!rightCollapsed)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      width: 24, height: 24, borderRadius: 5, cursor: 'pointer',
+                      background: 'none', border: 'none',
+                      color: 'var(--text-dim)', transition: 'color 0.15s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = 'var(--text-secondary)'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'var(--text-dim)'}
+                  >
+                    {rightCollapsed ? <ChevronLeft size={13} /> : <ChevronRight size={13} />}
+                  </button>
+                </div>
+
                 {!rightCollapsed && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Sparkles size={12} style={{ color: 'var(--purple-400)' }} />
-                    <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--purple-400)' }}>
-                      Assistant IA
-                    </span>
+                  <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+                    <Suspense fallback={<Spinner />}>
+                      <HumanReviewPanel />
+                    </Suspense>
                   </div>
                 )}
-                <button
-                  onClick={() => setRightCollapsed(!rightCollapsed)}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    width: 24, height: 24, borderRadius: 5, cursor: 'pointer',
-                    background: 'none', border: 'none',
-                    color: 'var(--text-dim)', transition: 'color 0.15s',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.color = 'var(--text-secondary)'}
-                  onMouseLeave={e => e.currentTarget.style.color = 'var(--text-dim)'}
-                >
-                  {rightCollapsed ? <ChevronLeft size={13} /> : <ChevronRight size={13} />}
-                </button>
-              </div>
-
-              {/* Chat area */}
-              {!rightCollapsed && (
-                <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <Suspense fallback={<Spinner />}>
-                    {pipelineStatus?.includes('review') ? <HumanReviewPanel /> : <ChatInterface />}
-                  </Suspense>
-                </div>
-              )}
-
-              {/* Collapsed icon */}
-              {rightCollapsed && (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 16, gap: 16 }}>
-                  <Sparkles size={14} style={{ color: 'var(--purple-400)', opacity: 0.7 }} />
-                </div>
-              )}
-            </aside>
+              </aside>
+            )}
           </div>
+
+          {/* ── Floating Chat Widget (toujours dispo, bouton bas-droite) ── */}
+          <Suspense fallback={null}>
+            <FloatingChatWidget />
+          </Suspense>
 
           {/* ── Log Panel ── */}
           <AnimatePresence>

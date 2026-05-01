@@ -1,4 +1,22 @@
-version: '3.9'
+# docker-compose.deploy.yml - Stack PROD
+# Usage : docker compose -f docker-compose.deploy.yml up -d
+#
+# Prerequis : .env present a la racine avec :
+#   DB_PASSWORD=<strong>
+#   BLAZE_API_KEY=<key>
+#   JWT_SECRET=<random 64+ chars>
+#   ALLOWED_ORIGINS=https://your.domain.com
+#
+# Reverse proxy SSL : ajouter Traefik/Caddy en frontal (non inclus ici).
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+x-restart: &default-restart
+  restart: unless-stopped
 
 networks:
   agent_dw_net:
@@ -9,26 +27,34 @@ volumes:
     driver: local
   sql_log:
     driver: local
+  outputs:
+    driver: local
+  uploads_bak:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
 
 services:
 
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: agent_dw_sqlserver
-    restart: unless-stopped
-    networks:
-      - agent_dw_net
-    user: root
+    <<: *default-restart
+    networks: [agent_dw_net]
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "${DB_PASSWORD}"
-      MSSQL_PID: "Developer"
-    ports:
-      - "1433:1433"
+      MSSQL_SA_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD requis}"
+      MSSQL_PID: "${MSSQL_PID:-Developer}"
+      MSSQL_TCP_PORT: "1433"
+    # Pas d'exposition du port SQL Server vers l'exterieur en prod
+    expose:
+      - "1433"
     volumes:
       - sql_data:/var/opt/mssql/data
       - sql_log:/var/opt/mssql/log
-      - ./uploads/bak:/var/opt/mssql/backup
+      - uploads_bak:/var/opt/mssql/backup
     healthcheck:
       test: [
         "CMD-SHELL",
@@ -38,72 +64,142 @@ services:
       timeout: 10s
       retries: 10
       start_period: 40s
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+        reservations:
+          memory: 2g
 
   backend:
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
-    image: antigravity-bi-backend:latest
+    image: ${REGISTRY:-local}/agent-dw-backend:${TAG:-latest}
     container_name: agent_dw_backend
-    restart: unless-stopped
-    networks:
-      - agent_dw_net
-    env_file: .env
+    <<: *default-restart
+    networks: [agent_dw_net]
+    env_file:
+      - path: .env
+        required: true
     environment:
       DB_HOST: "sqlserver"
       DB_PORT: "1433"
       DB_USER: "sa"
-      DB_PASSWORD: "${DB_PASSWORD}"
+      DB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD requis}"
       SQLSERVER_BACKUP_MOUNT_DIR: "/var/opt/mssql/backup"
       SQLSERVER_DATA_DIR: "/var/opt/mssql/data"
       BAK_UPLOAD_DIR: "/app/uploads/bak"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://host.docker.internal:11434}"
-      BLAZE_API_KEY: "${BLAZE_API_KEY:-sk-blaze-wuAdOktbeX65NxuxmnLrimuMxrQGeTymxsSMpyxLEi1RWkOH}"
+      BLAZE_API_KEY: "${BLAZE_API_KEY:?BLAZE_API_KEY requis}"
       BLAZE_BASE_URL: "${BLAZE_BASE_URL:-https://api.blaze.ai/v1}"
       BLAZE_MODEL: "${BLAZE_MODEL:-glm-5}"
-      ALLOWED_ORIGINS: "http://localhost:8080,http://127.0.0.1:8080"
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET requis}"
+      WORKERS: "${BACKEND_WORKERS:-4}"
+      TIMEOUT: "${BACKEND_TIMEOUT:-180}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
       APP_ENV: "production"
       ENVIRONMENT: "production"
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:?ALLOWED_ORIGINS requis (ex: https://app.exemple.com)}"
     volumes:
-      - ./uploads/bak:/app/uploads/bak
-      - ./outputs:/app/outputs
-    ports:
-      - "8000:8000"
+      - uploads_bak:/app/uploads/bak
+      - outputs:/app/outputs
+    # Backend non expose vers l'exterieur : passe par le frontend nginx
+    expose:
+      - "8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       sqlserver:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
       interval: 15s
       timeout: 5s
-      retries: 3
-      start_period: 20s
+      retries: 5
+      start_period: 40s
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    read_only: false   # /app/outputs et /app/logs doivent etre writable
+    tmpfs:
+      - /tmp:size=512M,uid=1000,gid=1000
     deploy:
       resources:
         limits:
-          memory: 2g
+          memory: 4g
+        reservations:
+          memory: 1g
 
   frontend:
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
       args:
-        VITE_API_URL: ""
-    image: antigravity-bi-frontend:latest
+        VITE_API_URL: ""    # same-origin via le proxy nginx
+    image: ${REGISTRY:-local}/agent-dw-frontend:${TAG:-latest}
     container_name: agent_dw_frontend
-    restart: unless-stopped
-    networks:
-      - agent_dw_net
+    <<: *default-restart
+    networks: [agent_dw_net]
     ports:
-      - "8080:80"
+      - "${FRONTEND_HOST_PORT:-8080}:8080"
     depends_on:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=128M,uid=101,gid=101
+      - /var/run:size=8M,uid=101,gid=101
+      - /tmp:size=64M,uid=101,gid=101
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+        reservations:
+          memory: 64m
+
+  # ─── Reverse proxy SSL (HTTPS auto via Let's Encrypt) ─────────────────────
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: agent_dw_caddy
+    <<: *default-restart
+    networks: [agent_dw_net]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    environment:
+      DOMAIN: "${DOMAIN:-localhost}"
+      ACME_EMAIL: "${ACME_EMAIL:-admin@example.com}"
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 128m

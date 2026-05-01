@@ -947,9 +947,22 @@ def _normalize_sqlserver_target(host: str, port) -> str:
 
 
 def _build_engine(config: dict):
-    """Construit un engine SQLAlchemy — v4.2 TDS-safe (creator pyodbc direct)."""
+    """Construit un engine SQLAlchemy - v4.3 TDS-safe + pool tunable.
+
+    Variables d'env (pour la prod) :
+      DB_POOL_SIZE        (default 5)
+      DB_POOL_MAX_OVERFLOW (default 10)
+      DB_POOL_TIMEOUT     (default 30)
+      DB_POOL_RECYCLE     (default 1800)
+    """
+    import os
     from sqlalchemy import create_engine
     from urllib.parse import quote_plus
+
+    pool_size = int(os.getenv("DB_POOL_SIZE", "5"))
+    pool_max_overflow = int(os.getenv("DB_POOL_MAX_OVERFLOW", "10"))
+    pool_timeout = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+    pool_recycle = int(os.getenv("DB_POOL_RECYCLE", "1800"))
 
     db_type  = config.get("type", "sqlserver").lower().replace("postgres", "postgresql")
     host     = config.get("host", "localhost")
@@ -959,7 +972,7 @@ def _build_engine(config: dict):
     password = config.get("password", "")
 
     if db_type == "sqlite":
-        return create_engine(f"sqlite:///{database}")
+        return create_engine(f"sqlite:///{database}", pool_pre_ping=True)
 
     if db_type in ("sqlserver", "mssql"):
         import pyodbc
@@ -990,8 +1003,11 @@ def _build_engine(config: dict):
         return create_engine(
             "mssql+pyodbc://",
             creator=_connect,
+            pool_size=pool_size,
+            max_overflow=pool_max_overflow,
+            pool_timeout=pool_timeout,
+            pool_recycle=pool_recycle,
             pool_pre_ping=True,
-            pool_recycle=1800,
             fast_executemany=True,
             future=True,
         )
@@ -1002,7 +1018,11 @@ def _build_engine(config: dict):
     pwd_enc = quote_plus(password or "")
     return create_engine(
         f"{db_type}+{driver}://{user}:{pwd_enc}@{host}:{port}/{database}",
-        pool_pre_ping=True, pool_recycle=3600,
+        pool_size=pool_size,
+        max_overflow=pool_max_overflow,
+        pool_timeout=pool_timeout,
+        pool_recycle=pool_recycle,
+        pool_pre_ping=True,
     )
 
 
@@ -1528,26 +1548,22 @@ def _drop_source_tables(engine, dw_prefix: str, execution_log: list) -> list:
             if failed:
                 new_logs.append(f"[Cleanup] ⚠️ {len(failed)} tables non supprimées : {', '.join(failed[:5])}")
 
+
     except Exception as e:
         logger.error(f"[Cleanup] Erreur globale : {e}")
-        new_logs.append(f"[Cleanup] ❌ Nettoyage échoué : {e}")
+        new_logs.append(f"[Cleanup] Erreur : {e}")
 
     return new_logs
 
 
 def _persist_metrics(metrics: dict, session_id: str) -> None:
-    """Persiste les métriques de chargement dans un historique JSON."""
-    metrics_file = OUTPUTS_DIR / "load_metrics_history.json"
-    OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-
-    history: List[dict] = []
-    if metrics_file.exists():
-        try:
-            history = json.loads(metrics_file.read_text())
-        except Exception:
-            history = []
-
-    history.append({"session_id": session_id, **metrics})
-    history = history[-100:]
-
-    metrics_file.write_text(json.dumps(history, indent=2, default=str))
+    """Persiste les load_metrics sur disque (best effort, non bloquant)."""
+    import json
+    from pathlib import Path
+    try:
+        out_dir = Path("outputs")
+        out_dir.mkdir(exist_ok=True)
+        path = out_dir / f"{session_id}_load_metrics.json"
+        path.write_text(json.dumps(metrics, indent=2, default=str), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"[_persist_metrics] echec ecriture {session_id}: {e}")

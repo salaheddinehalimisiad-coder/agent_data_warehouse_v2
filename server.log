@@ -1,9 +1,0 @@
-INFO:     Will watch for changes in these directories: ['C:\\Users\\salah\\Desktop\\agent_dw_v3_fixed']
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [27224] using WatchFiles
-INFO:     Started server process [12680]
-INFO:     Waiting for application startup.
-2026-04-25 01:33:17 [INFO] api.server — \U0001f680 Agent Data Warehouse v2.0 — Démarrage
-2026-04-25 01:33:18 [INFO] api.db.sqlserver — [DB] Tables de métadonnées initialisées sous SQL Server
-2026-04-25 01:33:18 [INFO] api.server — \u2705 Base de métadonnées initialisée
-INFO:     Application startup complete.

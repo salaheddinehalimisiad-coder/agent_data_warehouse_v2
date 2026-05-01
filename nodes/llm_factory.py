@@ -8,9 +8,13 @@ v7.0 — Migration vers Blaze (GLM 5) via API OpenAI-compatible :
 5. call_with_retry : skip immédiat sur 403/401 (pas de retry inutile)
 6. Support de gros volumes de métadonnées SQL dans le contexte prompt
 """
-import os
-import time
+import hashlib
+import json as _json
 import logging
+import os
+import threading
+import time
+from collections import OrderedDict
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -20,9 +24,95 @@ from pydantic import Field
 
 logger = logging.getLogger(__name__)
 
+
+# ─── Cache LLM en memoire (LRU + TTL) ─────────────────────────────────────────
+class _LRUTTLCache:
+    """Cache LRU avec TTL pour les appels LLM. Thread-safe, taille bornee."""
+    def __init__(self, maxsize: int = 256, ttl_seconds: int = 3600):
+        self.maxsize = maxsize
+        self.ttl = ttl_seconds
+        self._d: "OrderedDict[str, tuple[float, Any]]" = OrderedDict()
+        self._lock = threading.RLock()
+        self.hits = 0
+        self.misses = 0
+
+    def get(self, key: str):
+        with self._lock:
+            if key not in self._d:
+                self.misses += 1
+                return None
+            ts, value = self._d[key]
+            if time.time() - ts > self.ttl:
+                self._d.pop(key, None)
+                self.misses += 1
+                return None
+            self._d.move_to_end(key)
+            self.hits += 1
+            return value
+
+    def set(self, key: str, value: Any):
+        with self._lock:
+            self._d[key] = (time.time(), value)
+            self._d.move_to_end(key)
+            while len(self._d) > self.maxsize:
+                self._d.popitem(last=False)
+
+    def clear(self):
+        with self._lock:
+            self._d.clear()
+
+    def stats(self) -> dict:
+        total = self.hits + self.misses
+        return {
+            "size": len(self._d),
+            "maxsize": self.maxsize,
+            "hits": self.hits,
+            "misses": self.misses,
+            "hit_rate": round(self.hits / total, 3) if total else 0.0,
+        }
+
+
+_LLM_CACHE_ENABLED = os.getenv("LLM_CACHE_ENABLED", "1") not in ("0", "false", "False")
+_LLM_CACHE_TTL = int(os.getenv("LLM_CACHE_TTL", "3600"))  # 1h par defaut
+_LLM_CACHE_SIZE = int(os.getenv("LLM_CACHE_SIZE", "256"))
+_LLM_CACHE = _LRUTTLCache(maxsize=_LLM_CACHE_SIZE, ttl_seconds=_LLM_CACHE_TTL)
+
+
+def _make_cache_key(inputs: Any, chain: Any = None) -> str:
+    """Hash stable des inputs LLM pour cache."""
+    try:
+        if hasattr(inputs, "to_dict"):
+            payload = inputs.to_dict()
+        elif isinstance(inputs, (dict, list, tuple, str, int, float)):
+            payload = inputs
+        else:
+            payload = str(inputs)
+        data = _json.dumps(payload, default=str, sort_keys=True, ensure_ascii=False)
+    except Exception:
+        data = str(inputs)
+    chain_id = ""
+    try:
+        if chain is not None:
+            chain_id = type(chain).__name__
+    except Exception:
+        pass
+    return hashlib.sha256(f"{chain_id}::{data}".encode("utf-8")).hexdigest()
+
+
+def get_llm_cache_stats() -> dict:
+    """Expose les stats du cache LLM (pour /metrics ou debug)."""
+    return _LLM_CACHE.stats()
+
+
+def clear_llm_cache():
+    _LLM_CACHE.clear()
+
 # ─── Configuration Blaze ────────────────────────────────────────────────────────
-BLAZE_API_KEY = os.getenv("BLAZE_API_KEY", "sk-blaze-wuAdOktbeX65NxuxmnLrimuMxrQGeTymxsSMpyxLEi1RWkOH")
+# IMPORTANT : ne jamais hardcoder la cle. Utiliser .env (cf .env.example).
+BLAZE_API_KEY = os.getenv("BLAZE_API_KEY", "")
 BLAZE_BASE_URL = os.getenv("BLAZE_BASE_URL", "https://blazeai.boxu.dev")
+if not BLAZE_API_KEY:
+    logger.warning("[LLM] BLAZE_API_KEY non defini. Definir la variable dans .env ou exporter avant de lancer le serveur.")
 BLAZE_MODEL = os.getenv("BLAZE_MODEL", "z-ai/glm-5")
 
 # Normalisation API Key : préfixer sk-blaze- si absent
@@ -204,6 +294,39 @@ def get_llm(temperature: float = 0.1, task_type: str = "default") -> Any:
     return FakeChatModel()
 
 
+def get_llm_strict(temperature: float = 0.1, task_type: str = "code", max_tokens: int = None) -> Any:
+    """
+    Variante stricte : utilise UNIQUEMENT Blaze GLM-5 (pas de fallback Ollama/Fake).
+    A utiliser pour les taches critiques ou la qualite de generation est non-negociable
+    (chat_modifier, modeler complet, generateurs ETL T-SQL).
+    Leve une RuntimeError si Blaze n'est pas joignable.
+    """
+    if not BLAZE_API_KEY:
+        raise RuntimeError(
+            "BLAZE_API_KEY non configuree — get_llm_strict ne peut pas demarrer. "
+            "Mettre la cle dans .env (cf .env.example)."
+        )
+    effective_temp = _adjust_temperature(temperature, task_type)
+    llm = BlazeChatModel(
+        model=BLAZE_MODEL,
+        api_key=BLAZE_API_KEY,
+        base_url=BLAZE_BASE_URL,
+        temperature=effective_temp,
+        max_tokens=max_tokens or BLAZE_MAX_TOKENS,
+        timeout=BLAZE_TIMEOUT,
+        top_p=0.9 if task_type == "code" else 0.95,
+    )
+    if not _test_blaze_connection(llm):
+        raise RuntimeError(
+            f"Blaze indisponible sur {BLAZE_BASE_URL} — verifier BLAZE_API_KEY et la connectivite reseau."
+        )
+    logger.info(
+        f"[LLM-STRICT] Blaze GLM-5 force pour {task_type} "
+        f"(temp={effective_temp}, max_tokens={max_tokens or BLAZE_MAX_TOKENS})"
+    )
+    return llm
+
+
 def _adjust_temperature(temperature: float, task_type: str) -> float:
     """
     Ajuste la température pour optimiser la génération SQL/Data Warehouse.
@@ -280,18 +403,37 @@ def _test_model_can_run(base_url: str, model_name: str, timeout: int = 15) -> bo
         return False
 
 
-def call_with_retry(chain: Any, inputs: dict, max_retries: int = 3) -> Any:
+def call_with_retry(chain: Any, inputs: dict, max_retries: int = 3, use_cache: bool = True) -> Any:
     """
-    Appel LLM avec backoff exponentiel.
+    Appel LLM avec backoff exponentiel + cache LRU/TTL en memoire.
     Gère : quota 429, timeout réseau, erreurs transitoires.
     Skip immédiat sur 401/403 (non retryable).
     """
+    # ── Cache hit ────────────────────────────────────────────────────────────
+    cache_key = None
+    if use_cache and _LLM_CACHE_ENABLED:
+        try:
+            cache_key = _make_cache_key(inputs, chain)
+            cached = _LLM_CACHE.get(cache_key)
+            if cached is not None:
+                logger.debug(f"[LLM] Cache HIT ({cache_key[:8]})")
+                return cached
+        except Exception as e:
+            logger.debug(f"[LLM] Cache lookup failed (ignore): {e}")
+            cache_key = None
+
     delay = 5
     last_error = None
 
     for attempt in range(max_retries):
         try:
-            return chain.invoke(inputs)
+            result = chain.invoke(inputs)
+            if cache_key:
+                try:
+                    _LLM_CACHE.set(cache_key, result)
+                except Exception:
+                    pass
+            return result
         except Exception as e:
             last_error = e
             err_str = str(e).lower()
@@ -417,43 +559,20 @@ def build_schema_context(logical_model: dict, prefix: str = "dw") -> str:
     return "\n".join(lines)
 
 
-def build_metadata_context(source_metadata: dict) -> str:
-    """
-    Construit un contexte de métadonnées source complet pour injection dans les prompts.
-    Inclut toutes les tables, colonnes, types, FK et statistiques.
 
-    Optimisé pour la large fenêtre de tokens de GLM-5.
-    """
+def build_metadata_context(source_metadata: dict) -> str:
+    """Contexte metadata source pour injection prompt LLM."""
     if not source_metadata:
         return ""
-
-    lines = []
-    lines.append("=== SOURCE DATABASE METADATA ===")
-    lines.append("")
-
-    for table_name, table_data in source_metadata.items():
-        if not isinstance(table_data, dict):
+    lines = ["=== SOURCE METADATA ==="]
+    for tname, tdata in source_metadata.items():
+        if not isinstance(tdata, dict):
             continue
-        row_count = table_data.get("row_count", "?")
-        lines.append(f"📂 TABLE: [{table_name}] ({row_count} rows)")
-
-        cols = table_data.get("columns", [])
-        for col in cols:
-            dtype = col.get("dtype", col.get("type", "unknown"))
-            null_pct = col.get("null_pct", 0)
-            nunique = col.get("nunique", "?")
-            null_info = f" (⚠️ {null_pct}% null)" if null_pct and null_pct > 10 else ""
-            lines.append(f"   - {col.get('name', '?')}: {dtype} | unique={nunique}{null_info}")
-
-        # FK
-        fks = table_data.get("foreign_keys", [])
-        if fks:
-            lines.append("   Foreign Keys:")
-            for fk in fks:
-                cols_fk = ", ".join(fk.get("constrained_columns", []))
-                ref_table = fk.get("referred_table", "?")
-                lines.append(f"     {cols_fk} → {ref_table}")
-
-        lines.append("")
-
+        rc = tdata.get("row_count", "?")
+        lines.append(f"TABLE [{tname}] ({rc} rows)")
+        for col in tdata.get("columns", []):
+            lines.append(f"  - {col.get('name', '?')}: {col.get('dtype', col.get('type', 'unknown'))}")
+        for fk in tdata.get("foreign_keys", []) or []:
+            cols_fk = ", ".join(fk.get("constrained_columns", []))
+            lines.append(f"  FK: {cols_fk} -> {fk.get('referred_table', '?')}")
     return "\n".join(lines)

@@ -74,6 +74,14 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
+# Observabilite : middleware Prometheus + /metrics + logs JSON optionnels
+try:
+    from api.middleware.observability import setup_observability
+    setup_observability(app)
+    logger.info("Observability enabled (/metrics)")
+except Exception as _obs_err:
+    logger.warning(f"Observability setup failed (non-fatal): {_obs_err}")
+
 
 # Routeurs
 app.include_router(pipeline.router)
@@ -213,10 +221,112 @@ async def export_powerbi(session_id: str, user: dict = Depends(get_optional_user
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _export_bak_logical_fallback(state: dict, session_id: str, user_prefix: str,
+                                 dw_cfg: dict, error_reason: str) -> Path:
+    """
+    Fallback : produit un fichier .bak « logique » lorsque SQL Server BACKUP DATABASE
+    n'est pas disponible. Le contenu est un ZIP renommé en .bak qui contient :
+      - schema.sql        : DDL T-SQL complet du DW
+      - data/<table>.csv  : extraction de chaque table (limite 10k lignes/table)
+      - manifest.json     : métadonnées du backup
+      - RESTORE.md        : procédure de restauration manuelle
+    Cela garantit que l'utilisateur peut TOUJOURS télécharger un livrable.
+    """
+    import io
+    import csv
+    import json as _json
+    import zipfile
+    from datetime import datetime as _dt
+
+    outputs_dir = Path("outputs")
+    outputs_dir.mkdir(exist_ok=True)
+    bak_path = outputs_dir / f"{user_prefix}_{session_id[:8]}_dw.bak"
+
+    ddl = state.get("sql_ddl") or ""
+    lm = state.get("logical_model") or {}
+    dq = state.get("dq_score", "n/a")
+
+    # Tente d'extraire les données réelles si la connexion DW fonctionne
+    tables_payload: list[dict] = []
+    try:
+        from nodes.etl_executor import _build_engine
+        import pandas as pd
+        engine = _build_engine(dw_cfg)
+        from sqlalchemy import inspect as _inspect
+        inspector = _inspect(engine)
+        with engine.connect() as conn:
+            for tname in inspector.get_table_names():
+                if not tname.startswith(user_prefix + "_"):
+                    continue
+                try:
+                    df = pd.read_sql(f"SELECT TOP 10000 * FROM [{tname}]", conn)
+                    tables_payload.append({"name": tname, "df": df})
+                except Exception as te:
+                    logger.warning(f"[export-bak fallback] Lecture {tname} : {te}")
+    except Exception as e:
+        logger.warning(f"[export-bak fallback] Pas d'extraction de données : {e}")
+
+    manifest = {
+        "session_id":   session_id,
+        "user_prefix":  user_prefix,
+        "format":       "logical_backup_zip",
+        "generated_at": _dt.now().isoformat(),
+        "dq_score":     dq,
+        "fact_tables":  [
+            f.get("name") for f in (lm.get("fact_tables") or
+                                    ([lm.get("fact_table")] if lm.get("fact_table") else []))
+            if isinstance(f, dict)
+        ],
+        "dimensions":   [d.get("name") for d in (lm.get("dimension_tables") or []) if isinstance(d, dict)],
+        "tables_exported": [t["name"] for t in tables_payload],
+        "sqlserver_backup_error": error_reason,
+        "note": (
+            "Ce .bak est un backup logique : un ZIP contenant le DDL et les données "
+            "exportées. Pour un vrai .bak SQL Server (binaire), assurez-vous que "
+            "SQL Server tourne et que l'utilisateur DB a les droits BACKUP."
+        ),
+    }
+
+    restore_md = (
+        "# Restauration depuis ce backup logique\n\n"
+        f"Backup généré le {_dt.now().strftime('%Y-%m-%d %H:%M')} pour la session `{session_id}`.\n\n"
+        "## Contenu\n"
+        "- `schema.sql` : DDL complet du Data Warehouse (T-SQL / SQL Server).\n"
+        "- `data/<table>.csv` : extraction des tables (max 10000 lignes par table).\n"
+        "- `manifest.json` : métadonnées techniques.\n\n"
+        "## Procédure\n"
+        "1. Créez la base de données cible :\n"
+        "   ```sql\n   CREATE DATABASE [agent_dw_restore];\n   ```\n"
+        "2. Exécutez `schema.sql` dans la nouvelle base.\n"
+        "3. Importez les CSV via SSIS, BULK INSERT ou Import Wizard.\n\n"
+        f"_Erreur SQL Server BACKUP d'origine : {error_reason}_\n"
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("schema.sql", ddl)
+        zf.writestr("manifest.json", _json.dumps(manifest, indent=2, ensure_ascii=False, default=str))
+        zf.writestr("RESTORE.md", restore_md)
+        for t in tables_payload:
+            try:
+                csv_buf = io.StringIO()
+                t["df"].to_csv(csv_buf, index=False)
+                zf.writestr(f"data/{t['name']}.csv", "﻿" + csv_buf.getvalue())
+            except Exception as e:
+                logger.warning(f"[export-bak fallback] CSV {t['name']} : {e}")
+
+    bak_path.write_bytes(buf.getvalue())
+    logger.info(f"[export-bak fallback] {bak_path} ({len(buf.getvalue())} bytes)")
+    return bak_path
+
+
 @app.get("/api/export-bak")
 async def export_bak(session_id: str, user: dict = Depends(get_optional_user)):
-    """Export SQL Server backup (.bak) du Data Warehouse généré."""
-    import pyodbc
+    """Export SQL Server backup (.bak) du Data Warehouse généré.
+    Si SQL Server n'est pas accessible, retourne un .bak logique (ZIP renommé)
+    contenant le DDL + un export CSV de chaque table — l'utilisateur reçoit
+    TOUJOURS un livrable téléchargeable.
+    """
     import os
     import shutil
     from pathlib import Path
@@ -228,82 +338,107 @@ async def export_bak(session_id: str, user: dict = Depends(get_optional_user)):
     dw_cfg     = state.get("dw_connection_config") or {}
     db_name    = dw_cfg.get("database") or state.get("user_prefix", "dw")
     user_prefix = state.get("user_prefix", "dw")
-
-    # FIX: Use SQL Server backup directory or temp directory that SQL Server can access
-    # Try common SQL Server backup locations
-    sql_backup_dirs = [
-        Path("C:/ProgramData/agent_dw_bak"),  # Our known working directory
-        Path(os.environ.get("TEMP", "C:/Windows/Temp")),
-        Path("C:/SQLServer/Backup") if Path("C:/SQLServer").exists() else None,
-    ]
-    
-    bak_dir = None
-    for d in sql_backup_dirs:
-        if d and d.exists():
-            bak_dir = d
-            break
-    
-    # Fallback: create ProgramData directory
-    if not bak_dir:
-        bak_dir = Path("C:/ProgramData/agent_dw_bak")
-    
-    bak_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Filename in SQL Server accessible location
     bak_filename = f"{user_prefix}_{session_id[:8]}_dw.bak"
-    bak_path_sql = bak_dir / bak_filename
-    
-    # Final download path (outputs folder)
     outputs_dir = Path("outputs")
     outputs_dir.mkdir(exist_ok=True)
     download_path = outputs_dir / bak_filename
+    last_error = "non lancé"
 
-    env = {
-        "host":     os.getenv("DB_HOST", "localhost"),
-        "port":     os.getenv("DB_PORT", "1433"),
-        "user":     os.getenv("DB_USER", "sa"),
-        "password": os.getenv("DB_PASSWORD", ""),
-    }
+    # ── Tentative SQL Server BACKUP DATABASE ─────────────────────────────────
     try:
-        drivers = [d for d in pyodbc.drivers() if "SQL Server" in d]
-        driver  = next((d for d in ("ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server") if d in drivers), drivers[0] if drivers else "ODBC Driver 17 for SQL Server")
-    except Exception:
-        driver = "ODBC Driver 17 for SQL Server"
+        import pyodbc
+        bak_dir = Path("C:/Windows/Temp/agent_dw_bak")
+        bak_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            import subprocess
+            subprocess.run(["icacls", str(bak_dir), "/grant", "Everyone:F", "/T"],
+                           capture_output=True, check=False, timeout=10)
+        except Exception:
+            pass
+        bak_path_sql = bak_dir / bak_filename
 
-    pw = env["password"].replace("}", "}}")
-    conn_str = (
-        f"DRIVER={{{driver}}};"
-        f"SERVER={env['host']},{env['port']};DATABASE=master;"
-        f"UID={env['user']};PWD={{{pw}}};"
-        f"Encrypt=no;TrustServerCertificate=yes;"
-    )
-    try:
+        env = {
+            "host":     dw_cfg.get("host") or os.getenv("DB_HOST", "localhost"),
+            "port":     str(dw_cfg.get("port") or os.getenv("DB_PORT", "1433")),
+            "user":     dw_cfg.get("user") or os.getenv("DB_USER", "sa"),
+            "password": dw_cfg.get("password") or os.getenv("DB_PASSWORD", ""),
+        }
+        try:
+            drivers = [d for d in pyodbc.drivers() if "SQL Server" in d]
+            driver  = next((d for d in ("ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server")
+                            if d in drivers), drivers[0] if drivers else "ODBC Driver 17 for SQL Server")
+        except Exception:
+            driver = "ODBC Driver 17 for SQL Server"
+
+        pw = env["password"].replace("}", "}}")
+        conn_str = (
+            f"DRIVER={{{driver}}};"
+            f"SERVER={env['host']},{env['port']};DATABASE=master;"
+            f"UID={env['user']};PWD={{{pw}}};"
+            f"Encrypt=no;TrustServerCertificate=yes;"
+        )
         conn   = pyodbc.connect(conn_str, autocommit=True, timeout=15)
         cursor = conn.cursor()
-        # FIX: Use forward slashes for SQL Server path compatibility
-        bak_abs = str(bak_path_sql).replace("'", "''")
+
+        sql_backup_dir = None
+        try:
+            cursor.execute("EXEC master.dbo.xp_instance_regread N'HKEY_LOCAL_MACHINE', "
+                           "N'Software\\Microsoft\\MSSQLServer\\MSSQLServer', N'BackupDirectory'")
+            row = cursor.fetchone()
+            if row and len(row) > 1 and row[1]:
+                sql_backup_dir = Path(str(row[1]))
+        except Exception:
+            pass
+
+        if sql_backup_dir and sql_backup_dir.exists():
+            bak_path_sql = sql_backup_dir / bak_filename
+
+        bak_abs = str(bak_path_sql).replace("\\", "/").replace("'", "''")
         db_esc  = db_name.replace("'", "''").replace("]", "]]")
-        cursor.execute(f"BACKUP DATABASE [{db_esc}] TO DISK = N'{bak_abs}' WITH COMPRESSION, STATS = 5")
+        logger.info(f"[export-bak] BACKUP DATABASE [{db_esc}] TO DISK = N'{bak_abs}'")
+        cursor.execute(f"BACKUP DATABASE [{db_esc}] TO DISK = N'{bak_abs}' "
+                       f"WITH FORMAT, INIT, COMPRESSION, NAME = N'{db_esc}_full', STATS = 5")
         cursor.close(); conn.close()
+
+        if bak_path_sql.exists():
+            try:
+                shutil.copy2(bak_path_sql, download_path)
+            except Exception as e:
+                logger.warning(f"[export-bak] Copy outputs failed: {e}")
+                download_path = bak_path_sql
+            return FileResponse(
+                str(download_path),
+                media_type="application/octet-stream",
+                filename=bak_filename,
+                headers={
+                    "Content-Disposition": f'attachment; filename="{bak_filename}"',
+                    "X-Backup-Type": "sqlserver-native",
+                },
+            )
+        last_error = "Le fichier .bak n'a pas été produit par SQL Server"
     except Exception as e:
-        logger.warning(f"[export-bak] {e}")
-        raise HTTPException(status_code=500, detail=f"Backup SQL Server échoué : {e}")
+        last_error = f"{type(e).__name__}: {str(e)[:300]}"
+        logger.warning(f"[export-bak] BACKUP impossible — fallback logique : {last_error}")
 
-    if not bak_path_sql.exists():
-        raise HTTPException(status_code=500, detail="Fichier .bak non généré par SQL Server")
-
-    # FIX: Copy to outputs folder for download
+    # ── Fallback : backup logique ────────────────────────────────────────────
     try:
-        shutil.copy2(bak_path_sql, download_path)
+        bak_path = _export_bak_logical_fallback(state, session_id, user_prefix, dw_cfg, last_error)
+        return FileResponse(
+            str(bak_path),
+            media_type="application/octet-stream",
+            filename=bak_filename,
+            headers={
+                "Content-Disposition": f'attachment; filename="{bak_filename}"',
+                "X-Backup-Type": "logical-zip",
+                "X-Backup-Note": "SQL Server BACKUP indisponible — backup logique (DDL + CSV)",
+            },
+        )
     except Exception as e:
-        logger.warning(f"[export-bak] Copy to outputs failed: {e}, using source path")
-        download_path = bak_path_sql
-
-    return FileResponse(
-        str(download_path),
-        media_type="application/octet-stream",
-        filename=f"{user_prefix}_dw_{session_id[:8]}.bak",
-    )
+        logger.exception("[export-bak] fallback échoué")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Backup impossible : SQL Server={last_error} ; fallback={e}",
+        )
 
 
 class EmailNotifyRequest(BaseModel):

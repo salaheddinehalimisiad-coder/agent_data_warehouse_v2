@@ -1,0 +1,83 @@
+# docker/caddy/Caddyfile
+# Reverse proxy avec HTTPS automatique Let's Encrypt.
+# Usage : definir DOMAIN dans .env (ex: DOMAIN=app.exemple.com)
+# Pour test local sans domaine, mettre DOMAIN=localhost (cert auto-signe).
+
+{
+    # Email pour Let's Encrypt
+    email {$ACME_EMAIL:admin@example.com}
+
+    # Securite
+    servers {
+        protocols h1 h2 h3
+    }
+}
+
+{$DOMAIN:localhost} {
+    # Logs structures (JSON)
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+
+    # Headers de securite (en plus de ceux de nginx)
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        # X-Frame, X-Content-Type, etc. -> deja envoyes par nginx, on n'override pas
+    }
+
+    # Compression
+    encode gzip zstd
+
+    # Sante (pas de cert necessaire)
+    handle /health {
+        reverse_proxy frontend:8080
+    }
+
+    # SSE pipeline-stream : timeouts longs, pas de buffering
+    handle /api/pipeline-stream* {
+        reverse_proxy frontend:8080 {
+            transport http {
+                read_timeout 1h
+                write_timeout 1h
+                response_header_timeout 1h
+            }
+            flush_interval -1
+        }
+    }
+
+    # Upload backup .bak : timeouts tres longs, body size eleve
+    handle /api/upload-backup* {
+        reverse_proxy frontend:8080 {
+            transport http {
+                read_timeout 30m
+                write_timeout 30m
+            }
+        }
+        request_body {
+            max_size 4096MB
+        }
+    }
+
+    # SSE chat stream
+    handle /api/chat/stream* {
+        reverse_proxy frontend:8080 {
+            transport http {
+                read_timeout 1h
+                write_timeout 1h
+            }
+            flush_interval -1
+        }
+    }
+
+    # Tout le reste -> frontend nginx (qui lui-meme proxifie /api -> backend)
+    handle {
+        reverse_proxy frontend:8080
+    }
+
+    # Erreur handler
+    handle_errors {
+        respond "Service indisponible (code {http.error.status_code})" {http.error.status_code}
+    }
+}

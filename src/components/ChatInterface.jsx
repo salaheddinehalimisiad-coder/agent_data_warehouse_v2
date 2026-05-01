@@ -163,10 +163,10 @@ function TypewriterMessage({ content, role, isLast, queryResult }) {
 
 
 const SUGGESTIONS = [
-  'Optimize primary keys for OLAP performance',
-  'Add dimension mapping for geographical data',
-  'Enforce naming consistency (prefixing)',
-  'Verify referential integrity'
+  'Ajoute une mesure net_amount dans fact_orders',
+  'Renomme dim_client en dim_customer',
+  'Comment optimiser mes cles primaires OLAP ?',
+  'Verifie l\'integrite referentielle de mon schema',
 ];
 
 export default function ChatInterface() {
@@ -205,47 +205,25 @@ export default function ChatInterface() {
   const canChat = pipelineStatus !== 'idle';
 
   return (
-    <div className="flex flex-col h-full bg-black/40 backdrop-blur-xl border-t lg:border-t-0 lg:border-l border-white/5">
-      
-      {/* ── Tabs Navigation with Glow ────────────────────────────────────────── */}
-      <div className="flex items-center p-2.5 gap-1 border-b border-white/[0.06] bg-black/40 shrink-0">
-        {tabs.map(({ id, label, icon: Icon, color }) => {
-            const isActive = activeTab === id;
-            return (
-                <button
-                    key={id}
-                    onClick={() => setActiveTab(id)}
-                    className={`relative group flex items-center gap-2 px-3.5 py-2 text-[10.5px] font-black rounded-xl transition-all ${
-                        isActive 
-                        ? 'bg-white/5 text-white border border-white/10 shadow-lg' 
-                        : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.03]'
-                    }`}
-                >
-                    <Icon size={13} className={isActive ? color : 'text-slate-600'} />
-                    {label.toUpperCase()}
-                    {isActive && (
-                        <motion.div layoutId="tab-underline" className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-0.5" style={{ background: 'var(--blue-400)' }} />
-                    )}
-                </button>
-            )
-        })}
-      </div>
+    <div className="flex flex-col h-full bg-transparent">
 
-      {/* ── Content Area ────────────────────────────────────────────────────── */}
+      {/* ── Content Area (chat uniquement, plus d'onglets) ─────────────────── */}
       <div className="flex-1 overflow-y-auto custom-scrollbar relative p-4">
-        
+
         <AnimatePresence mode="wait">
-          {activeTab === 'chat' && (
-            <motion.div key="chat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+          {true && (
+            <motion.div key="chat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-5">
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center py-20 px-6 text-center">
                   <div className="w-16 h-16 rounded-3xl flex items-center justify-center mb-6 shadow-2xl relative" style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)' }}>
                      <Cpu size={28} style={{ color: 'var(--purple-400)' }} />
                      <div className="absolute inset-0 blur-2xl rounded-full" style={{ background: 'rgba(139,92,246,0.15)' }} />
                   </div>
-                  <h3 className="text-lg font-black text-white italic tracking-tight mb-2">Neural Architect Copilot</h3>
-                  <p className="text-xs text-slate-500 max-w-[240px] leading-relaxed mb-10 uppercase tracking-[0.1em] font-mono">
-                    {canChat ? "Pipeline active. Awaiting your strategic directives." : "Initialize a connection to begin modeling."}
+                  <h3 className="text-lg font-bold text-white tracking-tight mb-1">Bonjour, je suis Atlas</h3>
+                  <p className="text-[11px] text-slate-500 max-w-[260px] leading-relaxed mb-8 font-medium">
+                    {canChat
+                      ? "Architecte ETL & Data Warehouse. Pose-moi une question, decris une modification, ou demande-moi d'analyser ton schema."
+                      : "Connecte une source de donnees pour commencer."}
                   </p>
 
                   {canChat && (
@@ -320,150 +298,78 @@ export default function ChatInterface() {
             </motion.div>
           )}
 
-          {/* ... Other Tabs Refined Similarly ... */}
-          {activeTab === 'critic' && (
-            <motion.div key="critic" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pt-4">
-                <div className="flex items-center justify-between px-2">
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-rose-500/20 flex items-center justify-center border border-rose-500/30">
-                            <Shield size={16} className="text-rose-400" />
-                        </div>
-                        <h4 className="text-xs font-black text-white italic tracking-widest uppercase underline decoration-rose-500/50 underline-offset-4">Quality Audit Report</h4>
-                    </div>
-                </div>
-
-                <div className="bg-white/[0.02] border border-white/[0.06] rounded-3xl p-6 italic text-slate-300 shadow-inner">
-                    {criticReview ? <FormattedMessage content={criticReview} /> : "Initialization pending. System waiting for model generation."}
-                </div>
-                
-                {criticReview && (
-                    <button 
-                        onClick={() => sendMessage(`Execute suggested corrections from audit.`, 'sql')}
-                        className="w-full py-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[11px] font-black tracking-widest uppercase hover:bg-rose-500/20 transition-all flex items-center justify-center gap-3 shadow-lg"
-                    >
-                        <RotateCcw size={14} /> Commit Autonomous Patching
-                    </button>
-                )}
-            </motion.div>
-          )}
-
-          {activeTab === 'sql' && (
-            <motion.div key="sql" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="pt-2 h-full">
-                {sqlDDL ? (
-                   <div className="h-full flex flex-col">
-                        <div className="flex items-center justify-between mb-4">
-                            <span className="text-[10px] font-black text-slate-700 uppercase tracking-[0.2em]">Validated Logical Schema (DDL)</span>
-                            <div className="flex gap-2">
-                                <button onClick={() => downloadFile(sqlDDL, 'schema.sql')} className="p-2 hover:bg-white/5 rounded-lg text-slate-500 transition-all hover:text-cobalt-300" title="Download SQL">
-                                    <Download size={14} />
-                                </button>
-                                <button onClick={() => { navigator.clipboard.writeText(sqlDDL); setCopied('sql'); setTimeout(() => setCopied(null), 2000); }} className="p-2 hover:bg-white/5 rounded-lg text-slate-500 transition-all">
-                                    {copied === 'sql' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex-1 rounded-3xl overflow-auto custom-scrollbar border border-white/5 bg-black/20 shadow-inner">
-                            <SyntaxHighlighter language="sql" style={vscDarkPlus} customStyle={{ margin: 0, padding: '2rem', background: 'transparent', fontSize: '11px', lineHeight: '1.7' }}>
-                                {sqlDDL}
-                            </SyntaxHighlighter>
-                        </div>
-                   </div>
-                ) : (
-                    <div className="h-40 flex items-center justify-center text-slate-800 font-mono text-[9px] uppercase tracking-widest border border-dashed border-white/5 rounded-3xl">No artifact found</div>
-                )}
-            </motion.div>
-          )}
-          
-          {activeTab === 'etl' && (
-            <motion.div key="etl" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="pt-2 h-full">
-                {etlCode ? (
-                    <div className="h-full flex flex-col">
-                         <div className="flex items-center justify-between mb-4">
-                            <span className="text-[10px] font-black text-slate-700 uppercase tracking-[0.2em]">Generated Pentaho Transformation (.ktr)</span>
-                            <div className="flex gap-2">
-                                <button onClick={() => downloadFile(etlCode, 'pipeline.ktr')} className="p-2 hover:bg-white/5 rounded-lg text-slate-500 transition-all hover:text-emerald-400" title="Download KTR">
-                                    <Download size={14} />
-                                </button>
-                                <button onClick={() => { navigator.clipboard.writeText(etlCode); setCopied('etl'); setTimeout(() => setCopied(null), 2000); }} className="p-2 hover:bg-white/5 rounded-lg text-slate-500 transition-all">
-                                    {copied === 'etl' ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex-1 rounded-3xl overflow-auto custom-scrollbar border border-white/5 bg-black/20 shadow-inner">
-                            <SyntaxHighlighter language="xml" style={vscDarkPlus} customStyle={{ margin: 0, padding: '2rem', background: 'transparent', fontSize: '11px', lineHeight: '1.7' }}>
-                                {etlCode}
-                            </SyntaxHighlighter>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="h-40 flex items-center justify-center text-slate-800 font-mono text-[9px] uppercase tracking-widest border border-dashed border-white/5 rounded-3xl">Integration pending</div>
-                )}
-            </motion.div>
-          )}
         </AnimatePresence>
       </div>
 
-      {/* ── Conversational Input HUD ────────────────────────────────────────── */}
-      <div className="p-6 bg-black/40 border-t border-white/[0.06] backdrop-blur-3xl shrink-0">
-        <div className="relative group overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] transition-all shadow-2xl" style={{ transition: 'border-color 0.15s' }}
-          onFocusCapture={e => e.currentTarget.style.borderColor = 'rgba(61,106,232,0.4)'}
-          onBlurCapture={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'}
+      {/* ── Composer (zone de saisie redesignee) ─────────────────────────────── */}
+      <div className="px-4 pb-4 pt-2 shrink-0">
+        <div
+          className="relative rounded-2xl transition-all"
+          style={{
+            background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.3)',
+          }}
+          onFocusCapture={e => {
+            e.currentTarget.style.borderColor = 'rgba(139,92,246,0.4)';
+            e.currentTarget.style.boxShadow = '0 4px 24px rgba(139,92,246,0.15), 0 0 0 4px rgba(139,92,246,0.08)';
+          }}
+          onBlurCapture={e => {
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+            e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.3)';
+          }}
         >
-          <div className="absolute inset-0 pointer-events-none opacity-0 group-focus-within:opacity-100 transition-opacity" style={{ background: 'radial-gradient(ellipse at bottom, rgba(61,106,232,0.04), transparent)' }} />
+          {/* Glow subtil au focus (decoratif) */}
+          <div
+            className="absolute inset-0 rounded-2xl pointer-events-none opacity-0 group-focus-within:opacity-100 transition-opacity"
+            style={{ background: 'radial-gradient(ellipse 80% 60% at 50% 100%, rgba(139,92,246,0.12), transparent 70%)' }}
+          />
+
           <textarea
             ref={textareaRef}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
             disabled={!canChat || isSending}
-            placeholder={canChat ? "Strategic modification request..." : "Connect source to activate neural interface"}
+            placeholder={canChat ? "Demande a Atlas... (ex: ajoute net_amount dans fact_orders)" : "Connecte une source pour activer Atlas"}
             rows={1}
-            className="w-full bg-transparent text-[13px] font-medium text-slate-200 pl-5 pr-14 py-4 focus:outline-none resize-none placeholder:text-slate-700 min-h-[56px] max-h-[160px]"
+            className="w-full bg-transparent text-[13.5px] leading-[1.55] font-medium text-slate-100 pl-4 pr-16 pt-3.5 pb-12 focus:outline-none resize-none placeholder:text-slate-600 min-h-[88px] max-h-[200px]"
             style={{ fieldSizing: 'content' }}
           />
-          <div className="absolute right-3 bottom-3 flex items-center gap-2">
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-black/40 border border-white/10 hidden lg:flex">
-                <Command size={10} className="text-slate-600" />
-                <span className="text-[8px] font-black text-slate-600">ENTER</span>
-            </div>
-            <button
-                onClick={handleSend}
-                disabled={!input.trim() || isSending}
-                className="w-8 h-8 rounded-xl text-white flex items-center justify-center disabled:opacity-30 active:scale-95 transition-all shadow-lg"
-                style={{ background: 'var(--grad-primary)', boxShadow: '0 2px 12px rgba(61,106,232,0.35)' }}
+
+          {/* Barre du bas : raccourci a gauche + bouton envoi a droite */}
+          <div className="absolute left-3 right-3 bottom-2.5 flex items-center justify-between pointer-events-none">
+            <span className="text-[9px] font-medium text-slate-600 tracking-wider flex items-center gap-1.5 pointer-events-auto select-none">
+              <kbd className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/[0.06] text-[8.5px] text-slate-500 font-mono">Entree</kbd>
+              <span>pour envoyer</span>
+              <span className="text-slate-700">·</span>
+              <kbd className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/[0.06] text-[8.5px] text-slate-500 font-mono">Maj+Entree</kbd>
+              <span>pour saut de ligne</span>
+            </span>
+
+            <motion.button
+              onClick={handleSend}
+              disabled={!input.trim() || isSending}
+              whileHover={input.trim() && !isSending ? { scale: 1.06 } : {}}
+              whileTap={input.trim() && !isSending ? { scale: 0.94 } : {}}
+              className="pointer-events-auto relative w-9 h-9 rounded-xl text-white flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+              style={{
+                background: input.trim() && !isSending
+                  ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%)'
+                  : 'rgba(255,255,255,0.06)',
+                boxShadow: input.trim() && !isSending
+                  ? '0 4px 16px rgba(139,92,246,0.4), 0 0 0 1px rgba(255,255,255,0.06) inset'
+                  : 'none',
+              }}
+              aria-label="Envoyer le message"
             >
-                {isSending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-            </button>
+              {isSending ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Send size={14} strokeWidth={2.4} style={{ transform: 'translate(0.5px, -0.5px)' }} />
+              )}
+            </motion.button>
           </div>
-        </div>
-        <div className="flex items-center justify-between mt-3 px-1">
-            <div className="flex items-center gap-3">
-                <div className="flex p-0.5 bg-black/40 rounded-lg border border-white/10 shrink-0">
-                    <button 
-                      onClick={() => setChatMode('architecture')}
-                      className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${chatMode === 'architecture' ? 'text-white' : 'text-zinc-600 hover:text-zinc-400'}`}
-                      style={chatMode === 'architecture' ? { background: 'var(--grad-primary)' } : {}}
-                    >
-                      Modeling
-                    </button>
-                    <button 
-                      disabled={etlStatus !== 'success'}
-                      onClick={() => setChatMode('query')}
-                      className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-widest transition-all ${chatMode === 'query' ? 'bg-amber-600 text-white shadow-glow-amber' : 'text-zinc-600 hover:text-zinc-400 disabled:opacity-20'}`}
-                      title={etlStatus !== 'success' ? 'Load a warehouse first to query' : 'Query your data'}
-                    >
-                      Query
-                    </button>
-                </div>
-                <div className="h-4 w-px bg-white/5" />
-                <div className="flex items-center gap-2 text-slate-700">
-                    <Info size={10} />
-                    <span className="text-[9px] font-black uppercase tracking-widest">{chatMode === 'query' ? 'Neural Query Engine Active' : 'Architect Copilot Active'}</span>
-                </div>
-            </div>
-            <div className="text-[9px] font-black text-slate-800 tracking-[0.2em] flex items-center gap-1">
-                SYSTEM <span style={{ color: 'var(--blue-300)' }}>SECURE</span>
-            </div>
         </div>
       </div>
 

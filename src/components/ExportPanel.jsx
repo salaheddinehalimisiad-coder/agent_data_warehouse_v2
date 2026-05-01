@@ -13,7 +13,7 @@ const EXPORTS = [
   {
     key:      'xlsx',
     label:    'Rapport Excel',
-    sub:      '9 feuilles · KPI · Graphiques',
+    sub:      '10 feuilles · KPI · Mesures · Charts',
     ext:      '.xlsx',
     icon:     FileSpreadsheet,
     color:    { bg: 'bg-emerald-500/10', border: 'border-emerald-500/25', icon: 'text-emerald-400', glow: '#10b981' },
@@ -173,11 +173,21 @@ export default function ExportPanel({ onClose }) {
         headers: apiClient.getHeaders(),
       });
       if (!resp.ok) {
-        const txt = await resp.text();
-        throw new Error(`HTTP ${resp.status}: ${txt.substring(0, 200)}`);
+        // Tenter d'extraire un message d'erreur lisible
+        let detail = '';
+        try {
+          const j = await resp.json();
+          detail = j.detail || j.message || '';
+        } catch {
+          try { detail = await resp.text(); } catch { /* noop */ }
+        }
+        throw new Error(`HTTP ${resp.status}${detail ? ` — ${detail.substring(0, 220)}` : ''}`);
       }
 
       const blob = await resp.blob();
+      if (!blob || blob.size === 0) {
+        throw new Error('Réponse vide — le fichier n\'a pas été généré');
+      }
       const url  = window.URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
@@ -192,8 +202,19 @@ export default function ExportPanel({ onClose }) {
         bak:  `${prefix}_dw_${sid}.bak`,
       };
       a.download = names[def.key] || `export_${def.key}`;
+      // Important : insérer dans le DOM avant click pour Firefox/Safari
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
+
+      // Si le serveur a indiqué que c'est un backup logique, le signaler à l'utilisateur
+      if (def.key === 'bak') {
+        const backupType = resp.headers.get('X-Backup-Type');
+        if (backupType === 'logical-zip') {
+          setError('ℹ️ SQL Server indisponible — backup logique téléchargé (ZIP renommé .bak avec DDL + CSV).');
+        }
+      }
       flash(def.key);
     } catch (e) {
       setError(`${def.label} : ${e.message}`);

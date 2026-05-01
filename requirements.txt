@@ -59,3 +59,9 @@ pyodbc>=5.1.0
 
 # ── Phase 3 : Scheduler ────────────────────────────────────────
 apscheduler>=3.10.0
+
+# ── Production server ──────────────────────────────────────────
+gunicorn>=22.0.0  # ASGI server pour la prod (avec uvicorn workers)
+
+# ── Observabilite ──────────────────────────────────────────────
+prometheus-client>=0.20.0

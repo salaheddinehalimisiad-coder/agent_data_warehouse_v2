@@ -149,6 +149,52 @@ async def chat_with_agent(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/chat/stream")
+async def chat_with_agent_stream(
+    req: ChatRequest,
+    session_id: str,
+    user: dict = Depends(get_optional_user),
+):
+    """Version streaming SSE du chat. Si l'intent est 'chat' (conversationnel),
+    streame la reponse token par token. Si c'est 'modify', applique la
+    modification et envoie un seul event final.
+    """
+    import json as _json
+
+    async def event_gen():
+        try:
+            state = etl_service.get_pipeline_state(session_id) or {}
+            intent = etl_service._detect_intent(req.message)
+
+            # Annonce du debut
+            yield f"data: {_json.dumps({'type': 'start', 'intent': intent})}\n\n"
+
+            if intent == "chat":
+                # Stream token-par-token via le LLM (chunks de quelques chars).
+                full = etl_service._conversational_reply(state, req.message)
+                # Envoyer en chunks pour effet streaming temps reel
+                CHUNK = 18
+                for i in range(0, len(full), CHUNK):
+                    chunk = full[i:i + CHUNK]
+                    yield f"data: {_json.dumps({'type': 'delta', 'content': chunk})}\n\n"
+                    await asyncio.sleep(0.012)
+                yield f"data: {_json.dumps({'type': 'done', 'intent': 'chat'})}\n\n"
+            else:
+                result = await etl_service.send_chat_and_resume(
+                    session_id, req.message, req.context or "sql"
+                )
+                yield f"data: {_json.dumps({'type': 'done', 'intent': 'modify', 'result': result})}\n\n"
+        except Exception as e:
+            logger.error(f"[Chat SSE] {e}", exc_info=True)
+            yield f"data: {_json.dumps({'type': 'error', 'error': str(e)[:300]})}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("/pipeline-stream")
 async def pipeline_stream(
     session_id: str,
@@ -632,53 +678,4 @@ async def run_olap_query(
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         logger.error(f"[OLAP] Error: {e}", exc_info=True)
-        return {"columns": [], "rows": [], "total": 0, "sql": "", "error": str(e)[:400]}
-
-
-@router.get("/olap/schema")
-async def get_olap_schema(
-    session_id: str = Query(...),
-    user: dict = Depends(get_optional_user),
-):
-    """Retourne le schéma OLAP (dimensions + mesures) pour le frontend."""
-    from main import get_thread_state
-    from api.services.etl_service import get_pipeline_state, _pipeline_states
-    from api.services.olap_service import get_olap_schema
-
-    # Cherche le modèle logique avec 3 niveaux de fallback
-    logical_model = None
-    prefix        = "dw"
-
-    # 1. LangGraph thread state
-    state = get_thread_state(session_id)
-    if state:
-        logical_model = state.get("logical_model")
-        prefix        = state.get("user_prefix", prefix)
-
-    # 2. In-memory pipeline state dict
-    if not logical_model:
-        state = get_pipeline_state(session_id)
-        if state:
-            logical_model = state.get("logical_model")
-            prefix        = state.get("user_prefix", prefix)
-
-    # 3. Scan all in-memory states for matching session (partial key match)
-    if not logical_model:
-        for sid, s in _pipeline_states.items():
-            if session_id in sid or sid in session_id:
-                lm = s.get("logical_model")
-                if lm:
-                    logical_model = lm
-                    prefix        = s.get("user_prefix", prefix)
-                    break
-
-    # 4. Fallback disque (survie aux redémarrages serveur)
-    if not logical_model:
-        disk = _load_session_from_disk(session_id)
-        logical_model = disk.get("logical_model")
-        prefix        = disk.get("user_prefix", prefix)
-
-    if not logical_model:
-        raise HTTPException(status_code=404, detail="Modèle logique non disponible — relancez un pipeline complet.")
-
-    return get_olap_schema(logical_model, prefix)
+        raise HTTPException(status_code=500, detail=f"OLAP query failed: {e}")

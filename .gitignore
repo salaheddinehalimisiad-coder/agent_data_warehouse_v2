@@ -1,38 +1,90 @@
-# Python
+# ============================================================
+# .gitignore - Agent Data Warehouse
+# ============================================================
+
+# --- Python ---
 .venv/
+venv/
+env/
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 *.egg-info/
-dist/
-build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+coverage/
 
-# Environnement — NE JAMAIS committer
-.env
-.env.deploy
-.env.local
-.env.*.local
-
-# Données & outputs
-uploads/
-outputs/
-*.csv
-
-# Node
+# --- Node / Vite ---
 node_modules/
 dist/
+build/
 .vite/
+vite.config.js.timestamp-*.mjs
+*.timestamp-*.mjs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# IDE
+# --- Tests ---
+test-results/
+playwright-report/
+playwright/.cache/
+
+# --- Donnees runtime / outputs ---
+uploads/
+outputs/
+*.bak
+*.bacpac
+*.csv
+
+# --- Logs ---
+*.log
+backend.log
+backend_stdout.log
+backend_stderr.log
+server.log
+
+# --- Environnement / secrets ---
+.env
+.env.local
+.env.*.local
+.env.deploy
+*.pem
+*.key
+*.crt
+
+# --- IDE ---
 .vscode/
 .idea/
 *.swp
+*.swo
+.history/
 
-# OS
+# --- OS ---
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Agent state / temp build files
+# --- Agent / temp ---
 .claude/
-vite.config.js.timestamp-*.mjs
-*.timestamp-*.mjs
+scratch/
+fix_*.py
+test_payload.json
+roadmap_parsed.txt
+
+# --- Docs internes (gardees uniquement les officielles) ---
+rapport_mini_projet_*.docx
+roadmap_generique_*.docx
+walkthrough_architecture.md
+
+# --- Avatar uploads ---
+api/db/avatars/
+
+# --- Pre-commit secrets baseline ---
+.secrets.baseline

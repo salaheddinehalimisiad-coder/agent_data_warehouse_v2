@@ -82,6 +82,51 @@ export const apiClient = {
     return resp.json();
   },
 
+  /**
+   * Stream version du chat. Appelle onDelta(chunk) au fil des tokens, et
+   * onDone(meta) quand la reponse est complete.
+   * Retourne une fonction d'annulation.
+   */
+  async sendChatStream(req, { onStart, onDelta, onDone, onError }) {
+    const ctrl = new AbortController();
+    try {
+      const resp = await fetch(`${API_BASE}/api/chat/stream?session_id=${req.session_id}`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ message: req.message, context: req.context || 'sql' }),
+        signal: ctrl.signal,
+      });
+      if (!resp.ok) {
+        const t = await resp.text().catch(() => '');
+        throw new Error(`HTTP ${resp.status} ${t.substring(0, 200)}`);
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) !== -1) {
+          const block = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const line = block.split('\n').find(l => l.startsWith('data:'));
+          if (!line) continue;
+          let payload;
+          try { payload = JSON.parse(line.slice(5).trim()); } catch { continue; }
+          if (payload.type === 'start' && onStart) onStart(payload);
+          else if (payload.type === 'delta' && onDelta) onDelta(payload.content || '');
+          else if (payload.type === 'done' && onDone) onDone(payload);
+          else if (payload.type === 'error' && onError) onError(new Error(payload.error || 'stream error'));
+        }
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError' && onError) onError(e);
+    }
+    return () => ctrl.abort();
+  },
+
   async executeQuery(sessionId, question) {
     const resp = await fetch(`${API_BASE}/api/query`, {
       method: 'POST', headers: this.getHeaders(),

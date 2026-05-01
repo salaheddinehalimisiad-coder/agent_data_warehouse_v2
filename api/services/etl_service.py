@@ -331,8 +331,19 @@ async def resume_pipeline(session_id: str, validated: bool, comment: str = "") -
     sse = _get_sse()
     tc  = {"configurable": {"thread_id": session_id}}
 
-    await wf.aupdate_state(tc, {"is_validated": validated, "hitl_comment": comment or ""}, as_node="human_review")
-    _merge(session_id, {"is_validated": validated, "hitl_comment": comment or ""})
+    # FIX: Add comment to messages so Chat Modifier can see it in context
+    from langchain_core.messages import HumanMessage
+    state_update = {
+        "is_validated": validated, 
+        "hitl_comment": comment or ""
+    }
+    
+    # When rejecting with a comment, add it to messages for Chat Modifier
+    if not validated and comment:
+        state_update["messages"] = [HumanMessage(content=f"MODIFICATION REQUEST: {comment}")]
+    
+    await wf.aupdate_state(tc, state_update, as_node="human_review")
+    _merge(session_id, state_update)
 
     sse.log_event(session_id, f"👤 {'✅ Validé' if validated else '✏️ Modification demandée'}")
     sse.set_agent_status(session_id, "human_review", "done")
@@ -470,21 +481,124 @@ async def _stream_continue(session_id: str, tc: dict) -> None:
 
 # ─── Chat → relance ───────────────────────────────────────────────────────────
 
+# ─── Détection d'intention (chat libre vs modification pipeline) ─────────────
+
+# Mots-clés FR/EN qui indiquent clairement une demande de MODIFICATION du modèle
+_MODIFY_KEYWORDS = (
+    # FR
+    "ajoute", "ajouter", "rajoute", "renomme", "renommer", "supprime", "supprimer",
+    "enlève", "enleve", "retire", "modifie", "modifier", "change", "remplace",
+    "fusionne", "split", "découpe", "decoupe", "déplace", "deplace",
+    "convertis", "convertir", "applique les corrections", "corrige",
+    # EN
+    "add ", "rename ", "drop ", "remove ", "modify ", "replace ",
+    "merge ", "split ", "convert ",
+    # Spécifiques DW
+    "fact_", "dim_", "primary key", "foreign key", "scd", "surrogate",
+    "colonne ", "column ", "table ", "champ ", "field ",
+)
+
+# Mots-clés qui indiquent une question / conversation
+_CHAT_KEYWORDS = (
+    "?",
+    "explique", "expliquer", "comment", "pourquoi", "qu'est-ce", "qu'est ce",
+    "what is", "why", "how", "explain", "tell me", "describe",
+    "définis", "definition", "définition", "guide", "tutorial",
+    "bonjour", "salut", "hello", "hi ", "merci", "thanks",
+)
+
+
+def _detect_intent(message: str) -> str:
+    """Retourne 'modify' ou 'chat' selon le contenu du message."""
+    if not message:
+        return "chat"
+    low = message.lower().strip()
+    has_modify = any(kw in low for kw in _MODIFY_KEYWORDS)
+    has_chat = any(kw in low for kw in _CHAT_KEYWORDS) or low.endswith("?")
+    if has_modify and not has_chat:
+        return "modify"
+    if has_chat and not has_modify:
+        return "chat"
+    if has_modify and has_chat:
+        first_word = low.split()[0] if low.split() else ""
+        if first_word in ("ajoute", "ajouter", "renomme", "supprime", "modifie",
+                          "add", "rename", "drop", "remove", "modify"):
+            return "modify"
+        return "chat"
+    return "chat"
+
+
+def _conversational_reply(state: dict, message: str) -> str:
+    """Genere une reponse libre (style ChatGPT) sans toucher au pipeline."""
+    try:
+        from nodes.llm_factory import extract_text, get_llm
+        from langchain_core.prompts import ChatPromptTemplate
+        lm = state.get("logical_model") or {}
+        facts = lm.get("fact_tables") or ([lm.get("fact_table")] if lm.get("fact_table") else [])
+        dims = lm.get("dimension_tables") or []
+        prefix = state.get("user_prefix", "dw")
+        dq_score = state.get("dq_score", "n/a")
+        etl_status = state.get("etl_status", "pending")
+        ctx_lines = [
+            f"Prefixe DW : {prefix}",
+            f"Tables de faits : {[f.get('name') for f in facts if isinstance(f, dict)]}",
+            f"Dimensions : {[d.get('name') for d in dims if isinstance(d, dict)]}",
+            f"Score DQ : {dq_score}/100",
+            f"Statut ETL : {etl_status}",
+        ]
+        ctx = "\n".join(ctx_lines)
+        prompt = ChatPromptTemplate.from_messages([
+            ("system",
+             "Tu es Atlas, un assistant expert en Data Warehousing, modelisation Kimball, "
+             "ETL et Business Intelligence. Tu reponds clairement, comme ChatGPT.\n\n"
+             "Contexte DW utilisateur :\n{ctx}\n"),
+            ("human", "{message}"),
+        ])
+        llm = get_llm(temperature=0.4, task_type="chat")
+        resp = (prompt | llm).invoke({"ctx": ctx, "message": message})
+        return extract_text(resp).strip()
+    except Exception as e:
+        logger.warning(f"[Chat] Reponse libre LLM echouee : {e}")
+        return (
+            "Je n'ai pas pu generer une reponse libre cette fois. "
+            "Pour modifier votre modele, utilisez le panneau Human Review."
+        )
+
+
 async def send_chat_and_resume(session_id: str, message: str, context: str = "sql") -> dict:
-    """Envoie un message utilisateur ET relance le pipeline vers chat_modifier."""
-    wf  = _get_wf()
+    """Envoie un message utilisateur. Mode hybride chat / modify."""
+    state = _pipeline_states.get(session_id, {}) or get_pipeline_state(session_id)
+    intent = _detect_intent(message)
+    logger.info(f"[Chat] session={session_id} intent={intent} msg={message[:80]!r}")
+
+    if intent == "chat":
+        reply = _conversational_reply(state, message)
+        try:
+            history = list(state.get("chat_history") or [])
+            history.append({"role": "user", "content": message})
+            history.append({"role": "assistant", "content": reply})
+            _merge(session_id, {"chat_history": history[-40:]})
+        except Exception:
+            pass
+        return {
+            "reply": reply, "intent": "chat",
+            "sql_ddl": state.get("sql_ddl", ""),
+            "critic_review": state.get("critic_review", ""),
+            "etl_code": state.get("etl_code", "") if context == "etl" else None,
+        }
+
+    wf = _get_wf()
     sse = _get_sse()
-    tc  = {"configurable": {"thread_id": session_id}}
-
+    tc = {"configurable": {"thread_id": session_id}}
     await wf.aupdate_state(tc, {
-        "messages":     [HumanMessage(content=message)],
-        "is_validated": False,  # FIX: Doit être False pour router vers chat_modifier
+        "messages": [HumanMessage(content=message)],
+        "hitl_comment": message,
+        "is_validated": False,
     }, as_node="human_review")
-
-    _merge(session_id, {"is_validated": False})  # FIX
+    _merge(session_id, {"is_validated": False, "hitl_comment": message})
     sse.set_stage(session_id, "model_revision")
-    sse.broadcast(session_id, "pipeline_status", {"status": "running"})  # Réveille le front
-    sse.log_event(session_id, f"💬 Demande : {message[:80]}")
+    sse.broadcast(session_id, "pipeline_status", {"status": "running"})
+    sse.log_event(session_id, f"Modification : {message[:80]}")
 
     existing = _pipeline_tasks.get(session_id)
     if existing and not existing.done():
@@ -492,10 +606,10 @@ async def send_chat_and_resume(session_id: str, message: str, context: str = "sq
     task = asyncio.create_task(_stream_continue(session_id, tc))
     _pipeline_tasks[session_id] = task
 
-    state = _pipeline_states.get(session_id, {})
     return {
-        "reply":         "Modification envoyée. L'agent applique les changements...",
-        "sql_ddl":       state.get("sql_ddl", ""),
+        "reply": "Modification recue - l'architecte applique les changements.",
+        "intent": "modify",
+        "sql_ddl": state.get("sql_ddl", ""),
         "critic_review": state.get("critic_review", ""),
-        "etl_code":      state.get("etl_code", "") if context == "etl" else None,
+        "etl_code": state.get("etl_code", "") if context == "etl" else None,
     }
