@@ -15,7 +15,7 @@ import os
 import threading
 import time
 from collections import OrderedDict
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, AIMessage
@@ -132,6 +132,19 @@ BLAZE_TIMEOUT = int(os.getenv("BLAZE_TIMEOUT", "60"))
 # Ollama fallback (offline)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
+# ─── Providers Human Review (priorite pour chat_modifier) ───────────────────
+# ZhipuAI BigModel (GLM-4 / GLM-5) — supporte rotation de plusieurs cles
+GLM5_API_KEYS_RAW = os.getenv("GLM5_API_KEYS", "")
+GLM5_API_KEYS = [k.strip() for k in GLM5_API_KEYS_RAW.split(",") if k.strip()]
+GLM5_BASE_URL = os.getenv("GLM5_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
+GLM5_MODEL = os.getenv("GLM5_MODEL", "glm-4-plus")
+_GLM5_KEY_INDEX = 0  # rotation round-robin
+
+# OpenRouter (acces a 100+ modeles)
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "z-ai/glm-4.5")
+
 
 class BlazeChatModel(BaseChatModel):
     """Custom LangChain LLM wrapping Blaze API via direct requests.
@@ -223,6 +236,125 @@ class FakeChatModel(BaseChatModel):
         return "fake-chat-model"
 
 
+class OpenAICompatibleChatModel(BaseChatModel):
+    """LLM generique pour endpoints OpenAI-compatible (ZhipuAI BigModel, OpenRouter, etc.)."""
+    model: str = Field(default="glm-4-plus")
+    api_key: str = Field(default="")
+    base_url: str = Field(default="")
+    temperature: float = Field(default=0.1)
+    max_tokens: int = Field(default=4096)
+    timeout: int = Field(default=60)
+    top_p: float = Field(default=0.9)
+    provider_name: str = Field(default="openai-compat")
+    extra_headers: dict = Field(default_factory=dict)
+
+    def _generate(self, messages, stop=None, **kwargs):
+        import requests
+        api_messages = []
+        for msg in messages:
+            role = "user"
+            if isinstance(msg, AIMessage):
+                role = "assistant"
+            elif hasattr(msg, "type"):
+                t = msg.type
+                if t == "human":
+                    role = "user"
+                elif t in ("ai", "assistant"):
+                    role = "assistant"
+                elif t == "system":
+                    role = "system"
+            api_messages.append({"role": role, "content": str(msg.content)})
+
+        payload = {
+            "model": self.model,
+            "messages": api_messages,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "top_p": self.top_p,
+        }
+        if stop:
+            payload["stop"] = stop
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        headers.update(self.extra_headers or {})
+
+        url = self.base_url.rstrip("/") + "/chat/completions"
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
+            if resp.status_code >= 400:
+                logger.warning(f"[{self.provider_name}] HTTP {resp.status_code} : {resp.text[:200]}")
+                resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"] if data.get("choices") else ""
+        except Exception as e:
+            logger.error(f"[{self.provider_name}] Request failed: {e}")
+            raise
+
+        message = AIMessage(content=content)
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+    @property
+    def _llm_type(self) -> str:
+        return f"openai-compat:{self.provider_name}"
+
+
+def _next_glm5_key():
+    """Round-robin sur la liste des cles GLM-5 (rotation pour distribuer la charge)."""
+    global _GLM5_KEY_INDEX
+    if not GLM5_API_KEYS:
+        return None
+    key = GLM5_API_KEYS[_GLM5_KEY_INDEX % len(GLM5_API_KEYS)]
+    _GLM5_KEY_INDEX += 1
+    return key
+
+
+def _build_glm5_llm(temperature: float, max_tokens: int) -> Optional["OpenAICompatibleChatModel"]:
+    """Construit un client GLM-5 (ZhipuAI BigModel) avec une cle de la rotation."""
+    key = _next_glm5_key()
+    if not key:
+        return None
+    return OpenAICompatibleChatModel(
+        model=GLM5_MODEL, api_key=key, base_url=GLM5_BASE_URL,
+        temperature=temperature, max_tokens=max_tokens or 8000,
+        timeout=60, top_p=0.9, provider_name="GLM-5",
+    )
+
+
+def _build_openrouter_llm(temperature: float, max_tokens: int) -> Optional["OpenAICompatibleChatModel"]:
+    if not OPENROUTER_API_KEY:
+        return None
+    return OpenAICompatibleChatModel(
+        model=OPENROUTER_MODEL, api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL,
+        temperature=temperature, max_tokens=max_tokens or 8000,
+        timeout=60, top_p=0.9, provider_name="OpenRouter",
+        extra_headers={
+            "HTTP-Referer": os.getenv("OPENROUTER_REFERER", "https://github.com/salaheddinehalimisiad-coder/agent_data_warehouse_v2"),
+            "X-Title": "Agent Data Warehouse",
+        },
+    )
+
+
+def _test_llm_connection(llm, timeout: int = 15) -> bool:
+    """Test rapide d'un LLM en envoyant 'hi' et verifiant qu'on a une reponse non vide."""
+    try:
+        from langchain_core.messages import HumanMessage
+        resp = llm.invoke([HumanMessage(content="ok")], config={"timeout": timeout})
+        return bool(resp and getattr(resp, "content", "").strip())
+    except Exception as e:
+        logger.warning(f"[{getattr(llm, 'provider_name', '?')}] Test KO : {str(e)[:120]}")
+        return False
+
+
+# Optional["OpenAICompatibleChatModel"] requires the import; redefine for typing
+try:
+    Optional  # noqa
+except NameError:
+    from typing import Optional
+
+
 def get_llm(temperature: float = 0.1, task_type: str = "default") -> Any:
     """
     Sélectionne automatiquement le meilleur LLM disponible :
@@ -263,11 +395,24 @@ def get_llm(temperature: float = 0.1, task_type: str = "default") -> Any:
         logger.warning(f"[LLM] Blaze connexion échouée ({type(e).__name__}) : {e} — fallback Ollama")
 
     # ── Priorité 2 : Ollama local (fallback offline) ──────────────────────────
+    # Ordre : du plus leger au plus lourd. Les modeles legers en premier
+    # garantissent que ca marche meme avec 3-4 GB de RAM dispo.
     if _check_ollama(OLLAMA_BASE_URL):
         models = [
-            ("qwen2.5-coder:7b", "P2 local code"),
-            ("codellama:latest", "P2 local léger"),
-            ("mistral:latest", "P2 local"),
+            # Modeles tres legers (< 2 GB RAM) — choix prioritaire
+            ("phi3:mini", "P2 leger phi3-mini (2GB)"),
+            ("qwen2.5:1.5b", "P2 leger qwen2.5-1.5b (1.5GB)"),
+            ("qwen2.5:0.5b", "P2 ultra-leger qwen2.5-0.5b (0.6GB)"),
+            ("tinyllama:1.1b", "P2 ultra-leger tinyllama (1GB)"),
+            ("llama3.2:1b", "P2 leger llama3.2-1b (1.5GB)"),
+            ("gemma2:2b", "P2 leger gemma2-2b (2GB)"),
+            # Modeles moyens (3-4 GB)
+            ("qwen2.5-coder:1.5b", "P2 mid qwen-coder-1.5b (2GB)"),
+            ("qwen2.5-coder:3b", "P2 mid qwen-coder-3b (3GB)"),
+            # Modeles lourds (4+ GB) — derniers recours
+            ("qwen2.5-coder:7b", "P3 lourd code (4.3GB)"),
+            ("codellama:latest", "P3 lourd codellama (5.5GB)"),
+            ("mistral:latest", "P3 lourd mistral (4.5GB)"),
         ]
 
         for model_name, label in models:
@@ -327,6 +472,67 @@ def get_llm_strict(temperature: float = 0.1, task_type: str = "code", max_tokens
     return llm
 
 
+def get_human_review_llm(temperature: float = 0.05, max_tokens: int = 8000) -> Any:
+    """LLM dedie a la phase Human Review (chat_modifier).
+
+    Cascade :
+      1. GLM-5 (ZhipuAI BigModel) avec rotation des cles configurees dans GLM5_API_KEYS
+         - Tente jusqu'a 3 cles differentes en cas d'echec
+      2. OpenRouter (z-ai/glm-4.5 ou autre modele configure)
+      3. Blaze (si OPENAI-compat)
+      4. Ollama leger
+      5. RuntimeError -> chat_modifier basculera sur smart parser
+
+    Configure via .env :
+      GLM5_API_KEYS=key1,key2,key3
+      GLM5_MODEL=glm-4-plus  (ou glm-4, glm-4-flash, glm-4-air)
+      OPENROUTER_API_KEY=sk-or-v1-...
+      OPENROUTER_MODEL=z-ai/glm-4.5  (ou meta-llama/llama-3.3-70b-instruct:free)
+    """
+    effective_temp = _adjust_temperature(temperature, "code")
+
+    # ── 1) GLM-5 ZhipuAI BigModel avec rotation des cles ───────────────────
+    if GLM5_API_KEYS:
+        max_attempts = min(len(GLM5_API_KEYS), 3)
+        for attempt in range(max_attempts):
+            llm = _build_glm5_llm(effective_temp, max_tokens)
+            if llm and _test_llm_connection(llm, timeout=10):
+                logger.info(
+                    f"[Human-Review-LLM] GLM-5 OK (model={GLM5_MODEL}, "
+                    f"key #{(_GLM5_KEY_INDEX-1) % len(GLM5_API_KEYS)+1}/{len(GLM5_API_KEYS)})"
+                )
+                return llm
+            logger.warning(f"[Human-Review-LLM] GLM-5 cle #{attempt+1} KO, essai suivant...")
+
+    # ── 2) OpenRouter ──────────────────────────────────────────────────────
+    if OPENROUTER_API_KEY:
+        llm = _build_openrouter_llm(effective_temp, max_tokens)
+        if llm and _test_llm_connection(llm, timeout=10):
+            logger.info(f"[Human-Review-LLM] OpenRouter OK (model={OPENROUTER_MODEL})")
+            return llm
+        logger.warning("[Human-Review-LLM] OpenRouter KO")
+
+    # ── 3) Blaze (si configure) ────────────────────────────────────────────
+    try:
+        return get_llm_strict(temperature=temperature, task_type="code", max_tokens=max_tokens)
+    except RuntimeError as e:
+        logger.warning(f"[Human-Review-LLM] Blaze KO : {e}")
+
+    # ── 4) Ollama leger via get_llm() (non strict) ─────────────────────────
+    try:
+        llm = get_llm(temperature=temperature, task_type="code")
+        if llm and not isinstance(llm, FakeChatModel):
+            logger.info("[Human-Review-LLM] Fallback Ollama")
+            return llm
+    except Exception as e:
+        logger.warning(f"[Human-Review-LLM] Ollama KO : {e}")
+
+    raise RuntimeError(
+        "Aucun LLM Human Review disponible (GLM-5, OpenRouter, Blaze, Ollama tous KO). "
+        "Le chat_modifier basculera sur le smart parser deterministe."
+    )
+
+
 def _adjust_temperature(temperature: float, task_type: str) -> float:
     """
     Ajuste la température pour optimiser la génération SQL/Data Warehouse.
@@ -355,16 +561,15 @@ def _test_blaze_connection(llm, timeout: int = 15) -> bool:
         return False
     except Exception as e:
         err_str = str(e).lower()
-        # Erreurs non-retryable — ne pas réessayer
         if any(code in err_str for code in ("401", "403", "invalid_api_key", "authentication")):
-            logger.error(f"[LLM] Blaze auth échouée (clé invalide) : {e}")
+            logger.error(f"[LLM] Blaze auth echouee : {e}")
             return False
-        logger.warning(f"[LLM] Blaze test échoué : {e}")
+        logger.warning(f"[LLM] Blaze test echoue : {e}")
         return False
 
 
 def _check_ollama(base_url: str, timeout: int = 3) -> bool:
-    """Vérifie qu'Ollama répond en moins de 3 secondes."""
+    """Verifie qu'Ollama repond en moins de 3 secondes."""
     try:
         import requests
         r = requests.get(base_url, timeout=timeout)
@@ -374,57 +579,40 @@ def _check_ollama(base_url: str, timeout: int = 3) -> bool:
 
 
 def _test_model_can_run(base_url: str, model_name: str, timeout: int = 15) -> bool:
-    """
-    Teste si un modèle Ollama peut être chargé et exécuté en générant 1 token.
-    Retourne False si le modèle nécessite plus de RAM que disponible.
-    """
+    """Teste si un modele Ollama peut etre charge et execute."""
     try:
         import requests
         r = requests.post(
             f"{base_url}/api/generate",
-            json={
-                "model": model_name,
-                "prompt": "hi",
-                "stream": False,
-                "options": {"num_predict": 1}
-            },
-            timeout=timeout
+            json={"model": model_name, "prompt": "hi", "stream": False,
+                  "options": {"num_predict": 1}},
+            timeout=timeout,
         )
         if r.status_code == 200:
             return True
         err = r.text.lower()
-        if "requires more system memory" in err or "memory" in err:
-            logger.warning(f"[LLM] {model_name} — RAM insuffisante : {r.text[:120]}")
-        else:
-            logger.warning(f"[LLM] {model_name} — erreur API ({r.status_code}) : {r.text[:120]}")
+        if "memory" in err:
+            logger.warning(f"[LLM] {model_name} - RAM insuffisante : {r.text[:120]}")
         return False
     except Exception as e:
-        logger.warning(f"[LLM] {model_name} — test échoué : {e}")
+        logger.warning(f"[LLM] {model_name} - test echoue : {e}")
         return False
 
 
 def call_with_retry(chain: Any, inputs: dict, max_retries: int = 3, use_cache: bool = True) -> Any:
-    """
-    Appel LLM avec backoff exponentiel + cache LRU/TTL en memoire.
-    Gère : quota 429, timeout réseau, erreurs transitoires.
-    Skip immédiat sur 401/403 (non retryable).
-    """
-    # ── Cache hit ────────────────────────────────────────────────────────────
+    """Appel LLM avec backoff exponentiel + cache LRU/TTL."""
     cache_key = None
     if use_cache and _LLM_CACHE_ENABLED:
         try:
             cache_key = _make_cache_key(inputs, chain)
             cached = _LLM_CACHE.get(cache_key)
             if cached is not None:
-                logger.debug(f"[LLM] Cache HIT ({cache_key[:8]})")
                 return cached
-        except Exception as e:
-            logger.debug(f"[LLM] Cache lookup failed (ignore): {e}")
+        except Exception:
             cache_key = None
 
     delay = 5
     last_error = None
-
     for attempt in range(max_retries):
         try:
             result = chain.invoke(inputs)
@@ -437,42 +625,25 @@ def call_with_retry(chain: Any, inputs: dict, max_retries: int = 3, use_cache: b
         except Exception as e:
             last_error = e
             err_str = str(e).lower()
-
-            # 401/403/524 / RAM insuffisante — non retryable
-            if ("401" in err_str or "403" in err_str or "forbidden" in err_str or
-                "524" in err_str or
-                "subscription" in err_str or "upgrade" in err_str or
-                "invalid_api_key" in err_str or "authentication" in err_str or
-                "requires more system memory" in err_str or "memory" in err_str):
-                logger.warning(f"[LLM] Erreur non-retryable ({type(e).__name__}) — skip retry : {e}")
-                raise  # remonte immédiatement pour permettre fallback au modèle suivant
-
-            # Quota / rate limit
-            if "429" in err_str or "quota" in err_str or "rate" in err_str or "resource_exhausted" in err_str:
-                wait = min(delay * (attempt + 1), 30)
-                logger.warning(f"[LLM] Quota atteint — attente {wait}s (tentative {attempt+1}/{max_retries})")
-                time.sleep(wait)
-
-            # Timeout / connexion
-            elif "timeout" in err_str or "connection" in err_str or "connect" in err_str:
+            if any(c in err_str for c in ("401", "403", "forbidden", "524",
+                                          "subscription", "upgrade", "invalid_api_key",
+                                          "authentication", "memory")):
+                raise
+            if "429" in err_str or "quota" in err_str or "rate" in err_str:
+                time.sleep(min(delay * (attempt + 1), 30))
+            elif "timeout" in err_str or "connection" in err_str:
                 if attempt < max_retries - 1:
-                    logger.warning(f"[LLM] Timeout réseau — retry dans {delay}s")
                     time.sleep(delay)
                     delay = min(delay * 2, 30)
-
-            # Erreur inconnue — retry si pas dernier essai
             elif attempt < max_retries - 1:
-                logger.warning(f"[LLM] Erreur ({type(e).__name__}) — retry dans {delay}s : {e}")
                 time.sleep(delay)
-
             else:
                 raise
-
-    raise RuntimeError(f"LLM indisponible après {max_retries} tentatives. Dernière erreur : {last_error}")
+    raise RuntimeError(f"LLM indisponible : {last_error}")
 
 
 def extract_text(response: Any) -> str:
-    """Extrait le texte depuis n'importe quel type de réponse LangChain."""
+    """Extrait le texte depuis n'importe quel type de reponse LangChain."""
     if response is None:
         return ""
     if hasattr(response, "content"):
@@ -486,93 +657,37 @@ def extract_text(response: Any) -> str:
             )
     if isinstance(response, str):
         return response
-    if isinstance(response, list):
-        return " ".join(
-            item.get("text", "") if isinstance(item, dict) else str(item)
-            for item in response
-        )
     return str(response)
 
 
-# ─── Helpers Data Warehouse ─────────────────────────────────────────────────────
-
 def build_schema_context(logical_model: dict, prefix: str = "dw") -> str:
-    """
-    Construit un contexte de schéma DW complet pour injection dans les prompts LLM.
-    Optimisé pour la large fenêtre de tokens de GLM-5 (jusqu'à 16K+ tokens).
-
-    Inclut :
-    - Toutes les tables de faits avec colonnes et types
-    - Toutes les dimensions avec colonnes, types et hiérarchies
-    - Les relations FK explicites
-    - Le préfixe utilisateur
-
-    Usage dans les prompts :
-        schema_ctx = build_schema_context(state["logical_model"], state["user_prefix"])
-        # Injecter schema_ctx dans le prompt LLM
-    """
     if not logical_model:
         return ""
-
-    lines = []
-    lines.append(f"=== DATA WAREHOUSE SCHEMA (prefix: {prefix}) ===")
-    lines.append("")
-
-    # Tables de faits
-    fact_tables = logical_model.get("fact_tables", [])
-    if not fact_tables:
-        ft = logical_model.get("fact_table")
-        if ft:
-            fact_tables = [ft]
-
+    lines = [f"=== DW SCHEMA (prefix: {prefix}) ==="]
+    fact_tables = logical_model.get("fact_tables", []) or (
+        [logical_model["fact_table"]] if logical_model.get("fact_table") else []
+    )
     for fact in fact_tables:
         if not fact:
             continue
-        fact_name = fact.get("name", "fact_unknown")
-        lines.append(f"📊 FACT TABLE: [{prefix}_{fact_name}]")
-        lines.append(f"   Description: {fact.get('description', 'N/A')}")
-        lines.append(f"   Source tables: {', '.join(fact.get('source_tables', []))}")
-        lines.append("   Columns:")
+        lines.append(f"FACT: [{prefix}_{fact.get('name', '?')}]")
         for col in fact.get("columns", []):
-            role_icon = {"pk": "🔑", "fk": "🔗", "metric": "📈", "degenerate": "📎"}.get(col.get("role", ""), "  ")
-            ref = f" → {col['references']}" if col.get("references") else ""
-            src = f" (from {col['source_column']})" if col.get("source_column") else ""
-            lines.append(f"     {role_icon} {col['name']}: {col.get('type', 'UNKNOWN')} [{col.get('role', '')}]{ref}{src}")
-        lines.append("")
-
-    # Dimensions
+            lines.append(f"  - {col.get('name')}: {col.get('type')} [{col.get('role', '')}]")
     for dim in logical_model.get("dimension_tables", []):
-        dim_name = dim.get("name", "dim_unknown")
-        lines.append(f"📋 DIMENSION: [{prefix}_{dim_name}]")
-        lines.append(f"   Description: {dim.get('description', 'N/A')}")
-        lines.append("   Columns:")
+        lines.append(f"DIM: [{prefix}_{dim.get('name', '?')}]")
         for col in dim.get("columns", []):
-            role_icon = {"pk": "🔑", "fk": "🔗", "attribute": "📝"}.get(col.get("role", ""), "  ")
-            nk = " [NK]" if col.get("natural_key") else ""
-            lines.append(f"     {role_icon} {col['name']}: {col.get('type', 'UNKNOWN')} [{col.get('role', '')}]{nk}")
-        # Hiérarchies
-        for hier in dim.get("hierarchies", []):
-            levels = " → ".join(hier.get("levels", []))
-            lines.append(f"   🔶 Hierarchy: {hier.get('name', '?')} [{levels}]")
-        lines.append("")
-
+            lines.append(f"  - {col.get('name')}: {col.get('type')} [{col.get('role', '')}]")
     return "\n".join(lines)
 
 
-
 def build_metadata_context(source_metadata: dict) -> str:
-    """Contexte metadata source pour injection prompt LLM."""
     if not source_metadata:
         return ""
     lines = ["=== SOURCE METADATA ==="]
     for tname, tdata in source_metadata.items():
         if not isinstance(tdata, dict):
             continue
-        rc = tdata.get("row_count", "?")
-        lines.append(f"TABLE [{tname}] ({rc} rows)")
+        lines.append(f"TABLE [{tname}] ({tdata.get('row_count', '?')} rows)")
         for col in tdata.get("columns", []):
-            lines.append(f"  - {col.get('name', '?')}: {col.get('dtype', col.get('type', 'unknown'))}")
-        for fk in tdata.get("foreign_keys", []) or []:
-            cols_fk = ", ".join(fk.get("constrained_columns", []))
-            lines.append(f"  FK: {cols_fk} -> {fk.get('referred_table', '?')}")
+            lines.append(f"  - {col.get('name')}: {col.get('dtype', col.get('type', '?'))}")
     return "\n".join(lines)

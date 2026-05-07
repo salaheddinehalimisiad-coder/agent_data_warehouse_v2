@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app_state import AgentState
 from langchain_core.prompts import ChatPromptTemplate
 
-from nodes.llm_factory import call_with_retry, extract_text, get_llm, get_llm_strict
+from nodes.llm_factory import call_with_retry, extract_text, get_llm, get_llm_strict, get_human_review_llm
 from nodes.modeler import _generate_ddl, _parse_json
 
 logger = logging.getLogger(__name__)
@@ -473,6 +473,157 @@ def _apply_ops(model: dict, ops: List[dict]) -> Tuple[dict, List[str]]:
 # ============================================================================
 # Noeud principal
 # ============================================================================
+def _smart_parse_complex_request(request: str, model: dict) -> List[dict]:
+    """Parse une demande complexe multi-etape (numerotee 1./2./3.) et infere
+    des operations atomiques. Utilise quand le LLM est indisponible.
+
+    Detecte automatiquement :
+      - Role-playing dimensions (multi-dates) -> split_date_key
+      - Mesures calculees (net_amount) -> add_column role=computed
+      - Changement de type (reportsto en INT) -> change_column_type
+      - Foreign keys -> add_fk
+    """
+    if not request or not isinstance(model, dict):
+        return []
+
+    ops: List[dict] = []
+    rl = request.lower()
+
+    # Decoupe en sections par numerotation ou puces
+    sections = re.split(r"(?:^|\n)\s*(?:\d+[.)]|[-*])\s*", request)
+    sections = [s.strip() for s in sections if s.strip()]
+    if len(sections) < 2:
+        sections = re.split(r"[.;]\s+", request)
+        sections = [s.strip() for s in sections if s.strip() and len(s) > 5]
+
+    facts = _all_fact_tables(model)
+    fact_name = facts[0]["name"] if facts else None
+
+    for section in sections:
+        sec_low = section.lower()
+
+        # 1. Role-playing dimensions
+        if fact_name and (
+            "multi-date" in sec_low or "multidates" in sec_low
+            or "role-playing" in sec_low or "multi date" in sec_low
+            or (sec_low.count("date") >= 2 and ("trois" in sec_low or "3" in sec_low))
+        ):
+            new_cols = []
+            for m in re.finditer(r"(\w*_?date_sk)", section, re.IGNORECASE):
+                name = m.group(1).lower()
+                if name not in [c.get("name") for c in new_cols]:
+                    nullable = "shipped" in name or "expedi" in section.lower()
+                    new_cols.append({"name": name, "nullable": nullable})
+            if not new_cols and fact_name and "order" in fact_name.lower():
+                new_cols = [
+                    {"name": "order_date_sk", "nullable": False},
+                    {"name": "required_date_sk", "nullable": False},
+                    {"name": "shipped_date_sk", "nullable": True},
+                ]
+            if new_cols:
+                for fact in facts:
+                    for c in fact.get("columns", []):
+                        if c.get("name") == "date_sk" or (
+                            c.get("role") == "fk" and "date" in str(c.get("name", "")).lower()
+                        ):
+                            ops.append({
+                                "op": "split_date_key",
+                                "table": fact["name"],
+                                "old_column": c["name"],
+                                "new_columns": new_cols,
+                            })
+                            break
+
+        # 2. Mesure calculee
+        if "net_amount" in sec_low or ("calcul" in sec_low and "mesure" in sec_low):
+            metric_name_match = re.search(
+                r"\[(\w+)\]|`(\w+)`|(net_amount|total_ttc|montant_net|montant_ht)",
+                section, re.IGNORECASE,
+            )
+            if metric_name_match:
+                metric_name = next((g for g in metric_name_match.groups() if g), "net_amount")
+                description = ""
+                formula = re.search(r"\(([^()]+)\)", section)
+                if formula:
+                    description = f"Mesure calculee = {formula.group(1).strip()}"
+                if fact_name:
+                    ops.append({
+                        "op": "add_column",
+                        "table": fact_name,
+                        "column": {
+                            "name": metric_name.lower(),
+                            "type": "DECIMAL(15,4)",
+                            "role": "computed",
+                            "description": description or "Mesure calculee ajoutee via Human Review",
+                        },
+                    })
+
+        # 3. Changement de type (reportsto -> INT)
+        if "reportsto" in sec_low and ("type" in sec_low or "metier" in sec_low or "int" in sec_low):
+            for t in _all_tables(model):
+                for c in t.get("columns", []):
+                    if str(c.get("name", "")).lower() == "reportsto":
+                        ops.append({
+                            "op": "change_column_type",
+                            "table": t["name"],
+                            "column": "reportsto",
+                            "type": "INT",
+                        })
+                        break
+
+        # Pattern generique : "change le type de X en Y"
+        m = re.search(
+            r"(?:change|modifie|convertis)\s+(?:le\s+type\s+(?:de\s+)?)?\[?(\w+)\]?\s+(?:en|to)\s+(\w+)",
+            section, re.IGNORECASE,
+        )
+        if m:
+            col_name = m.group(1)
+            new_type = m.group(2).upper()
+            if "metier" in sec_low or "business key" in sec_low:
+                new_type = "INT"
+            for t in _all_tables(model):
+                for c in t.get("columns", []):
+                    if str(c.get("name", "")).lower() == col_name.lower():
+                        ops.append({
+                            "op": "change_column_type",
+                            "table": t["name"],
+                            "column": col_name,
+                            "type": new_type,
+                        })
+                        break
+
+        # 4. Foreign keys
+        if ("foreign" in sec_low or " fk " in sec_low or "etrang" in sec_low
+            or "contrainte" in sec_low) and fact_name:
+            for fact in facts:
+                for c in fact.get("columns", []):
+                    if c.get("role") == "fk":
+                        col = c["name"]
+                        base = col.lower().replace("_sk", "")
+                        for d in _all_dimensions(model):
+                            if base in d.get("name", "").lower():
+                                pk = next((cc["name"] for cc in d.get("columns", [])
+                                           if cc.get("role") == "pk"), None)
+                                if pk:
+                                    ops.append({
+                                        "op": "add_fk",
+                                        "table": fact["name"],
+                                        "column": col,
+                                        "references": f"{d['name']}.{pk}",
+                                    })
+                                break
+
+    # Deduplique
+    seen = set()
+    deduped = []
+    for o in ops:
+        key = json.dumps(o, sort_keys=True, default=str)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(o)
+    return deduped
+
+
 def chat_modifier_node(state: AgentState) -> dict:
     logger.info("--- AGENT CHAT MODIFIER v4.0 (patch ops + Blaze strict) ---")
     user_request = _extract_user_request(state)
@@ -482,71 +633,59 @@ def chat_modifier_node(state: AgentState) -> dict:
     ver = int(state.get("logical_model_version", 0) or 0)
     next_ver = ver + 1
 
+
     if not user_request:
         return {"is_validated": None, "execution_log": ["[ChatModifier] SKIP - aucune demande"]}
     if not current_model or not _all_fact_tables(current_model):
         return {"is_validated": None, "execution_log": ["[ChatModifier] SKIP - modele absent"]}
 
-    new_model: Optional[dict] = None
+    new_model = None
     change_summary = ""
     used_strategy = "llm-blaze"
-    apply_log: List[str] = []
+    apply_log = []
 
-    # ── Etape 1 : LLM Blaze STRICT en mode "patch operations" ────────────────
+    llm = None
+    used_strategy = "human-review-llm"
+    # Cascade Human Review : GLM-5 (3 cles) -> OpenRouter -> Blaze -> Ollama -> Smart parser
     try:
-        llm = get_llm_strict(temperature=0.05, task_type="code", max_tokens=8000)
-        chain = PATCH_PROMPT | llm
-        response = call_with_retry(chain, {
-            "current_model": json.dumps(current_model, indent=2, default=str)[:12000],
-            "current_ddl_excerpt": current_ddl[:4000],
-            "user_request": user_request,
-            "model_version": ver,
-        }, max_retries=2, use_cache=False)  # pas de cache : chaque demande est unique
-        raw = extract_text(response)
-
-        # extraire le JSON
-        json_text = raw
-        m = re.search(r"```(?:json)?\s*\n([\s\S]+?)\n```", raw)
-        if m:
-            json_text = m.group(1)
-        json_text = json_text.strip()
-        # tolerer texte avant/apres
-        first_brace = json_text.find("{")
-        last_brace = json_text.rfind("}")
-        if first_brace >= 0 and last_brace > first_brace:
-            json_text = json_text[first_brace:last_brace + 1]
-
-        parsed = json.loads(json_text)
-        ops = parsed.get("ops") or []
-        change_summary = (parsed.get("summary") or "").strip()
-
-        if isinstance(ops, list) and ops:
-            new_model, apply_log = _apply_ops(current_model, ops)
-            logger.info(f"[ChatModifier] Blaze a propose {len(ops)} operations")
-        else:
-            logger.warning("[ChatModifier] Blaze a renvoye 0 operation")
-
+        llm = get_human_review_llm(temperature=0.05, max_tokens=8000)
     except RuntimeError as e:
-        # Blaze non joignable : on alerte clairement
-        logger.error(f"[ChatModifier] Blaze indisponible : {e}")
-        return {
-            "is_validated": None,
-            "logical_model_version": next_ver,
-            "previous_sql_ddl": current_ddl,
-            "critic_approved": False,
-            "critic_review": (
-                "[X] LLM Blaze indisponible - modification non appliquee.\n"
-                f"Erreur : {e}\n\n"
-                "Verifie BLAZE_API_KEY dans .env, BLAZE_BASE_URL et la connectivite reseau."
-            ),
-            "execution_log": [f"[ChatModifier] v{next_ver} ECHEC Blaze: {str(e)[:120]}"],
-        }
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.warning(f"[ChatModifier] JSON invalide depuis LLM : {e}")
-    except Exception as e:
-        logger.error(f"[ChatModifier] LLM Blaze erreur inattendue : {e}", exc_info=True)
+        logger.warning(f"[ChatModifier] Tous les LLM Human Review KO : {e}")
+        llm = None
 
-    # ── Etape 2 : Fallback deterministe (UNIQUEMENT pour demandes simples) ───
+    if llm is not None:
+        try:
+            chain = PATCH_PROMPT | llm
+            response = call_with_retry(chain, {
+                "current_model": json.dumps(current_model, indent=2, default=str)[:12000],
+                "current_ddl_excerpt": current_ddl[:4000],
+                "user_request": user_request,
+                "model_version": ver,
+            }, max_retries=2, use_cache=False)
+            raw = extract_text(response)
+            json_text = raw
+            m = re.search(r"```(?:json)?\s*\n([\s\S]+?)\n```", raw)
+            if m:
+                json_text = m.group(1)
+            json_text = json_text.strip()
+            fb = json_text.find("{"); lb = json_text.rfind("}")
+            if fb >= 0 and lb > fb:
+                json_text = json_text[fb:lb+1]
+            parsed = json.loads(json_text)
+            ops = parsed.get("ops") or []
+            change_summary = (parsed.get("summary") or "").strip()
+            if isinstance(ops, list) and ops:
+                new_model, apply_log = _apply_ops(current_model, ops)
+        except Exception as e:
+            logger.error(f"[ChatModifier] LLM erreur : {e}")
+
+    if new_model is None:
+        smart_ops = _smart_parse_complex_request(user_request, current_model)
+        if smart_ops:
+            new_model, apply_log = _apply_ops(current_model, smart_ops)
+            change_summary = f"{len(smart_ops)} operation(s) inferees par smart parser"
+            used_strategy = "smart-deterministic"
+
     if new_model is None:
         det_model, det_summary = _deterministic_modify(current_model, user_request)
         if det_model is not None:
@@ -554,9 +693,7 @@ def chat_modifier_node(state: AgentState) -> dict:
             change_summary = det_summary
             used_strategy = "deterministic-regex"
             apply_log = [f"  [+] {det_summary}"]
-            logger.info(f"[ChatModifier] Fallback deterministe : {det_summary}")
 
-    # ── Etape 3 : Echec total ────────────────────────────────────────────────
     if new_model is None:
         return {
             "is_validated": None,
@@ -565,23 +702,16 @@ def chat_modifier_node(state: AgentState) -> dict:
             "critic_approved": False,
             "critic_review": (
                 "[!] Modification non appliquee\n"
-                f"Demande : {user_request[:300]}\n\n"
-                "Le LLM n'a pas pu produire de JSON valide ET la demande est trop "
-                "complexe pour le fallback deterministe (qui ne gere que les changements "
-                "monolignes simples : ajoute/renomme/supprime UNE colonne ou table).\n\n"
-                "Pour appliquer plusieurs changements, decoupe la demande en etapes :\n"
-                "  Etape 1 : Renomme la colonne reportsto en reports_to_employee_id\n"
-                "  Etape 2 : Change le type de reports_to_employee_id en INT\n"
-                "  Etape 3 : Ajoute la colonne net_amount de type DECIMAL(15,4) dans fact_orders\n"
-                "  ...etc\n\n"
-                "Ou bien verifie que Blaze est joignable (BLAZE_API_KEY + BLAZE_BASE_URL)."
+                f"Demande : {user_request[:200]}\n\n"
+                "Ni le LLM (Blaze/Ollama) ni le smart parser n'ont interprete cette demande.\n"
+                "Pour la prochaine fois :\n"
+                "  - Verifier BLAZE_API_KEY et BLAZE_BASE_URL dans .env\n"
+                "  - Ou installer Ollama leger : ollama pull phi3:mini\n"
+                "  - Ou reformuler en operations atomiques explicites"
             ),
-            "execution_log": [
-                f"[ChatModifier] v{next_ver} ECHEC: '{user_request[:80]}' (LLM + fallback ko)"
-            ],
+            "execution_log": [f"[ChatModifier] v{next_ver} ECHEC : {user_request[:80]}"],
         }
 
-    # ── Etape 4 : Coherence + DDL ────────────────────────────────────────────
     if "fact_table" in new_model and "fact_tables" not in new_model:
         new_model["fact_tables"] = [new_model["fact_table"]]
     if not new_model.get("fact_tables") and new_model.get("fact_table"):
@@ -606,15 +736,12 @@ def chat_modifier_node(state: AgentState) -> dict:
         f"[OK] Modification v{next_ver} appliquee\n"
         f"Demande   : {user_request[:200]}\n"
         f"Strategie : {used_strategy}\n"
-        f"Resume    : {change_summary or 'cf. journal des operations'}\n\n"
-        f"--- Journal des operations ---\n{apply_log_str}\n\n"
+        f"Resume    : {change_summary}\n\n"
+        f"--- Journal ---\n{apply_log_str}\n\n"
         f"--- Diff DDL ---\n{diff_text}"
     )
-    logger.info(f"[ChatModifier] v{next_ver} OK ({used_strategy}, {len(apply_log)} ops)")
+    logger.info(f"[ChatModifier] v{next_ver} OK ({used_strategy}, {len(apply_log)} lignes)")
 
-    log_msg = f"[ChatModifier] v{next_ver} OK ({used_strategy}): " + (
-        change_summary or user_request[:80]
-    )
     return {
         "logical_model": new_model,
         "logical_model_version": next_ver,
@@ -624,5 +751,5 @@ def chat_modifier_node(state: AgentState) -> dict:
         "critic_review": enriched_review,
         "is_validated": None,
         "hitl_comment": "",
-        "execution_log": [log_msg],
+        "execution_log": [f"[ChatModifier] v{next_ver} OK ({used_strategy})"],
     }

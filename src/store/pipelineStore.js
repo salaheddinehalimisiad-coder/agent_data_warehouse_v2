@@ -157,7 +157,7 @@ export const usePipelineStore = create((set, get) => ({
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user_id');
     localStorage.removeItem('user_prefix');
-    get()._sseCleanup?.();
+    if (get()._sseCleanup) get()._sseCleanup();
     set({ authToken: null, userId: null, userPrefix: 'dw', ...INITIAL_PIPELINE_STATE });
   },
 
@@ -166,7 +166,7 @@ export const usePipelineStore = create((set, get) => ({
   // ═══════════════════════════════════════════════════════════════════════════
 
   resetPipeline: () => {
-    get()._sseCleanup?.();
+    if (get()._sseCleanup) get()._sseCleanup();
     _lsDel('ps_sessionId', 'ps_generatedQueries', 'ps_lineage', 'ps_loadMetrics');
     set({ ...INITIAL_PIPELINE_STATE, _sseCleanup: null });
   },
@@ -220,47 +220,78 @@ export const usePipelineStore = create((set, get) => ({
 
   sendMessage: async (message, context = 'sql', mode = 'architecture') => {
     const { sessionId, authToken, executeQuery } = get();
-    
+
     if (mode === 'query') {
       return executeQuery(message);
     }
 
-    set({ 
-      pipelineStatus: 'running',
-      messages: [...get().messages, { role: 'user', content: message, id: Date.now() }]
-    });
-    
-    try {
-      const resp = await apiClient.sendChat({ session_id: sessionId, message, context }, authToken);
-      
-      const assistantWaitId = Date.now() + 1;
-      set(state => ({
-        messages: [...state.messages, { role: 'assistant', content: '', id: assistantWaitId }],
-      }));
+    const userId = Date.now();
+    const assistantWaitId = userId + 1;
 
-      // Implémentation du comportement SSE (Streaming) pour le rendu fluide
-      // Évite de bloquer l'UI lors de la réception de gros blocs Markdown
-      const chunks = resp.reply.match(/[\s\S]{1,12}/g) || [];
-      let currentIdx = 0;
-      
-      const streamInterval = setInterval(() => {
-          if (currentIdx < chunks.length) {
-              const chunk = chunks[currentIdx];
+    set({
+      pipelineStatus: 'running',
+      messages: [
+        ...get().messages,
+        { role: 'user', content: message, id: userId },
+        { role: 'assistant', content: '', id: assistantWaitId },
+      ],
+    });
+
+    // Streaming SSE reel via /api/chat/stream
+    try {
+      let intent = 'modify';
+      const appendChunk = (chunk) => {
+        set(state => ({
+          messages: state.messages.map(m =>
+            m.id === assistantWaitId ? { ...m, content: m.content + chunk } : m
+          ),
+        }));
+      };
+
+      await apiClient.sendChatStream(
+        { session_id: sessionId, message, context },
+        {
+          onStart: (payload) => { intent = payload.intent || 'modify'; },
+          onDelta: (chunk) => appendChunk(chunk),
+          onDone: (payload) => {
+            const result = payload.result;
+            if (result && result.sql_ddl) set({ sqlDDL: result.sql_ddl });
+            if (result && result.critic_review) set({ criticReview: result.critic_review });
+            // Si modification appliquee, message stub
+            if (payload.intent === 'modify' && result && result.reply) {
               set(state => ({
-                  messages: state.messages.map(m => m.id === assistantWaitId ? {
-                      ...m, content: m.content + chunk
-                  } : m)
+                messages: state.messages.map(m =>
+                  m.id === assistantWaitId ? { ...m, content: result.reply } : m
+                ),
               }));
-              currentIdx++;
-          } else {
-              clearInterval(streamInterval);
-              if (resp.sql_ddl)       set({ sqlDDL: resp.sql_ddl });
-              if (resp.critic_review) set({ criticReview: resp.critic_review });
-          }
-      }, 15);
-      
+            }
+          },
+          onError: (err) => {
+            console.error('[Store] Stream error, fallback non-stream:', err);
+            // Fallback REST sans streaming
+            apiClient.sendChat({ session_id: sessionId, message, context }, authToken)
+              .then(resp => {
+                set(state => ({
+                  messages: state.messages.map(m =>
+                    m.id === assistantWaitId ? { ...m, content: resp.reply || '' } : m
+                  ),
+                }));
+                if (resp.sql_ddl) set({ sqlDDL: resp.sql_ddl });
+                if (resp.critic_review) set({ criticReview: resp.critic_review });
+              })
+              .catch(e => console.error('[Store] Fallback chat error:', e));
+          },
+        }
+      );
     } catch (err) {
       console.error('[Store] sendMessage error:', err);
+      set(state => ({
+        messages: state.messages.map(m =>
+          m.id === assistantWaitId
+            ? { ...m, content: `Erreur : ${err.message}` }
+            : m
+        ),
+      }));
     }
   },
 
@@ -332,7 +363,7 @@ function _connectSSE(sessionId, authToken, set, get) {
     es.onopen = () => {
       if (firstOpen) {
         firstOpen = false;
-        resolveReady?.();
+        if (resolveReady) resolveReady();
       }
     };
 
@@ -346,7 +377,7 @@ function _connectSSE(sessionId, authToken, set, get) {
     es.onerror = () => {
       es.close();
       // On débloque `ready` quand même pour ne pas coincer /api/start
-      resolveReady?.();
+      if (resolveReady) resolveReady();
       retryTimer = setTimeout(connect, 3000);
     };
   }
@@ -355,7 +386,7 @@ function _connectSSE(sessionId, authToken, set, get) {
 
   const cleanup = () => {
     clearTimeout(retryTimer);
-    es?.close();
+    if (es) es.close();
   };
   return { cleanup, ready };
 }
@@ -388,7 +419,7 @@ function _handleSSEEvent(type, data, set, get) {
         etlStatus:            data.etl_status            || 'pending',
         // v3
         dqReport:             data.dq_report             || null,
-        dqScore:              data.dq_score              ?? null,
+        dqScore:              data.dq_score              || null,
         dqAlerts:             data.dq_alerts             || [],
         lineage:              data.lineage               || _lsGet('ps_lineage',      null),
         loadMetrics:          data.load_metrics          || _lsGet('ps_loadMetrics',   null),
@@ -468,7 +499,7 @@ function _handleSSEEvent(type, data, set, get) {
       break;
 
     case 'pipeline_status':
-      if (data?.status === 'awaiting_review') {
+      if (data && data.status === 'awaiting_review') {
         set({ pipelineStatus: 'awaiting_review' });
       }
       break;
@@ -477,10 +508,10 @@ function _handleSSEEvent(type, data, set, get) {
         pipelineStatus:       'awaiting_review',
         sqlDDL:               data.sql_ddl               || get().sqlDDL,
         criticReview:         data.critic_review         || get().criticReview,
-        criticApproved:       data.critic_approved       ?? get().criticApproved,
+        criticApproved:       data.critic_approved       || get().criticApproved,
         logicalModel:         _sanitizeLogicalModel(data.logical_model) || get().logicalModel,
-        logicalModelVersion:  data.logical_model_version ?? get().logicalModelVersion,
-        schemaDriftDetected:  data.schema_drift_detected ?? get().schemaDriftDetected,
+        logicalModelVersion:  data.logical_model_version || get().logicalModelVersion,
+        schemaDriftDetected:  data.schema_drift_detected || get().schemaDriftDetected,
         schemaDriftDetails:   data.schema_drift_details  || get().schemaDriftDetails,
         previousSqlDDL:       data.previous_sql_ddl      || get().previousSqlDDL,
       });
@@ -489,7 +520,7 @@ function _handleSSEEvent(type, data, set, get) {
     case 'dq_review_required':
       set({
         pipelineStatus: 'awaiting_dq_review',
-        dqScore:        data.dq_score   ?? get().dqScore,
+        dqScore:        data.dq_score   || get().dqScore,
         dqAlerts:       data.dq_alerts  || get().dqAlerts,
         dqReport:       data.dq_report  || get().dqReport,
       });
@@ -500,7 +531,7 @@ function _handleSSEEvent(type, data, set, get) {
         pipelineStatus: data.success ? 'complete' : 'error',
         currentAgent: null,
         etlStatus: data.success ? 'success' : get().etlStatus,
-        pipelineError: data.success ? null : (data.summary?.error || data.summary?.reason || null),
+        pipelineError: data.success ? null : ((data.summary && data.summary.error) || (data.summary && data.summary.reason) || null),
       });
       break;
 

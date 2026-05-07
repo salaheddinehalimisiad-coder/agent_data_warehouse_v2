@@ -207,7 +207,7 @@ function LoadRing({ rate }) {
       </svg>
       <div className="absolute text-center">
         <div className="text-2xl font-black text-white">{rate}%</div>
-        <div className="text-[8px] text-slate-500 uppercase tracking-widest font-black">Load Rate</div>
+        <div className="text-[8px] text-slate-500 uppercase tracking-widest font-black">Taux de Chargement</div>
       </div>
     </div>
   );
@@ -563,8 +563,8 @@ export default function RunMetrics() {
             <div className="inline-flex p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mb-2">
               <Database size={24} className="animate-pulse" />
             </div>
-            <h2 className="text-xl font-black text-white italic tracking-tighter uppercase">Synthesis in Progress</h2>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Active: {etlProgress.table}</p>
+            <h2 className="text-xl font-black text-white italic tracking-tighter uppercase">Synthèse en Cours</h2>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Actif : {etlProgress.table}</p>
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
@@ -579,13 +579,13 @@ export default function RunMetrics() {
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 text-center">
               <div className="text-xl font-black text-white">{etlProgress.inserted}</div>
-              <div className="text-[8px] font-bold text-slate-500 uppercase">Inserted</div>
+              <div className="text-[8px] font-bold text-slate-500 uppercase">Insérés</div>
             </div>
             <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 text-center">
               <div className={`text-xl font-black ${etlProgress.rejected > 0 ? 'text-rose-500' : 'text-slate-500'}`}>
                 {etlProgress.rejected}
               </div>
-              <div className="text-[8px] font-bold text-slate-500 uppercase">Rejected</div>
+              <div className="text-[8px] font-bold text-slate-500 uppercase">Rejetés</div>
             </div>
           </div>
         </div>
@@ -765,7 +765,7 @@ export default function RunMetrics() {
                   <Clock size={20} className="text-amber-400" />
                 </div>
                 <div>
-                  <h4 className="text-[12px] font-black tracking-widest text-white uppercase italic">Agent Performance Profiler</h4>
+                  <h4 className="text-[12px] font-black tracking-widest text-white uppercase italic">Profileur de Performance Agent</h4>
                   <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-[0.2em] mt-1">Durée d'exécution par nœud (secondes)</p>
                 </div>
               </div>

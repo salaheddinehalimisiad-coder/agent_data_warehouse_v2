@@ -1,0 +1,55 @@
+# .gitattributes - Normalisation EOL pour eviter les warnings Windows/Linux
+# Auto-detect text vs binary
+* text=auto eol=lf
+
+# Force LF pour les fichiers texte cross-platform
+*.py    text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.md    text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.scss  text eol=lf
+*.svg   text eol=lf
+*.toml  text eol=lf
+*.ini   text eol=lf
+*.cfg   text eol=lf
+Dockerfile* text eol=lf
+*.sh    text eol=lf
+*.dockerignore text eol=lf
+*.gitignore text eol=lf
+.env.example text eol=lf
+Makefile text eol=lf
+
+# Force CRLF pour fichiers Windows-only
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+
+# Binaries
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.docx  binary
+*.xlsx  binary
+*.bak   binary
+*.zip   binary
+*.gz    binary
+*.tar   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+
+# Linguist overrides (GitHub stats)
+*.py linguist-language=Python
+*.jsx linguist-language=JSX
+docs/* linguist-documentation=true
+tests/* linguist-vendored=false

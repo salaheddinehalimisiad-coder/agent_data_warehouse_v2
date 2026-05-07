@@ -1,13 +1,13 @@
-// src/components/PipelineCanvas.jsx — Modern Stepper Pipeline Visualization v4.0
-import { useMemo, useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { usePipelineStore, AGENT_ORDER } from '../store/pipelineStore';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Search, Waves, BrainCircuit, ShieldCheck,
-  UserCheck, MessageSquare, Settings2, Rocket,
-  Wrench, CheckCircle2, Clock, AlertCircle, Sparkles,
-  Activity, Database, Zap, DownloadCloud, RefreshCw, UploadCloud
+  Activity, AlertCircle, BrainCircuit, CheckCircle2, Clock, Database, DownloadCloud, MessageSquare, RefreshCw, Rocket,
+  Search, Settings2, ShieldCheck,Sparkles,UploadCloud,
+  UserCheck, Waves, 
+  Wrench, Zap 
 } from 'lucide-react';
+// src/components/PipelineCanvas.jsx — Modern Stepper Pipeline Visualization v4.0
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AGENT_ORDER, usePipelineStore } from '../store/pipelineStore';
 
 // ── Pipeline stages (grouped agents → logical steps) ────────────────────────
 const PIPELINE_STAGES = [
@@ -112,18 +112,20 @@ function StageCard({ stage, status, idx, isLast, executionLog }) {
   const Icon = stage.icon;
 
   const card = {
-    idle:    'border-white/[0.06] bg-white/[0.02]',
+    idle:    '',
     running: `${c.border} ${c.bg} ring-2 ${c.ring}`,
     done:    'border-emerald-500/20 bg-emerald-500/[0.03]',
     error:   'border-rose-500/30 bg-rose-500/5 ring-2 ring-rose-500/20',
   }[status];
+  const cardStyle = status === 'idle' ? { borderColor: 'var(--border-subtle)', background: 'var(--bg-surface)' } : {};
 
   const iconBg = {
-    idle:    'bg-white/5 text-slate-600',
+    idle:    '',
     running: `${c.icon} text-white shadow-lg`,
     done:    'bg-emerald-500 text-white',
     error:   'bg-rose-500 text-white',
   }[status];
+  const iconBgStyle = status === 'idle' ? { background: 'var(--bg-elevated)', color: 'var(--text-muted)' } : {};
 
   // Extraction des logs spécifiques à cette étape
   const relevantLogs = useMemo(() => {
@@ -144,8 +146,9 @@ function StageCard({ stage, status, idx, isLast, executionLog }) {
           status === 'done' ? 'bg-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.4)]'
           : status === 'running' ? `${c.icon} text-white shadow-lg`
           : status === 'error' ? 'bg-rose-500 text-white'
-          : 'bg-white/[0.06] text-slate-600'
-        }`}>
+          : ''
+        }`}
+        style={status === 'idle' ? { background: 'var(--bg-elevated)', color: 'var(--text-muted)' } : {}}>
           {status === 'done' ? <CheckCircle2 size={16} />
           : status === 'error' ? <AlertCircle size={16} />
           : status === 'running' ? (
@@ -160,8 +163,8 @@ function StageCard({ stage, status, idx, isLast, executionLog }) {
         </div>
         {!isLast && (
           <div className={`w-px flex-1 mt-2 transition-all duration-700 ${
-            status === 'done' ? 'bg-emerald-500/40' : 'bg-white/[0.06]'
-          }`} />
+            status === 'done' ? 'bg-emerald-500/40' : ''
+          }`} style={status !== 'done' ? { background: 'var(--border-subtle)' } : {}} />
         )}
       </div>
 
@@ -172,28 +175,29 @@ function StageCard({ stage, status, idx, isLast, executionLog }) {
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.4, delay: idx * 0.06 }}
         className={`flex-1 mb-3 p-5 rounded-3xl border transition-all duration-500 ${card}`}
+        style={cardStyle}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-500 shrink-0 ${iconBg} ${
               status === 'running' ? 'animate-pulse' : ''
-            }`}>
+            }`}
+            style={iconBgStyle}>
               <Icon size={18} />
             </div>
             <div>
-              <div className={`text-sm font-black italic tracking-tighter transition-colors ${
-                status === 'idle' ? 'text-slate-500' : 'text-white'
-              }`}>
+              <div className="text-sm font-black italic tracking-tighter transition-colors"
+                style={{ color: status === 'idle' ? 'var(--text-secondary)' : '#fff' }}>
                 {stage.label.toUpperCase()}
               </div>
-              <div className="text-[10px] font-medium text-slate-500 mt-0.5 tracking-tight">{stage.subtitle}</div>
+              <div className="text-[10px] font-medium mt-0.5 tracking-tight" style={{ color: 'var(--text-muted)' }}>{stage.subtitle}</div>
             </div>
           </div>
 
           <div className="shrink-0">
             {status === 'done' && (
               <span className="flex items-center gap-1.5 text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 uppercase tracking-widest">
-                <CheckCircle2 size={10} /> Done
+                <CheckCircle2 size={10} /> Terminé
               </span>
             )}
             {status === 'running' && (
@@ -203,12 +207,12 @@ function StageCard({ stage, status, idx, isLast, executionLog }) {
                   animate={{ opacity: [1, 0.3, 1] }}
                   transition={{ duration: 1, repeat: Infinity }}
                 />
-                Live
+                En cours
               </span>
             )}
             {status === 'error' && (
               <span className="flex items-center gap-1.5 text-[10px] font-black text-rose-400 bg-rose-500/10 px-3 py-1 rounded-full border border-rose-500/20 uppercase tracking-widest">
-                <AlertCircle size={10} /> Fail
+                <AlertCircle size={10} /> Erreur
               </span>
             )}
           </div>
@@ -221,7 +225,8 @@ function StageCard({ stage, status, idx, isLast, executionLog }) {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="mt-5 pt-4 border-t border-white/5 space-y-4"
+              className="mt-5 pt-4 space-y-4"
+              style={{ borderTop: '1px solid var(--border-subtle)' }}
             >
               {/* Agent Indicators */}
               <div className="flex flex-wrap gap-2">
@@ -237,15 +242,16 @@ function StageCard({ stage, status, idx, isLast, executionLog }) {
 
               {/* Dynamic Log Stream */}
               {relevantLogs.length > 0 && (
-                <div className="bg-black/40 rounded-xl p-3 border border-white/5 font-mono text-[10px] space-y-1.5">
+                <div className="rounded-xl p-3 font-mono text-[10px] space-y-1.5" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
                   {relevantLogs.map((log, i) => (
                     <motion.div
                       key={i}
                       initial={{ opacity: 0, x: -4 }}
                       animate={{ opacity: 1, x: 0 }}
-                      className={`flex gap-3 ${log.includes('❌') || log.includes('ERROR') ? 'text-rose-400' : 'text-slate-400'}`}
+                      className="flex gap-3"
+                      style={{ color: log.includes('❌') || log.includes('ERROR') ? 'var(--red-400)' : 'var(--text-secondary)' }}
                     >
-                      <span className="text-slate-700 select-none">{'>'}</span>
+                      <span className="select-none" style={{ color: 'var(--text-dim)' }}>{'>'}</span>
                       <span className="flex-1 leading-relaxed">{log}</span>
                     </motion.div>
                   ))}
@@ -256,9 +262,9 @@ function StageCard({ stage, status, idx, isLast, executionLog }) {
                 <div className="flex items-center justify-between px-1">
                    <div className="flex items-center gap-2">
                       <div className="w-1 h-1 rounded-full bg-indigo-500 animate-ping" />
-                      <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Neuronal Processing...</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest italic" style={{ color: 'var(--text-muted)' }}>Traitement en cours...</span>
                    </div>
-                   <Activity size={12} className="text-slate-700 animate-spin-slow" />
+                   <Activity size={12} className="animate-spin-slow" style={{ color: 'var(--text-dim)' }} />
                 </div>
               )}
             </motion.div>
@@ -277,11 +283,11 @@ function ProgressBar({ stages, agentStatuses, currentAgent, pipelineStatus }) {
 
   return (
     <div className="mb-8">
-      <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 mb-2">
-        <span>{done} / {stages.length} stages completed</span>
-        <span className="text-slate-400">{pct}%</span>
+      <div className="flex items-center justify-between text-[11px] font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
+        <span>{done} / {stages.length} étapes terminées</span>
+        <span style={{ color: 'var(--text-secondary)' }}>{pct}%</span>
       </div>
-      <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+      <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
         <motion.div
           className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-emerald-500 rounded-full"
           initial={{ width: 0 }}
@@ -394,7 +400,7 @@ export default function PipelineCanvas() {
   const errorCount  = executionLog?.filter(l => l.includes('❌') || l.includes('ERROR')).length || 0;
 
   return (
-    <div className="w-full h-full relative overflow-hidden bg-[#0a0a0f]">
+    <div className="w-full h-full relative overflow-hidden" style={{ background: 'var(--bg-base)' }}>
       {/* Subtle ambient background */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-600/4 blur-[100px] rounded-full" />
@@ -411,12 +417,12 @@ export default function PipelineCanvas() {
             className="absolute inset-0 flex flex-col items-center justify-center z-10"
           >
             <div className="flex flex-col items-center gap-6 text-center max-w-sm">
-              <div className="w-16 h-16 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center">
-                <Sparkles size={28} className="text-slate-600" />
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                <Sparkles size={28} style={{ color: 'var(--text-muted)' }} />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-slate-400">Ready to orchestrate</h3>
-                <p className="text-[12px] text-slate-600 mt-1">Initialize a pipeline to begin</p>
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>Prêt à orchestrer</h3>
+                <p className="text-[12px] mt-1" style={{ color: 'var(--text-muted)' }}>Lancez un pipeline pour commencer</p>
               </div>
             </div>
           </motion.div>
@@ -448,13 +454,13 @@ export default function PipelineCanvas() {
 
               {isComplete && (
                 <span className="flex items-center gap-2 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
-                  <CheckCircle2 size={12} /> Pipeline Complete
+                  <CheckCircle2 size={12} /> Pipeline Terminé
                 </span>
               )}
 
               {isError && (
                 <span className="flex items-center gap-2 text-[11px] font-semibold text-rose-400 bg-rose-500/10 px-3 py-1.5 rounded-full border border-rose-500/20">
-                  <AlertCircle size={12} /> {errorCount > 0 ? `${errorCount} errors` : 'Pipeline Error'}
+                  <AlertCircle size={12} /> {errorCount > 0 ? `${errorCount} erreurs` : 'Erreur Pipeline'}
                 </span>
               )}
 

@@ -1,6 +1,6 @@
+import * as d3 from 'd3';
 // src/components/NeuralBackground.jsx — High-End Generative Intelligence Background (V3 Premium)
 import { useEffect, useRef } from 'react';
-import * as d3 from 'd3';
 
 export default function NeuralBackground() {
   const canvasRef = useRef(null);
@@ -29,7 +29,7 @@ export default function NeuralBackground() {
       radius: Math.random() * 2 + 1,
     }));
 
-    let mouse = { x: -1000, y: -1000 };
+    const mouse = { x: -1000, y: -1000 };
     const handleMouseMove = (e) => {
       mouse.x = e.clientX;
       mouse.y = e.clientY;

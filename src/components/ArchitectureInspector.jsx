@@ -48,31 +48,34 @@ const TableNode = ({ id, data }) => {
   };
 
   return (
-    <div className={`p-0 rounded-sm shadow-xl border transition-all ${
-      isFact 
-      ? 'bg-[#0d0d16] border-indigo-500 shadow-indigo-500/10' 
-      : 'bg-[#151520] border-slate-700 shadow-black/80'
-    } w-[220px] overflow-hidden`}>
+    <div className={`p-0 rounded-sm shadow-xl border transition-all w-[220px] overflow-hidden`}
+      style={{
+        background: 'var(--bg-elevated)',
+        borderColor: 'var(--blue-500)',
+        boxShadow: '0 4px 14px rgba(0,0,0,0.08), 0 0 0 1.5px var(--blue-500)',
+      }}>
       <Handle type="target" position={Position.Left} className="w-1.5 h-4 bg-indigo-500/50 border-none -ml-0.5 rounded-none" />
       
       {/* Header - Clickable for Auto-Focus */}
       <div 
         onClick={handleHeaderClick}
-        className={`px-3 py-1.5 flex items-center gap-2 border-b cursor-pointer hover:brightness-125 transition-all ${
-          isFact ? 'bg-indigo-600 border-indigo-400' : 'bg-slate-800 border-slate-600'
-        }`}
+        className={`px-3 py-1.5 flex items-center gap-2 border-b cursor-pointer hover:brightness-125 transition-all`}
+        style={{
+          background: 'var(--blue-500)',
+          borderColor: 'var(--blue-400)',
+        }}
         title="Double-cliquez pour cibler/dézoomer"
       >
-        <div className={`text-white opacity-90`}>
-          {isFact ? <Star size={11} fill="currentColor" /> : <Database size={11} />}
+        <div style={{ color: '#fff', opacity: 0.9 }}>
+          {isFact ? <Star size={11} fill="white" /> : <Database size={11} color="white" />}
         </div>
         <div className="flex-1 min-w-0">
-            <h4 className="text-[11px] font-black tracking-[0.1em] text-white uppercase truncate leading-none">{data.label}</h4>
+            <h4 className="text-[11px] font-black tracking-[0.1em] uppercase truncate leading-none" style={{ color: '#fff' }}>{data.label}</h4>
         </div>
       </div>
 
       {/* Columns List - ULTRA COMPACT */}
-      <div className="flex flex-col py-1 bg-black/40">
+      <div className="flex flex-col py-1" style={{ background: 'var(--bg-base)' }}>
         {/* Hierarchies - IN ORANGE */}
         {data.hierarchies?.map((h, idx) => (
           <div key={`h-${idx}`} className="px-3 py-1.5 border-b border-orange-500/20 bg-orange-500/5 mb-1 group">
@@ -83,8 +86,8 @@ const TableNode = ({ id, data }) => {
              <div className="flex items-center flex-wrap gap-0.5">
                 {h.levels.map((lvl, j) => (
                   <React.Fragment key={j}>
-                    <span className="text-[7px] text-orange-200/70 font-mono truncate max-w-[60px]">{lvl}</span>
-                    {j < h.levels.length - 1 && <span className="text-[6px] text-orange-500/40">→</span>}
+                    <span className="text-[7px] text-orange-600 font-mono truncate max-w-[60px]">{lvl}</span>
+                    {j < h.levels.length - 1 && <span className="text-[6px] text-orange-500">→</span>}
                   </React.Fragment>
                 ))}
              </div>
@@ -92,18 +95,18 @@ const TableNode = ({ id, data }) => {
         ))}
 
         {data.columns?.map((col, i) => (
-          <div key={i} className="flex items-center justify-between px-3 py-[2px] hover:bg-white/5 transition-colors gap-4">
+          <div key={i} className="flex items-center justify-between px-3 py-[2px] transition-colors gap-4 hover:brightness-110">
             {/* Left side: Icon + Name */}
             <div className="flex items-center gap-2 min-w-0">
                <span className="shrink-0 w-3 flex justify-center text-[10px]">
-                 {col.role === 'pk' ? <Key size={9} className="text-yellow-500" /> : col.role === 'fk' ? <LinkIcon size={9} className="text-cyan-400 font-bold" /> : <span className="text-slate-600 font-bold text-[8px]">#</span>}
+                 {col.role === 'pk' ? <Key size={9} className="text-yellow-500" /> : col.role === 'fk' ? <LinkIcon size={9} className="text-cyan-400 font-bold" /> : <span className="font-bold text-[8px]" style={{ color: 'var(--text-muted)' }}>#</span>}
                </span>
-               <span className={`text-[10px] font-mono truncate tracking-tight ${col.role === 'pk' ? 'text-white font-bold' : col.role === 'fk' ? 'text-cyan-200' : 'text-slate-400'}`}>
+               <span className={`text-[10px] font-mono truncate tracking-tight font-bold`} style={{ color: col.role === 'pk' ? 'var(--text-primary)' : col.role === 'fk' ? 'var(--cyan-300)' : 'var(--text-secondary)' }}>
                  {col.name}
                </span>
             </div>
             {/* Right side: Type */}
-            <span className="text-[8px] font-mono font-bold text-slate-500 uppercase shrink-0">
+            <span className="text-[8px] font-mono font-bold uppercase shrink-0" style={{ color: 'var(--text-muted)' }}>
                {(col.type || col.dtype || 'TEXT').split('(')[0]}
             </span>
           </div>
@@ -136,12 +139,13 @@ const FitViewListener = ({ isFullscreen }) => {
 
 function AgentPipelineSidebar({ PIPELINE_STAGES, agentStatuses, currentAgent }) {
   return (
-    <div className="flex flex-col h-full bg-[#0a0a0f] border-r border-white/5 p-4 overflow-y-auto custom-scrollbar">
+    <div className="flex flex-col h-full border-r p-4 overflow-y-auto custom-scrollbar"
+      style={{ background: 'var(--bg-base)', borderColor: 'var(--border-subtle)' }}>
       <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
-        <Activity size={12} /> Orchestration Pipeline
+        <Activity size={12} /> Pipeline d'Orchestration
       </h3>
       <div className="space-y-6 relative">
-        <div className="absolute left-4 top-2 bottom-2 w-px bg-white/[0.03]" />
+        <div className="absolute left-4 top-2 bottom-2 w-px" style={{ background: 'var(--border-subtle)' }} />
         {PIPELINE_STAGES.map((stage, idx) => {
           const isDone = stage.agents.every(a => agentStatuses[a] === 'done');
           const isRunning = stage.agents.some(a => agentStatuses[a] === 'running' || currentAgent === a);
@@ -149,12 +153,12 @@ function AgentPipelineSidebar({ PIPELINE_STAGES, agentStatuses, currentAgent }) 
             <div key={stage.id} className="relative pl-10 flex flex-col gap-1">
               <div className={`absolute left-[13px] top-1.5 w-[7px] h-[7px] rounded-full z-10 border ${
                 isDone ? 'bg-emerald-500 border-emerald-400' :
-                isRunning ? 'bg-indigo-500 border-indigo-400 animate-pulse' : 'bg-slate-800 border-slate-700'
-              }`} />
-              <span className={`text-[11px] font-bold ${isRunning ? 'text-white' : isDone ? 'text-slate-400' : 'text-slate-600'}`}>
+                isRunning ? 'bg-indigo-500 border-indigo-400 animate-pulse' : 'bg-neutral-300 border-neutral-400'
+              }`} style={{ background: !isDone && !isRunning ? 'var(--bg-higher)' : undefined, borderColor: !isDone && !isRunning ? 'var(--border-default)' : undefined }} />
+              <span className={`text-[11px] font-bold`} style={{ color: isRunning ? 'var(--text-primary)' : isDone ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
                 {stage.label}
               </span>
-              <span className="text-[9px] text-slate-600 font-medium leading-tight">
+              <span className="text-[9px] font-medium leading-tight" style={{ color: 'var(--text-muted)' }}>
                 {stage.subtitle}
               </span>
             </div>
@@ -169,63 +173,70 @@ function PropertyInspector({ table, onClose }) {
   if (!table) return (
     <div className="h-full flex flex-col items-center justify-center p-8 text-center opacity-40">
       <Search size={24} className="mb-4 text-slate-600" />
-      <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest leading-loose">
-        Select a node to inspect attributes
+      <p className="text-[10px] font-black uppercase tracking-widest leading-loose" style={{ color: 'var(--text-muted)' }}>
+        Sélectionnez un nœud pour inspecter les attributs
       </p>
     </div>
   );
 
   return (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="h-full flex flex-col bg-[#0a0a0f] border-l border-white/5 p-6 overflow-hidden">
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="h-full flex flex-col border-l p-6 overflow-hidden"
+      style={{ background: 'var(--bg-base)', borderColor: 'var(--border-subtle)' }}>
       <div className="flex items-center justify-between mb-8 shrink-0">
-        <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">Entity Metadata</h3>
-        <button onClick={onClose} className="p-1 text-slate-600 hover:text-white transition-colors">
+        <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em]">Métadonnées Entité</h3>
+        <button onClick={onClose} className="p-1 transition-colors" style={{ color: 'var(--text-muted)' }} onMouseEnter={e => e.target.style.color='var(--text-primary)'} onMouseLeave={e => e.target.style.color='var(--text-muted)'}>
           <XCircle size={14} />
         </button>
       </div>
 
       <div className="flex items-center gap-4 mb-8 shrink-0">
         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${
-          table.role === 'fact' ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-400' : 'bg-white/5 border-white/10 text-slate-500'
-        }`}>
+          table.role === 'fact' ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-400' : 'border text-slate-500'
+        }`}
+        style={table.role !== 'fact' ? { background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', color: 'var(--text-muted)' } : undefined}>
           {table.role === 'fact' ? <Star size={20} fill="currentColor" /> : <Database size={20} />}
         </div>
         <div className="min-w-0">
-          <h2 className="text-lg font-black text-white italic tracking-tighter uppercase truncate">{table.label}</h2>
-          <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">
-            {table.role === 'fact' ? 'Synchronized Fact' : 'Dimension Entity'}
+          <h2 className="text-lg font-black italic tracking-tighter uppercase truncate" style={{ color: 'var(--text-primary)' }}>{table.label}</h2>
+          <p className="text-[9px] font-black uppercase tracking-[0.2em]" style={{ color: 'var(--text-muted)' }}>
+            {table.role === 'fact' ? 'Table de Faits' : 'Entité Dimension'}
           </p>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-2">
-        <span className="text-[9px] font-black text-slate-700 uppercase tracking-[0.3em] block mb-4">Schema definition</span>
+        <span className="text-[9px] font-black uppercase tracking-[0.3em] block mb-4" style={{ color: 'var(--text-dim)' }}>Définition Schéma</span>
         {table.columns?.map((col, i) => (
-          <div key={i} className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/[0.04] transition-all hover:bg-white/[0.04]">
+          <div key={i} className="flex items-center justify-between p-3 rounded-2xl border transition-all"
+            style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-higher)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-elevated)'; }}>
             <div className="flex items-center gap-3">
               <div className={`p-1.5 rounded-lg border ${
                 col.role === 'pk' ? 'bg-yellow-400/10 border-yellow-400/20 text-yellow-500' :
                 col.role === 'fk' ? 'bg-cyan-400/10 border-cyan-400/20 text-cyan-400' :
-                'bg-white/5 border-white/10 text-slate-600'
-              }`}>
+                'border text-slate-600'
+              }`}
+              style={col.role !== 'pk' && col.role !== 'fk' ? { background: 'var(--bg-base)', borderColor: 'var(--border-subtle)', color: 'var(--text-muted)' } : undefined}>
                 {col.role === 'pk' ? <Key size={10} /> : col.role === 'fk' ? <LinkIcon size={10} /> : <Hash size={10} />}
               </div>
               <div>
-                <p className="text-[11px] font-bold text-slate-300 font-mono">{col.name}</p>
-                <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">{col.role === 'pk' ? 'Primary Key' : col.role === 'fk' ? 'Foreign Key' : 'Attribute'}</p>
+                <p className="text-[11px] font-bold font-mono" style={{ color: 'var(--text-primary)' }}>{col.name}</p>
+                <p className="text-[8px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>{col.role === 'pk' ? 'Clé Primaire' : col.role === 'fk' ? 'Clé Étrangère' : 'Attribut'}</p>
               </div>
             </div>
             <span className="text-[9px] font-mono font-bold text-indigo-400/60 uppercase">{(col.type || col.dtype || 'TEXT').split('(')[0]}</span>
           </div>
         ))}
 
-        <div className="mt-8 p-6 rounded-3xl bg-white/[0.02] border border-white/5 space-y-3">
+        <div className="mt-8 p-6 rounded-3xl border space-y-3"
+          style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
           <div className="flex items-center gap-2">
             <Info size={12} className="text-indigo-400" />
-            <span className="text-[9px] font-black text-white tracking-[0.1em] uppercase">Contextual Insights</span>
+            <span className="text-[9px] font-black tracking-[0.1em] uppercase" style={{ color: 'var(--text-primary)' }}>Analyses Contextuelles</span>
           </div>
-          <p className="text-[11px] text-slate-500 italic leading-relaxed">
-            {table.description || "No specific derivation metadata provided for this entity."}
+          <p className="text-[11px] italic leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            {table.description || "Aucune métadonnée de dérivation spécifique pour cette entité."}
           </p>
         </div>
       </div>
@@ -344,19 +355,19 @@ export default function ArchitectureInspector() {
   }, []);
 
   const PIPELINE_STAGES = [
-    { id: 'ingestion', label: 'Source Audit', subtitle: 'Data profiling & discovery', agents: ['explorer', 'data_quality'] },
-    { id: 'drift', label: 'Drift Detection', subtitle: 'Schema evolution monitoring', agents: ['drift_detector'] },
-    { id: 'modeling', label: 'Schema Modeling', subtitle: 'Star schema architecture', agents: ['modeler', 'critic'] },
-    { id: 'validation', label: 'Human Review', subtitle: 'HITL approval checkpoint', agents: ['human_review', 'chat_modifier'] },
-    { id: 'etl_gen', label: 'ETL Blueprint', subtitle: 'Code generation', agents: ['etl_tsql_generator'] },
-    { id: 'etl_exec', label: 'Data Processing', subtitle: 'Extract → Transform → Load', agents: ['etl_extractor', 'etl_transformer', 'etl_loader', 'healer'] },
-    { id: 'post_process', label: 'Finalization', subtitle: 'Insight & Lineage', agents: ['lineage_tracker', 'cataloger'] },
+    { id: 'ingestion', label: 'Audit Source', subtitle: 'Profilage & découverte des données', agents: ['explorer', 'data_quality'] },
+    { id: 'drift', label: 'Détection Drift', subtitle: 'Surveillance évolution schéma', agents: ['drift_detector'] },
+    { id: 'modeling', label: 'Modélisation Schéma', subtitle: 'Architecture star schema', agents: ['modeler', 'critic'] },
+    { id: 'validation', label: 'Validation Humaine', subtitle: 'Point de contrôle HITL', agents: ['human_review', 'chat_modifier'] },
+    { id: 'etl_gen', label: 'Blueprint ETL', subtitle: 'Génération de code', agents: ['etl_tsql_generator'] },
+    { id: 'etl_exec', label: 'Traitement Données', subtitle: 'Extraction → Transformation → Chargement', agents: ['etl_extractor', 'etl_transformer', 'etl_loader', 'healer'] },
+    { id: 'post_process', label: 'Finalisation', subtitle: 'Insights & Lignage', agents: ['lineage_tracker', 'cataloger'] },
   ];
 
   const handleValidate = (ok) => {
     validatePipeline(ok, reviewComment);
     if (!ok) {
-       addMessage('user', `Revision requested: ${reviewComment}`);
+       addMessage('user', `Révision demandée : ${reviewComment}`);
        setShowCommentBox(false);
        setReviewComment("");
     }
@@ -364,7 +375,7 @@ export default function ArchitectureInspector() {
 
   return (
     <ReactFlowProvider>
-      <div className="flex h-full w-full bg-[#050508] relative overflow-hidden">
+      <div className="flex h-full w-full relative overflow-hidden" style={{ background: 'var(--bg-base)' }}>
         
         {/* ── Left Sidebar (20%) ──────────────────────────────────────────────── */}
       <div className="w-[20%] h-full shrink-0">
@@ -384,36 +395,47 @@ export default function ArchitectureInspector() {
       )}
 
       {/* ── Center Canvas (Flex / Modal Lightbox) ───────────────────────────── */}
-      <div className={`bg-[#08080c] transition-all duration-500 overflow-hidden ${
+      <div className={`transition-all duration-500 overflow-hidden ${
         isFullscreen 
-          ? 'fixed inset-12 z-[100] rounded-[2.5rem] border border-white/10 shadow-[0_0_150px_rgba(0,0,0,0.8)]' 
-          : 'flex-1 h-full relative border-r border-white/5'
-      }`}>
+          ? 'fixed inset-12 z-[100] rounded-[2.5rem] border shadow-[0_0_60px_rgba(0,0,0,0.15)]' 
+          : 'flex-1 h-full relative border-r'
+      }`}
+      style={{ background: 'var(--bg-base)', borderColor: 'var(--border-subtle)' }}>
         {/* Validation Header/Bar */}
         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-4">
            {pipelineStatus === 'awaiting_review' && (
              <motion.div 
                initial={{ y: -50, opacity: 0 }} 
                animate={{ y: 0, opacity: 1 }}
-               className="flex items-center gap-2 p-1.5 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/10 shadow-2xl"
+               className="flex items-center gap-2 p-1.5 rounded-2xl backdrop-blur-xl border shadow-2xl"
+               style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}
              >
                <button 
                  onClick={() => handleValidate(true)}
-                 className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-glow-emerald"
+                 className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all shadow-glow-emerald"
+                 style={{ background: 'var(--green-500)', color: '#fff' }}
+                 onMouseEnter={e => e.currentTarget.style.background='var(--green-400)'}
+                 onMouseLeave={e => e.currentTarget.style.background='var(--green-500)'}
                >
-                 <CheckCircle2 size={14} /> Approve Design
+                 <CheckCircle2 size={14} /> Approuver le Design
                </button>
                <button 
                  onClick={() => setShowCommentBox(!showCommentBox)}
-                 className="flex items-center gap-2 px-6 py-2.5 bg-white/5 hover:bg-white/10 text-white rounded-xl text-[11px] font-black uppercase tracking-widest transition-all border border-white/10"
+                 className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all border"
+                 style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', borderColor: 'var(--border-subtle)' }}
+                 onMouseEnter={e => { e.currentTarget.style.background='var(--bg-higher)'; }}
+                 onMouseLeave={e => { e.currentTarget.style.background='var(--bg-elevated)'; }}
                >
-                 <RefreshCcw size={14} /> Request Adjustment
+                 <RefreshCcw size={14} /> Demander un Ajustement
                </button>
                <button 
                  onClick={() => handleValidate(false)}
-                 className="flex items-center gap-2 px-4 py-2.5 text-rose-400 hover:bg-rose-500/10 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all"
+                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all"
+                 style={{ background: 'var(--rose-500)', color: '#fff' }}
+                 onMouseEnter={e => { e.currentTarget.style.background='var(--rose-400)'; e.currentTarget.style.color='#fff'; }}
+                 onMouseLeave={e => { e.currentTarget.style.background='var(--rose-500)'; e.currentTarget.style.color='#fff'; }}
                >
-                 <XCircle size={14} /> Reject
+                 <XCircle size={14} /> Rejeter
                </button>
              </motion.div>
            )}
@@ -422,20 +444,27 @@ export default function ArchitectureInspector() {
               <motion.div 
                 initial={{ scale: 0.9, opacity: 0 }} 
                 animate={{ scale: 1, opacity: 1 }}
-                className="w-[400px] p-4 rounded-3xl bg-[#0f0f15] border border-indigo-500/30 shadow-2xl"
+                className="w-[400px] p-4 rounded-3xl border shadow-2xl"
+                style={{ background: 'var(--bg-surface)', borderColor: 'var(--blue-400)' }}
               >
                  <textarea 
                     value={reviewComment}
                     onChange={(e) => setReviewComment(e.target.value)}
-                    placeholder="Describe the requested changes (e.g. 'Add a column for net profit in sales fact', 'Change granularity to daily')..."
-                    className="w-full h-24 bg-black/40 border border-white/5 rounded-2xl p-4 text-xs text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 transition-all resize-none"
+                    placeholder="Décrivez les changements demandés (ex: 'Ajouter une colonne net_profit dans la table des faits', 'Changer la granularité à journalier')..."
+                    className="w-full h-24 border rounded-2xl p-4 text-xs focus:outline-none transition-all resize-none"
+                    style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)', color: 'var(--text-primary)' }}
+                    onFocus={e => e.currentTarget.style.borderColor='var(--blue-400)'}
+                    onBlur={e => e.currentTarget.style.borderColor='var(--border-subtle)'}
                  />
                  <div className="flex justify-end mt-3">
                     <button 
                       onClick={() => handleValidate(false)}
-                      className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-500 shadow-glow"
+                      className="px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-glow"
+                      style={{ background: 'var(--blue-500)', color: '#fff' }}
+                      onMouseEnter={e => e.currentTarget.style.background='var(--blue-400)'}
+                      onMouseLeave={e => e.currentTarget.style.background='var(--blue-500)'}
                     >
-                      Send to Modeler Agent
+                      Envoyer à l'Agent Modeler
                     </button>
                  </div>
               </motion.div>
@@ -444,8 +473,8 @@ export default function ArchitectureInspector() {
 
         {/* Canvas HUD */}
         <div className="absolute top-6 left-6 z-20 flex flex-col gap-1 pointer-events-none">
-           <h2 className="text-xl font-black text-white italic tracking-tighter uppercase leading-none">Architectural Canvas</h2>
-           <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em]">Star Schema Modeling Node</p>
+           <h2 className="text-xl font-black italic tracking-tighter uppercase leading-none" style={{ color: 'var(--text-primary)' }}>Vue Architecturale</h2>
+           <p className="text-[9px] font-black uppercase tracking-[0.3em]" style={{ color: 'var(--text-muted)' }}>Modélisation Star Schema</p>
         </div>
 
         {viewMode === 'graph' ? (
@@ -454,9 +483,9 @@ export default function ArchitectureInspector() {
               <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-4">
                 <XCircle size={28} className="text-rose-400" />
               </div>
-              <h3 className="text-sm font-black text-rose-400 uppercase tracking-widest mb-2">Schema Modeling Failed</h3>
-              <p className="text-[11px] text-slate-500 max-w-md leading-relaxed">
-                {pipelineError || "The Modeler agent did not produce a valid star schema. This usually means the source metadata was empty or the LLM returned an invalid response. Check the pipeline logs for details."}
+              <h3 className="text-sm font-black text-rose-400 uppercase tracking-widest mb-2">Échec Modélisation Schéma</h3>
+              <p className="text-[11px] max-w-md leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                {pipelineError || "L'agent Modeler n'a pas produit de schéma en étoile valide. Cela signifie généralement que les métadonnées source étaient vides ou que le LLM a retourné une réponse invalide. Vérifiez les logs du pipeline."}
               </p>
             </div>
           ) : (
@@ -473,14 +502,14 @@ export default function ArchitectureInspector() {
             maxZoom={2.5}
             className="bg-dot-pattern"
           >
-            <Background color="#1e1e2d" gap={24} size={1} />
-            <Controls className="bg-slate-900 border-white/10 fill-white" />
+            <Background color="var(--border-default)" gap={24} size={1} />
+            <Controls style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-subtle)', fill: 'var(--text-primary)' }} />
             <FitViewListener isFullscreen={isFullscreen} />
           </ReactFlow>
           )
         ) : (
-          <div className="h-full p-10 overflow-auto custom-scrollbar bg-[#050508] font-mono text-[11px] leading-relaxed text-indigo-300">
-            <pre className="p-8 rounded-[32px] bg-white/[0.02] border border-white/5 shadow-2xl">
+          <div className="h-full p-10 overflow-auto custom-scrollbar font-mono text-[11px] leading-relaxed" style={{ background: 'var(--bg-base)', color: 'var(--blue-500)' }}>
+            <pre className="p-8 rounded-[32px] border shadow-2xl" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
               {sqlDDL || "-- Aucun DDL généré pour le moment"}
             </pre>
           </div>
@@ -497,28 +526,38 @@ export default function ArchitectureInspector() {
         </div> */}
 
         {/* View Switcher Overlay */}
-        <div className="absolute top-6 right-6 z-20 flex bg-black/40 backdrop-blur-xl rounded-xl p-1 border border-white/10 gap-1 items-center">
+        <div className="absolute top-6 right-6 z-20 flex backdrop-blur-xl rounded-xl p-1 border gap-1 items-center"
+          style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-subtle)' }}>
            <button 
              onClick={() => setIsFullscreen(!isFullscreen)}
-             className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-all flex items-center justify-center"
-             title={isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen"}
+             className="px-3 py-1.5 rounded-lg transition-all flex items-center justify-center"
+             style={{ color: 'var(--text-muted)' }}
+             title={isFullscreen ? "Quitter le Plein Écran" : "Plein Écran"}
+             onMouseEnter={e => { e.currentTarget.style.color='var(--text-primary)'; e.currentTarget.style.background='var(--bg-higher)'; }}
+             onMouseLeave={e => { e.currentTarget.style.color='var(--text-muted)'; e.currentTarget.style.background='transparent'; }}
            >
              {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
            </button>
            
-           <div className="w-px h-5 bg-white/10 mx-1" />
+           <div className="w-px h-5 mx-1" style={{ background: 'var(--border-subtle)' }} />
 
            <button 
              onClick={() => setViewMode('graph')}
-             className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'graph' ? 'bg-indigo-600 text-white shadow-glow' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}
+             className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'graph' ? 'shadow-glow' : ''}`}
+             style={viewMode === 'graph' ? { background: 'var(--blue-500)', color: '#fff' } : { color: 'var(--text-muted)' }}
+             onMouseEnter={e => { if(viewMode !== 'graph') { e.currentTarget.style.color='var(--text-primary)'; e.currentTarget.style.background='var(--bg-higher)'; }}}
+             onMouseLeave={e => { if(viewMode !== 'graph') { e.currentTarget.style.color='var(--text-muted)'; e.currentTarget.style.background='transparent'; }}}
            >
-             Graph
+             Graphe
            </button>
            <button 
              onClick={() => setViewMode('sql')}
-             className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'sql' ? 'bg-indigo-600 text-white shadow-glow' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}
+             className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'sql' ? 'shadow-glow' : ''}`}
+             style={viewMode === 'sql' ? { background: 'var(--blue-500)', color: '#fff' } : { color: 'var(--text-muted)' }}
+             onMouseEnter={e => { if(viewMode !== 'sql') { e.currentTarget.style.color='var(--text-primary)'; e.currentTarget.style.background='var(--bg-higher)'; }}}
+             onMouseLeave={e => { if(viewMode !== 'sql') { e.currentTarget.style.color='var(--text-muted)'; e.currentTarget.style.background='transparent'; }}}
            >
-             SQL
+             Code SQL
            </button>
         </div>
 

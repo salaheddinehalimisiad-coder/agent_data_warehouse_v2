@@ -35,6 +35,10 @@ volumes:
     driver: local
   caddy_config:
     driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
 
 services:
 
@@ -203,3 +207,41 @@ services:
       resources:
         limits:
           memory: 128m
+
+  # ─── Observability stack (profile: monitoring) ─────────────────────────────
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v2.54.1
+    container_name: agent_dw_prometheus
+    <<: *default-restart
+    networks: [agent_dw_net]
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    expose:
+      - "9090"
+    logging: *default-logging
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  grafana:
+    profiles: ["monitoring"]
+    image: grafana/grafana:11.3.0
+    container_name: agent_dw_grafana
+    <<: *default-restart
+    networks: [agent_dw_net]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_PASSWORD:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: ""
+    ports:
+      - "${GRAFANA_HOST_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboard.json:/var/lib/grafana/dashboards/agent-dw.json:ro

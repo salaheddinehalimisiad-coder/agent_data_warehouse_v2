@@ -1,0 +1,29 @@
+[run]
+source = api,nodes,utils
+omit =
+    */__pycache__/*
+    */tests/*
+    */test_*.py
+    */migrations/*
+    */.venv/*
+    api/db/avatars/*
+branch = True
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    pass
+    \.\.\.
+precision = 1
+show_missing = True
+skip_covered = False
+
+[html]
+directory = htmlcov
+
+[xml]
+output = coverage.xml

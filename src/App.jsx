@@ -178,6 +178,7 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
     document.documentElement.classList.toggle('dark', isDarkMode);
+    document.documentElement.classList.toggle('light-mode', !isDarkMode);
   }, [isDarkMode]);
 
   const handleLogout = () => {
@@ -298,7 +299,7 @@ export default function App() {
       {/* View routing */}
       <AnimatePresence mode="wait">
         {appView === 'landing' && (
-          <motion.div key="landing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ position: 'absolute', inset: 0, zIndex: 190 }}>
+          <motion.div key="landing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ position: 'absolute', inset: 0, zIndex: 190, overflowY: 'auto' }}>
             <LandingPage
               onEnterDashboard={() => authToken ? setAppView('dashboard') : setShowAuth(true)}
               onSelectSource={() => { setAppView('dashboard'); setShowConnection(true); }}
@@ -328,7 +329,7 @@ export default function App() {
           {/* ── Header ── */}
           <header style={{
             display: 'flex', alignItems: 'center', padding: '0 20px', height: 52, flexShrink: 0,
-            background: 'rgba(10,13,26,0.92)', backdropFilter: 'blur(20px)',
+            background: 'var(--bg-elevated)', backdropFilter: 'blur(20px)',
             borderBottom: '1px solid var(--border-subtle)',
           }}>
             {/* Brand */}
@@ -430,7 +431,7 @@ export default function App() {
             <aside style={{
               display: 'flex', flexDirection: 'column', flexShrink: 0,
               width: leftCollapsed ? 52 : 192,
-              background: 'rgba(10,13,26,0.6)',
+              background: 'var(--bg-surface)',
               borderRight: '1px solid var(--border-subtle)',
               transition: 'width 0.2s ease',
               overflow: 'hidden',

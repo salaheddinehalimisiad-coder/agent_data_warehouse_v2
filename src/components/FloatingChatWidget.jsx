@@ -155,6 +155,10 @@ export default function FloatingChatWidget() {
         {open && (
           <motion.div
             key="panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="atlas-title"
+            aria-describedby="atlas-status"
             initial={{ opacity: 0, y: 32, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.97 }}
@@ -205,15 +209,15 @@ export default function FloatingChatWidget() {
               </div>
 
               <div style={{ flex: 1, minWidth: 0 }}>
-                <h3 style={{
+                <h3 id="atlas-title" style={{
                   margin: 0, fontSize: 15, fontWeight: 700, color: 'white',
                   letterSpacing: '-0.02em',
                   display: 'flex', alignItems: 'center', gap: 6,
                 }}>
                   Atlas
-                  <Sparkles size={11} style={{ color: '#a78bfa' }} />
+                  <Sparkles size={11} style={{ color: '#a78bfa' }} aria-hidden="true" />
                 </h3>
-                <p style={{
+                <p id="atlas-status" role="status" aria-live="polite" style={{
                   margin: 0, fontSize: 10, color: '#94a3b8',
                   letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 4,
                 }}>

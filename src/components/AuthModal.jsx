@@ -1,12 +1,12 @@
+import { AnimatePresence, motion } from 'framer-motion';
+import {ArrowRight, 
+  Database, Eye, EyeOff,Loader2, ShieldCheck, Sparkles, 
+  X, Zap
+} from 'lucide-react';
 // src/components/AuthModal.jsx
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-  X, Loader2, Eye, EyeOff,
-  Database, Sparkles, ArrowRight, ShieldCheck, Zap
-} from 'lucide-react';
-import { usePipelineStore } from '../store/pipelineStore';
 import { apiClient } from '../api/client';
+import { usePipelineStore } from '../store/pipelineStore';
 
 const FIELD_STYLE = {
   width: '100%', height: 42,

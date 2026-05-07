@@ -10,7 +10,7 @@ export default function GovernancePanel() {
   if (!governanceReport) {
     return (
       <div className="h-full flex items-center justify-center text-slate-500 font-mono text-xs uppercase tracking-widest p-8 text-center bg-[#050507]">
-        No Governance Audit Available
+        Aucun Audit de Gouvernance Disponible
       </div>
     );
   }

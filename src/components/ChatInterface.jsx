@@ -19,9 +19,9 @@ function QueryResultTable({ data }) {
     <div className="mt-4 rounded-2xl border border-white/5 bg-[#0a0a0f] overflow-hidden shadow-2xl">
       <div className="bg-white/5 px-4 py-2 flex items-center justify-between border-b border-white/5">
         <div className="flex items-center gap-2">
-            <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Query Result</span>
+            <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Résultat de Requête</span>
             <span className="text-[9px] text-zinc-600 font-bold px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800">
-                {data.total_rows} rows found
+                {data.total_rows} lignes trouvées
             </span>
         </div>
         <button 
@@ -38,7 +38,7 @@ function QueryResultTable({ data }) {
             a.click();
           }}
           className="p-1 hover:text-white text-zinc-600 transition-colors"
-          title="Export CSV"
+          title="Exporter CSV"
         >
           <Download size={12} />
         </button>
@@ -70,7 +70,7 @@ function QueryResultTable({ data }) {
       {data.sql && (
         <details className="p-3 bg-black/40 cursor-pointer group">
           <summary className="text-[8px] font-black text-zinc-700 uppercase tracking-widest group-hover:text-zinc-500 transition-colors">
-             View Generated SQL
+             Voir SQL Généré
           </summary>
           <div className="mt-2 text-[10px] font-mono text-zinc-600 bg-black/60 p-4 rounded-xl border border-white/5 leading-relaxed">
             {data.sql}
@@ -118,7 +118,7 @@ function FormattedMessage({ content, role }) {
               if (!line.trim()) return <div key={i} className="h-1" />;
               
               const html = line
-                .replace(/\*\*(.*?)\*\*/g, '<b class="text-white font-black">$1</b>')
+                .replace(/\*\*(.*?)\*\*/g, '<b class="font-black" style="color:var(--text-primary)">$1</b>')
                 .replace(/\*(.*?)\*/g, '<i style="color:var(--blue-200)">$1</i>');
 
               if (line.trim().match(/^[-*]\s/)) {
@@ -129,7 +129,7 @@ function FormattedMessage({ content, role }) {
                   </div>
                 );
               }
-              return <p key={i} className={role === 'user' ? 'text-white' : 'text-slate-300'} dangerouslySetInnerHTML={{ __html: html }} />;
+              return <p key={i} className={role === 'user' ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'} dangerouslySetInnerHTML={{ __html: html }} />;
             })}
           </div>
         );
@@ -208,7 +208,13 @@ export default function ChatInterface() {
     <div className="flex flex-col h-full bg-transparent">
 
       {/* ── Content Area (chat uniquement, plus d'onglets) ─────────────────── */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar relative p-4">
+      <div
+        className="flex-1 overflow-y-auto custom-scrollbar relative p-4"
+        role="log"
+        aria-label="Conversation avec Atlas"
+        aria-live="polite"
+        aria-atomic="false"
+      >
 
         <AnimatePresence mode="wait">
           {true && (
@@ -325,7 +331,11 @@ export default function ChatInterface() {
             style={{ background: 'radial-gradient(ellipse 80% 60% at 50% 100%, rgba(139,92,246,0.12), transparent 70%)' }}
           />
 
+          <label htmlFor="atlas-input" className="sr-only">
+            Message pour Atlas
+          </label>
           <textarea
+            id="atlas-input"
             ref={textareaRef}
             value={input}
             onChange={e => setInput(e.target.value)}
@@ -333,13 +343,16 @@ export default function ChatInterface() {
             disabled={!canChat || isSending}
             placeholder={canChat ? "Demande a Atlas... (ex: ajoute net_amount dans fact_orders)" : "Connecte une source pour activer Atlas"}
             rows={1}
+            aria-label="Saisir votre demande pour Atlas"
+            aria-describedby="atlas-input-hint"
+            aria-disabled={!canChat || isSending}
             className="w-full bg-transparent text-[13.5px] leading-[1.55] font-medium text-slate-100 pl-4 pr-16 pt-3.5 pb-12 focus:outline-none resize-none placeholder:text-slate-600 min-h-[88px] max-h-[200px]"
             style={{ fieldSizing: 'content' }}
           />
 
           {/* Barre du bas : raccourci a gauche + bouton envoi a droite */}
           <div className="absolute left-3 right-3 bottom-2.5 flex items-center justify-between pointer-events-none">
-            <span className="text-[9px] font-medium text-slate-600 tracking-wider flex items-center gap-1.5 pointer-events-auto select-none">
+            <span id="atlas-input-hint" className="text-[9px] font-medium text-slate-600 tracking-wider flex items-center gap-1.5 pointer-events-auto select-none">
               <kbd className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/[0.06] text-[8.5px] text-slate-500 font-mono">Entree</kbd>
               <span>pour envoyer</span>
               <span className="text-slate-700">·</span>

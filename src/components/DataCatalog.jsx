@@ -24,9 +24,9 @@ export default function DataCatalog() {
     return (
       <div className="h-full flex flex-col items-center justify-center p-12 opacity-40">
         <Book size={48} className="text-zinc-600 mb-4" />
-        <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Smart Catalog Pending</h3>
+        <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Catalogue Intelligent en Attente</h3>
         <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mt-2">
-            The neural indexing will occur after a successful pipeline run.
+            L'indexation neuronale se produira après un pipeline réussi.
         </p>
       </div>
     );
@@ -41,9 +41,9 @@ export default function DataCatalog() {
               <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
                  <Book size={20} className="text-indigo-400" />
               </div>
-              <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase">Neural Catalog</h2>
+              <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase">Catalogue Neuronal</h2>
            </div>
-           <p className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">AI-Generated Semantic Inventory</p>
+           <p className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Inventaire Sémantique Généré par IA</p>
         </div>
 
         <div className="relative group w-full md:w-96">
@@ -51,7 +51,7 @@ export default function DataCatalog() {
            <input 
              value={search}
              onChange={e => setSearch(e.target.value)}
-             placeholder="Search tables, columns, metrics..."
+             placeholder="Rechercher tables, colonnes, métriques..."
              className="w-full bg-white/[0.03] border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-sm text-white focus:outline-none focus:border-indigo-500/50 transition-all placeholder:text-zinc-700"
            />
         </div>
@@ -96,7 +96,7 @@ export default function DataCatalog() {
                  className="h-full flex flex-col p-10"
                >
                   <div className="flex items-center justify-between mb-8">
-                     <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em]">Entity Details</span>
+                     <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em]">Détails de l'Entité</span>
                      <div className="flex gap-2">
                         <Tag size={12} className="text-zinc-700" />
                         <span className="text-[10px] font-black text-zinc-700 uppercase">{selectedTable.name.startsWith('dim') ? 'DIMENSION' : 'FACT'}</span>
@@ -111,7 +111,7 @@ export default function DataCatalog() {
                   <div className="flex-1 overflow-y-auto custom-scrollbar">
                      <div className="flex items-center gap-2 mb-6">
                         <Layout size={16} className="text-indigo-400" />
-                        <h5 className="text-[11px] font-black text-white uppercase tracking-widest">Semantic Schema</h5>
+                        <h5 className="text-[11px] font-black text-white uppercase tracking-widest">Schéma Sémantique</h5>
                      </div>
                      
                      <div className="grid grid-cols-1 gap-4">
@@ -121,7 +121,7 @@ export default function DataCatalog() {
                                  <span className="text-[12px] font-black text-white uppercase tracking-tight group-hover:text-indigo-400 transition-colors">
                                     {col.name}
                                  </span>
-                                 <span className="text-[8px] font-black text-zinc-700 uppercase tracking-widest">Column</span>
+                                 <span className="text-[8px] font-black text-zinc-700 uppercase tracking-widest">Colonne</span>
                               </div>
                               <p className="text-[11px] text-zinc-500 font-medium italic">
                                  {col.description}
@@ -134,8 +134,8 @@ export default function DataCatalog() {
              ) : (
                <div className="h-full flex flex-col items-center justify-center p-20 text-center opacity-20">
                   <Grid size={64} className="text-zinc-400 mb-6" />
-                  <h3 className="text-xl font-black text-white uppercase italic">Select an entity</h3>
-                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-2">Explore the semantic structure of your warehouse</p>
+                  <h3 className="text-xl font-black text-white uppercase italic">Sélectionnez une entité</h3>
+                  <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-2">Explorez la structure sémantique de votre entrepôt</p>
                </div>
              )}
            </AnimatePresence>

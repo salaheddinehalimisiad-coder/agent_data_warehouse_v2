@@ -495,7 +495,7 @@ export default function OlapExplorer() {
             <Layers size={15} className="text-indigo-400" />
           </div>
           <div>
-            <h2 className="text-[13px] font-black text-white uppercase tracking-tight">OLAP Cube Explorer</h2>
+            <h2 className="text-[13px] font-black text-white uppercase tracking-tight">Explorateur Cube OLAP</h2>
             <p className="text-[9px] text-slate-500 font-bold uppercase tracking-[0.2em]">
               {schema.dimensions.length} dim · {schema.facts.length} fact · {schema.prefix}
             </p>
@@ -503,7 +503,7 @@ export default function OlapExplorer() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={reset} className="flex items-center gap-1.5 text-[9px] font-black uppercase text-slate-500 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5 transition-all border border-white/5">
-            <RefreshCw size={10}/> Reset
+            <RefreshCw size={10}/> Réinitialiser
           </button>
           <button
             onClick={runQuery}

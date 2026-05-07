@@ -109,7 +109,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 body {
-  @apply antialiased overflow-hidden;
+  @apply antialiased;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   background: var(--bg-base);
   color: var(--text-primary);
@@ -128,7 +128,7 @@ body::before {
     radial-gradient(ellipse 600px 500px at 5% 95%, rgba(14,165,233,0.05), transparent 55%);
 }
 
-#root { @apply h-screen w-screen overflow-hidden; }
+#root { @apply h-screen w-screen; }
 
 /* ════════════════════════════════════════════
    Scrollbar — Slim & Professional
@@ -785,6 +785,681 @@ select.input {
 }
 .light-mode .text-slate-100,
 .light-mode .text-slate-200,
+.light-mode .text-slate-300,
 .light-mode .text-white { color: #0f172a !important; }
-.light-mode .text-slate-400,
+.light-mode .text-slate-400 { color: #475569 !important; }
 .light-mode .text-slate-500 { color: #64748b !important; }
+.light-mode .text-slate-600 { color: #475569 !important; }
+.light-mode .text-slate-700 { color: #334155 !important; }
+
+/* Dashboard translucent backgrounds in light mode */
+.light-mode .bg-white\/\[0\.02\],
+.light-mode .bg-white\/5,
+.light-mode .bg-white\/10 { background: rgba(0,0,0,0.03) !important; }
+.light-mode [class*="bg-white/"] { background: rgba(0,0,0,0.04) !important; }
+.light-mode [class*="border-white/"] { border-color: rgba(0,0,0,0.08) !important; }
+
+/* Override inline styles and other hardcoded light colors in light mode */
+.light-mode [style*="color: rgb(255, 255, 255)"],
+.light-mode [style*="color: white"],
+.light-mode [style*="color: #fff"],
+.light-mode [style*="color: #ffffff"],
+.light-mode [style*="color: #eee"],
+.light-mode [style*="color: #dfe4f2"],
+.light-mode [style*="color: #cbd5e1"],
+.light-mode [style*="color: #94a3b8"],
+.light-mode [style*="color: #e2e8f0"],
+.light-mode [style*="color: #f1f5f9"],
+.light-mode [style*="color: #f8fafc"] { color: #0f172a !important; }
+
+/* Force dark text on all elements inside dashboard in light mode */
+.light-mode main *:not(img):not(svg):not([role="img"]) { color: var(--text-primary); }
+.light-mode main [style*="color: rgb(255"],
+.light-mode main [style*="color: white"],
+.light-mode main [style*="color: #fff"],
+.light-mode main [style*="color: #e2e8f0"],
+.light-mode main [style*="color: #cbd5e1"],
+.light-mode main [style*="color: #94a3b8"],
+.light-mode main [style*="color: #64748b"] { color: var(--text-primary) !important; }
+
+/* Dashboard cards and panels in light mode */
+.light-mode .card,
+.light-mode .card-premium,
+.light-mode [class*="card"] { background: var(--bg-surface) !important; }
+
+/* Force dark text in common dashboard containers */
+.light-mode [style*="background: rgb(10, 13, 26)"],
+.light-mode [style*="background: #0a0d1a"],
+.light-mode [style*="background: rgba(10, 13, 26"] { color: var(--text-primary) !important; }
+
+/* Light mode — ensure all text in dashboard is readable */
+.light-mode h1, .light-mode h2, .light-mode h3, .light-mode h4, .light-mode h5, .light-mode h6,
+.light-mode p, .light-mode label, .light-mode button:not(.btn-primary):not(.btn-success) { color: var(--text-primary) !important; }
+.light-mode span:not([role="img"]) { color: var(--text-primary) !important; }
+.light-mode div { color: var(--text-primary); }
+
+/* Specific overrides for hardcoded white text in components */
+.light-mode [class*="text-white"] { color: #0f172a !important; }
+.light-mode [style*="color: white"],
+.light-mode [style*="color: rgb(255, 255, 255)"] { color: #0f172a !important; }
+
+/* ==== UNIVERSAL DASHBOARD FIXES FOR LIGHT MODE ==== */
+/* Force all backgrounds hardcoded to dark to become light */
+.light-mode [class*="bg-[#0a"],
+.light-mode [class*="bg-[#060"],
+.light-mode [class*="bg-[#111"],
+.light-mode [class*="bg-[#000"],
+.light-mode .bg-black,
+.light-mode .bg-gray-900,
+.light-mode .bg-slate-900,
+.light-mode .bg-zinc-900 {
+  background: var(--bg-base) !important;
+  background-color: var(--bg-base) !important;
+}
+
+/* Override ALL slate text colors in dashboard panels */
+.light-mode main .text-slate-100,
+.light-mode main .text-slate-200,
+.light-mode main .text-slate-300,
+.light-mode main .text-slate-400,
+.light-mode main .text-slate-500,
+.light-mode main .text-slate-600,
+.light-mode main .text-slate-700,
+.light-mode main .text-slate-800,
+.light-mode main .text-gray-100,
+.light-mode main .text-gray-200,
+.light-mode main .text-gray-300,
+.light-mode main .text-gray-400,
+.light-mode main .text-gray-500,
+.light-mode main .text-gray-600,
+.light-mode main .text-zinc-100,
+.light-mode main .text-zinc-200,
+.light-mode main .text-zinc-300,
+.light-mode main .text-zinc-400,
+.light-mode main .text-zinc-500,
+.light-mode main .text-zinc-600,
+.light-mode main .text-neutral-100,
+.light-mode main .text-neutral-200,
+.light-mode main .text-neutral-300,
+.light-mode main .text-neutral-400,
+.light-mode main .text-neutral-500,
+.light-mode main .text-neutral-600,
+.light-mode main .text-white {
+  color: var(--text-primary) !important;
+}
+
+/* Override ALL white/slate backgrounds in dashboard */
+.light-mode main .bg-white\/\[0\.02\],
+.light-mode main .bg-white\/\[0\.04\],
+.light-mode main .bg-white\/\[0\.05\],
+.light-mode main .bg-white\/\[0\.06\],
+.light-mode main .bg-white\/\[0\.08\],
+.light-mode main .bg-white\/\[0\.10\],
+.light-mode main .bg-white\/5,
+.light-mode main .bg-white\/10,
+.light-mode main .bg-white\/\[0\.5\] {
+  background: rgba(0,0,0,0.02) !important;
+}
+
+/* Force all borders to use light mode variables */
+.light-mode main .border-white\/\[0\.06\],
+.light-mode main .border-white\/\[0\.05\],
+.light-mode main .border-white\/\[0\.08\],
+.light-mode main .border-white\/\[0\.10\],
+.light-mode main .border-white\/5,
+.light-mode main .border-white\/10 {
+  border-color: var(--border-subtle) !important;
+}
+
+/* Fix inline dark backgrounds in all dashboard components */
+.light-mode main [style*="background-color: rgb(0, 0, 0)"],
+.light-mode main [style*="background: rgb(0, 0, 0)"],
+.light-mode main [style*="background: #0a"],
+.light-mode main [style*="background: #060"],
+.light-mode main [style*="background: #111"],
+.light-mode main [style*="background: #000"] {
+  background: var(--bg-base) !important;
+}
+
+/* Fix inline light text colors in all dashboard components */
+.light-mode main [style*="color: rgb(255"],
+.light-mode main [style*="color: #fff"],
+.light-mode main [style*="color: #e2e8f0"],
+.light-mode main [style*="color: #cbd5e1"],
+.light-mode main [style*="color: #94a3b8"],
+.light-mode main [style*="color: #64748b"],
+.light-mode main [style*="color: #475569"] {
+  color: var(--text-primary) !important;
+}
+
+/* ===== UNIVERSAL DASHBOARD BACKGROUND FIX — light mode ===== */
+/* Force ALL hardcoded dark backgrounds across every dashboard component to light */
+.light-mode .bg-\[\#0a0a0f\],
+.light-mode .bg-\[\#06060a\],
+.light-mode .bg-\[\#080810\],
+.light-mode .bg-\[\#0a0d1a\],
+.light-mode .bg-\[\#0d0d0d\],
+.light-mode .bg-\[\#111\],
+.light-mode .bg-\[\#1a1a1a\],
+.light-mode .bg-black,
+.light-mode .bg-black\/20,
+.light-mode .bg-black\/40,
+.light-mode .bg-black\/60,
+.light-mode .bg-black\/80,
+.light-mode .bg-zinc-950,
+.light-mode .bg-zinc-900,
+.light-mode .bg-zinc-900\/60,
+.light-mode .bg-zinc-900\/50,
+.light-mode .bg-zinc-800\/50,
+.light-mode .bg-zinc-800,
+.light-mode .bg-zinc-700\/50,
+.light-mode .bg-neutral-900,
+.light-mode .bg-slate-900,
+.light-mode .bg-gray-900,
+.light-mode .bg-\[\#0B0E14\],
+.light-mode .bg-\[\#0F111A\] {
+  background: var(--bg-base) !important;
+  background-color: var(--bg-base) !important;
+}
+
+/* ReactFlow canvas nodes — force light backgrounds */
+.light-mode .react-flow__node,
+.light-mode [class*="react-flow__node"] {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-subtle) !important;
+}
+.light-mode .react-flow__background {
+  background: var(--bg-base) !important;
+}
+.light-mode .react-flow__pane {
+  background: var(--bg-base) !important;
+}
+
+/* Override inline style backgrounds that are dark */
+.light-mode [style*="background-color: rgb(10, 10, 15)"],
+.light-mode [style*="background: rgb(10, 10, 15)"],
+.light-mode [style*="background-color: #0a0a0f"],
+.light-mode [style*="background: #0a0a0f"],
+.light-mode [style*="background-color: #060"],
+.light-mode [style*="background: #060"],
+.light-mode [style*="background-color: #000"],
+.light-mode [style*="background: #000"],
+.light-mode [style*="background-color: #080"],
+.light-mode [style*="background: #080"],
+.light-mode [style*="background-color: #111"],
+.light-mode [style*="background: #111"],
+.light-mode [style*="background-color: black"],
+.light-mode [style*="background: black"] {
+  background: var(--bg-base) !important;
+  background-color: var(--bg-base) !important;
+}
+
+/* Force ALL borders with dark colors to light mode */
+.light-mode .border-white\/5,
+.light-mode .border-white\/10,
+.light-mode .border-white\/\[0\.06\],
+.light-mode .border-white\/\[0\.08\],
+.light-mode .border-white\/\[0\.04\],
+.light-mode .border-zinc-700\/50,
+.light-mode .border-zinc-800\/60,
+.light-mode .border-zinc-700,
+.light-mode .border-zinc-800,
+.light-mode .border-slate-700,
+.light-mode .border-slate-800,
+.light-mode .border-gray-700,
+.light-mode .border-gray-800 {
+  border-color: var(--border-subtle) !important;
+}
+
+/* ===== HUMAN REVIEW PANEL — light mode overrides ===== */
+.light-mode .bg-zinc-900\/60,
+.light-mode .bg-zinc-800\/50,
+.light-mode .bg-zinc-900\/50,
+.light-mode .bg-black\/20,
+.light-mode .bg-black\/40,
+.light-mode .bg-black\/60 {
+  background: var(--bg-surface) !important;
+  background-color: var(--bg-surface) !important;
+}
+.light-mode .border-zinc-700\/50,
+.light-mode .border-zinc-800\/60,
+.light-mode .border-zinc-700,
+.light-mode .border-zinc-800 {
+  border-color: var(--border-subtle) !important;
+}
+.light-mode .text-zinc-300,
+.light-mode .text-zinc-400,
+.light-mode .text-zinc-500 {
+  color: var(--text-primary) !important;
+}
+.light-mode .text-zinc-600,
+.light-mode .text-zinc-700 {
+  color: var(--text-secondary) !important;
+}
+.light-mode .placeholder\:text-zinc-700::placeholder {
+  color: var(--text-muted) !important;
+}
+.light-mode .bg-zinc-700\/50,
+.light-mode .bg-zinc-600\/50 {
+  background: var(--bg-elevated) !important;
+}
+
+/* ===== COMPREHENSIVE LIGHT MODE OVERRIDES — ALL COMPONENTS ===== */
+/* Catches all arbitrary dark backgrounds used across the dashboard */
+.light-mode .bg-\[\#050508\],
+.light-mode .bg-\[\#060608\],
+.light-mode .bg-\[\#08080c\],
+.light-mode .bg-\[\#0a0a0f\],
+.light-mode .bg-\[\#0a0d1a\],
+.light-mode .bg-\[\#0d0d0d\],
+.light-mode .bg-\[\#0d0d14\],
+.light-mode .bg-\[\#0d0d14\]\/95,
+.light-mode .bg-\[\#0d0d14\]\/90,
+.light-mode .bg-\[\#0d0d14\]\/80,
+.light-mode .bg-\[\#09090b\],
+.light-mode .bg-\[\#0c0c0e\],
+.light-mode .bg-\[\#030304\],
+.light-mode .bg-\[\#050507\],
+.light-mode .bg-\[\#0d0d12\],
+.light-mode .bg-\[\#18181b\],
+.light-mode .bg-\[\#0d0d16\],
+.light-mode .bg-\[\#0f0f15\],
+.light-mode .bg-\[\#111\],
+.light-mode .bg-\[\#111118\],
+.light-mode .bg-\[\#151520\],
+.light-mode .bg-\[\#1a1a1a\],
+.light-mode .bg-\[\#0B0E14\],
+.light-mode .bg-\[\#0F111A\],
+.light-mode .bg-\[\#080810\],
+.light-mode .bg-black\/20,
+.light-mode .bg-black\/30,
+.light-mode .bg-black\/40,
+.light-mode .bg-black\/50,
+.light-mode .bg-black\/60,
+.light-mode .bg-black\/70,
+.light-mode .bg-black\/80,
+.light-mode .bg-black\/90,
+.light-mode .bg-neutral-900,
+.light-mode .bg-neutral-800,
+.light-mode .bg-neutral-950,
+.light-mode .bg-gray-900,
+.light-mode .bg-gray-800,
+.light-mode .bg-gray-950,
+.light-mode .bg-slate-900,
+.light-mode .bg-slate-800,
+.light-mode .bg-slate-950,
+.light-mode .bg-zinc-900,
+.light-mode .bg-zinc-800,
+.light-mode .bg-zinc-950,
+.light-mode .bg-zinc-900\/50,
+.light-mode .bg-zinc-900\/60,
+.light-mode .bg-zinc-800\/50,
+.light-mode .bg-zinc-800\/60,
+.light-mode .bg-zinc-700\/50,
+.light-mode .bg-slate-700\/40,
+.light-mode .bg-slate-700\/50,
+.light-mode .bg-slate-800\/40,
+.light-mode .bg-slate-800\/50,
+.light-mode .bg-slate-900\/40,
+.light-mode .bg-slate-900\/50,
+.light-mode .bg-gray-700\/40,
+.light-mode .bg-gray-700\/50,
+.light-mode .bg-gray-800\/40,
+.light-mode .bg-gray-800\/50,
+.light-mode .bg-gray-900\/40,
+.light-mode .bg-gray-900\/50,
+.light-mode .bg-zinc-700\/40,
+.light-mode .bg-zinc-700\/50,
+.light-mode .bg-zinc-800\/40,
+.light-mode .bg-zinc-800\/50,
+.light-mode .bg-zinc-900\/40,
+.light-mode .bg-zinc-900\/50 {
+  background: var(--bg-base) !important;
+  background-color: var(--bg-base) !important;
+}
+
+/* Exception: modal backdrops must stay dark in light mode */
+.light-mode .backdrop-blur-md[class*="bg-black"],
+.light-mode .backdrop-blur-sm[class*="bg-black"],
+.light-mode [class*="backdrop-blur"][class*="bg-black"] {
+  background: rgba(0,0,0,0.8) !important;
+  background-color: rgba(0,0,0,0.8) !important;
+}
+
+/* White overlays on dark — invert to dark overlays on light */
+.light-mode .bg-white\/5,
+.light-mode .bg-white\/10,
+.light-mode .bg-white\/15,
+.light-mode .bg-white\/20,
+.light-mode .bg-white\/-\[0\.02\],
+.light-mode .bg-white\/-\[0\.03\],
+.light-mode .bg-white\/-\[0\.04\],
+.light-mode .bg-white\/-\[0\.05\],
+.light-mode .bg-white\/-\[0\.06\],
+.light-mode .bg-white\/-\[0\.08\],
+.light-mode .bg-white\/-\[0\.10\],
+.light-mode .hover\:bg-white\/5:hover,
+.light-mode .hover\:bg-white\/10:hover,
+.light-mode .hover\:bg-white\/\[0\.02\]:hover,
+.light-mode .hover\:bg-white\/\[0\.03\]:hover,
+.light-mode .hover\:bg-white\/\[0\.04\]:hover,
+.light-mode .hover\:bg-white\/\[0\.05\]:hover,
+.light-mode .hover\:bg-white\/\[0\.04\]:hover,
+.light-mode .hover\:bg-white\/\[0\.02\]:hover,
+.light-mode .hover\:bg-white\/\[0\.03\]:hover,
+.light-mode .focus\:bg-white\/\[0\.02\]:focus,
+.light-mode .focus\:bg-white\/\[0\.03\]:focus,
+.light-mode .focus\:bg-white\/\[0\.04\]:focus,
+.light-mode .focus\:bg-white\/\[0\.05\]:focus,
+.light-mode [class*="bg-white/["] {
+  background: rgba(0,0,0,0.03) !important;
+  background-color: rgba(0,0,0,0.03) !important;
+}
+
+/* ALL text-white and slate text colors in light mode */
+.light-mode .text-white,
+.light-mode .hover\:text-white:hover,
+.light-mode .hover\:text-white:focus,
+.light-mode .text-slate-100,
+.light-mode .text-slate-200,
+.light-mode .text-slate-300,
+.light-mode .text-slate-400,
+.light-mode .text-slate-500,
+.light-mode .text-slate-600,
+.light-mode .text-slate-700,
+.light-mode .text-slate-800,
+.light-mode .text-slate-900,
+.light-mode .text-gray-100,
+.light-mode .text-gray-200,
+.light-mode .text-gray-300,
+.light-mode .text-gray-400,
+.light-mode .text-gray-500,
+.light-mode .text-gray-600,
+.light-mode .text-gray-700,
+.light-mode .text-gray-800,
+.light-mode .text-gray-900,
+.light-mode .text-zinc-100,
+.light-mode .text-zinc-200,
+.light-mode .text-zinc-300,
+.light-mode .text-zinc-400,
+.light-mode .text-zinc-500,
+.light-mode .text-zinc-600,
+.light-mode .text-zinc-700,
+.light-mode .text-zinc-800,
+.light-mode .text-zinc-900,
+.light-mode .text-neutral-100,
+.light-mode .text-neutral-200,
+.light-mode .text-neutral-300,
+.light-mode .text-neutral-400,
+.light-mode .text-neutral-500,
+.light-mode .text-neutral-600,
+.light-mode .text-neutral-700,
+.light-mode .text-neutral-800,
+.light-mode .text-neutral-900 {
+  color: var(--text-primary) !important;
+}
+
+/* Hover & group-hover text color variants in light mode */
+.light-mode .hover\:text-slate-300:hover,
+.light-mode .hover\:text-slate-400:hover,
+.light-mode .hover\:text-slate-500:hover,
+.light-mode .hover\:text-slate-600:hover,
+.light-mode .hover\:text-zinc-300:hover,
+.light-mode .hover\:text-zinc-400:hover,
+.light-mode .hover\:text-zinc-500:hover,
+.light-mode .hover\:text-zinc-600:hover,
+.light-mode .hover\:text-gray-300:hover,
+.light-mode .hover\:text-gray-400:hover,
+.light-mode .hover\:text-gray-500:hover,
+.light-mode .hover\:text-gray-600:hover,
+.light-mode .group-hover\:text-white:hover,
+.light-mode .group-hover\:text-slate-300:hover,
+.light-mode .group-hover\:text-slate-400:hover,
+.light-mode .group-hover\:text-zinc-300:hover,
+.light-mode .group-hover\:text-zinc-400:hover,
+.light-mode .group-hover\:text-zinc-500:hover {
+  color: var(--text-primary) !important;
+}
+
+/* ALL border-white and dark borders in light mode */
+.light-mode .border-white\/5,
+.light-mode .border-white\/10,
+.light-mode .border-white\/15,
+.light-mode .border-white\/20,
+.light-mode .border-white\/-\[0\.03\],
+.light-mode .border-white\/-\[0\.04\],
+.light-mode .border-white\/-\[0\.05\],
+.light-mode .border-white\/-\[0\.06\],
+.light-mode .border-white\/-\[0\.08\],
+.light-mode .border-white\/-\[0\.10\],
+.light-mode [class*="border-white/["] {
+  border-color: var(--border-subtle) !important;
+}
+.light-mode .hover\:border-white\/10:hover,
+.light-mode .hover\:border-white\/20:hover,
+.light-mode .hover\:border-white\/25:hover,
+.light-mode .hover\:border-white\/40:hover,
+.light-mode .group-hover\:border-white\/10:hover {
+  border-color: var(--border-subtle) !important;
+}
+.light-mode .border-slate-700,
+.light-mode .border-slate-800,
+.light-mode .border-slate-900,
+.light-mode .border-gray-700,
+.light-mode .border-gray-800,
+.light-mode .border-gray-900,
+.light-mode .border-zinc-700,
+.light-mode .border-zinc-800,
+.light-mode .border-zinc-900,
+.light-mode .border-neutral-700,
+.light-mode .border-neutral-800,
+.light-mode .border-neutral-900 {
+  border-color: var(--border-subtle) !important;
+}
+.light-mode .hover\:border-zinc-500:hover,
+.light-mode .hover\:border-zinc-700:hover,
+.light-mode .hover\:border-slate-600\/50:hover,
+.light-mode .border-slate-400\/60,
+.light-mode .border-slate-700\/40,
+.light-mode .border-zinc-700\/40,
+.light-mode .border-zinc-800\/40 {
+  border-color: var(--border-subtle) !important;
+}
+
+/* Inline style backgrounds that are dark */
+.light-mode [style*="background: #050508"],
+.light-mode [style*="background-color: #050508"],
+.light-mode [style*="background: #06060a"],
+.light-mode [style*="background-color: #06060a"],
+.light-mode [style*="background: #08080c"],
+.light-mode [style*="background-color: #08080c"],
+.light-mode [style*="background: #0a0a0f"],
+.light-mode [style*="background-color: #0a0a0f"],
+.light-mode [style*="background: #0d0d16"],
+.light-mode [style*="background-color: #0d0d16"],
+.light-mode [style*="background: #151520"],
+.light-mode [style*="background-color: #151520"],
+.light-mode [style*="background: #0f0f15"],
+.light-mode [style*="background-color: #0f0f15"],
+.light-mode [style*="background: #0d0d14"],
+.light-mode [style*="background-color: #0d0d14"],
+.light-mode [style*="background: rgba(10, 10, 15"],
+.light-mode [style*="background-color: rgba(10, 10, 15"],
+.light-mode [style*="background: rgba(8, 8, 12"],
+.light-mode [style*="background-color: rgba(8, 8, 12"],
+.light-mode [style*="background: rgba(5, 5, 8"],
+.light-mode [style*="background-color: rgba(5, 5, 8"] {
+  background: var(--bg-base) !important;
+  background-color: var(--bg-base) !important;
+}
+
+/* Inline style white overlays */
+.light-mode [style*="rgba(255, 255, 255, 0.02"],
+.light-mode [style*="rgba(255,255,255,0.02"],
+.light-mode [style*="rgba(255, 255, 255, 0.03"],
+.light-mode [style*="rgba(255,255,255,0.03"],
+.light-mode [style*="rgba(255, 255, 255, 0.04"],
+.light-mode [style*="rgba(255,255,255,0.04"],
+.light-mode [style*="rgba(255, 255, 255, 0.05"],
+.light-mode [style*="rgba(255,255,255,0.05"] {
+  background: rgba(0,0,0,0.03) !important;
+  background-color: rgba(0,0,0,0.03) !important;
+}
+
+/* Inline style dark backgrounds */
+.light-mode [style*="background: rgba(0, 0, 0"],
+.light-mode [style*="background-color: rgba(0, 0, 0"],
+.light-mode [style*="background:rgba(0,0,0"],
+.light-mode [style*="background-color:rgba(0,0,0"] {
+  background: rgba(0,0,0,0.03) !important;
+  background-color: rgba(0,0,0,0.03) !important;
+}
+
+/* Catch-all for any remaining inline dark backgrounds */
+.light-mode [style*="background: #0"],
+.light-mode [style*="background-color: #0"],
+.light-mode [style*="background:#0"],
+.light-mode [style*="background-color:#0"],
+.light-mode [style*="background: #1"],
+.light-mode [style*="background-color: #1"],
+.light-mode [style*="background:#1"],
+.light-mode [style*="background-color:#1"] {
+  background: var(--bg-base) !important;
+  background-color: var(--bg-base) !important;
+}
+
+/* Inline style dark backgrounds — specific patterns from DemoModal etc. */
+.light-mode [style*="background: rgba(10, 13, 26"],
+.light-mode [style*="background-color: rgba(10, 13, 26"],
+.light-mode [style*="background: rgba(17, 21, 37"],
+.light-mode [style*="background-color: rgba(17, 21, 37"] {
+  background: var(--bg-base) !important;
+  background-color: var(--bg-base) !important;
+}
+.light-mode [style*="background: rgba(255, 255, 255, 0.02"],
+.light-mode [style*="background-color: rgba(255, 255, 255, 0.02"],
+.light-mode [style*="background: rgba(255, 255, 255, 0.04"],
+.light-mode [style*="background-color: rgba(255, 255, 255, 0.04"],
+.light-mode [style*="background: rgba(255, 255, 255, 0.05"],
+.light-mode [style*="background-color: rgba(255, 255, 255, 0.05"],
+.light-mode [style*="background: rgba(255, 255, 255, 0.06"],
+.light-mode [style*="background-color: rgba(255, 255, 255, 0.06"],
+.light-mode [style*="background: rgba(255, 255, 255, 0.08"],
+.light-mode [style*="background-color: rgba(255, 255, 255, 0.08"] {
+  background: rgba(0,0,0,0.03) !important;
+  background-color: rgba(0,0,0,0.03) !important;
+}
+.light-mode [style*="border-color: rgba(255, 255, 255, 0.05"],
+.light-mode [style*="border-color: rgba(255, 255, 255, 0.06"],
+.light-mode [style*="border-color: rgba(255, 255, 255, 0.08"] {
+  border-color: var(--border-subtle) !important;
+}
+
+/* Inline slate text colors */
+.light-mode [style*="color: #94a3b8"],
+.light-mode [style*="color: #64748b"],
+.light-mode [style*="color: rgba(255,255,255"] {
+  color: var(--text-primary) !important;
+}
+
+/* Scrollbar overrides for light mode */
+.light-mode ::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.18) !important;
+  border-radius: 20px !important;
+}
+.light-mode ::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+/* Inline text colors */
+.light-mode [style*="color: rgb(255, 255, 255)"],
+.light-mode [style*="color: white"],
+.light-mode [style*="color: #fff"],
+.light-mode [style*="color: #ffffff"],
+.light-mode [style*="color: #eee"],
+.light-mode [style*="color: #e2e8f0"],
+.light-mode [style*="color: #cbd5e1"],
+.light-mode [style*="color: #94a3b8"],
+.light-mode [style*="color: #64748b"],
+.light-mode [style*="color: #475569"],
+.light-mode [style*="color: #334155"] {
+  color: var(--text-primary) !important;
+}
+
+/* ReactFlow specific */
+.light-mode .react-flow__renderer,
+.light-mode .react-flow__pane {
+  background: var(--bg-base) !important;
+}
+.light-mode .react-flow__background {
+  background: var(--bg-base) !important;
+}
+.light-mode .react-flow__controls {
+  background: var(--bg-surface) !important;
+  border-color: var(--border-subtle) !important;
+}
+.light-mode .react-flow__controls button {
+  background: var(--bg-elevated) !important;
+  border-color: var(--border-subtle) !important;
+  color: var(--text-primary) !important;
+}
+.light-mode .react-flow__minimap {
+  background: var(--bg-surface) !important;
+}
+.light-mode .react-flow__node {
+  filter: drop-shadow(0 3px 6px rgba(0,0,0,0.1)) !important;
+}
+.light-mode .react-flow__background pattern circle,
+.light-mode .react-flow__background pattern path {
+  stroke: var(--border-default) !important;
+  fill: var(--border-default) !important;
+}
+/* Edges must be dark in light mode to be visible */
+.light-mode .react-flow__edge-path,
+.light-mode .react-flow__connection-path {
+  stroke: var(--text-muted) !important;
+}
+.light-mode .react-flow__edge-text {
+  fill: var(--text-primary) !important;
+}
+.light-mode .react-flow__edge-textbg {
+  fill: var(--bg-base) !important;
+}
+
+/* Tables inside dashboard */
+.light-mode table,
+.light-mode thead,
+.light-mode tbody,
+.light-mode tr,
+.light-mode td,
+.light-mode th {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-subtle) !important;
+}
+
+/* Universal catch-all for inline styles with any spacing */
+.light-mode [style*="background-color: rgba(255"] {
+  background: rgba(0,0,0,0.03) !important;
+  background-color: rgba(0,0,0,0.03) !important;
+}
+.light-mode [style*="border-color: rgba(255"] {
+  border-color: var(--border-subtle) !important;
+}
+.light-mode [style*="background-color: rgba(0"] {
+  background: var(--bg-base) !important;
+  background-color: var(--bg-base) !important;
+}
+
+/* Accessibilite : visible uniquement par les lecteurs d'ecran */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}

@@ -14,9 +14,9 @@ const EXPORTS = [
     key:      'xlsx',
     label:    'Rapport Excel',
     sub:      '10 feuilles · KPI · Mesures · Charts',
-    ext:      '.xlsx',
+    ext:      'XLSX',
     icon:     FileSpreadsheet,
-    color:    { bg: 'bg-emerald-500/10', border: 'border-emerald-500/25', icon: 'text-emerald-400', glow: '#10b981' },
+    accent:   'var(--green-500)',
     endpoint: 'export-xlsx',
     mime:     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   },
@@ -24,9 +24,9 @@ const EXPORTS = [
     key:      'csv',
     label:    'CSV Bundle',
     sub:      '1 fichier par table · UTF-8',
-    ext:      '.zip',
+    ext:      'ZIP',
     icon:     FileArchive,
-    color:    { bg: 'bg-cyan-500/10', border: 'border-cyan-500/25', icon: 'text-cyan-400', glow: '#06b6d4' },
+    accent:   'var(--cyan-500)',
     endpoint: 'export-csv',
     mime:     'application/zip',
   },
@@ -34,9 +34,9 @@ const EXPORTS = [
     key:      'json',
     label:    'Structural JSON',
     sub:      'Métadonnées · DDL · Lignage',
-    ext:      '.json',
+    ext:      'JSON',
     icon:     Braces,
-    color:    { bg: 'bg-indigo-500/10', border: 'border-indigo-500/25', icon: 'text-indigo-400', glow: '#6366f1' },
+    accent:   'var(--blue-500)',
     endpoint: 'export-json',
     mime:     'application/json',
   },
@@ -44,27 +44,27 @@ const EXPORTS = [
     key:      'sql',
     label:    'Logical Schema',
     sub:      'DDL T-SQL complet · Schéma étoile',
-    ext:      '.sql',
+    ext:      'SQL',
     icon:     Database,
-    color:    { bg: 'bg-violet-500/10', border: 'border-violet-500/25', icon: 'text-violet-400', glow: '#8b5cf6' },
-    endpoint: null, // local download from store
+    accent:   'var(--indigo-500)',
+    endpoint: null,
     mime:     'text/sql',
   },
   {
     key:      'bak',
     label:    'Backup SQL Server',
     sub:      'Snapshot du Data Warehouse',
-    ext:      '.bak',
+    ext:      'BAK',
     icon:     HardDrive,
-    color:    { bg: 'bg-amber-500/10', border: 'border-amber-500/25', icon: 'text-amber-400', glow: '#f59e0b' },
+    accent:   'var(--orange-500)',
     endpoint: 'export-bak',
     mime:     'application/octet-stream',
   },
 ];
 
-// ─── Icon Card ────────────────────────────────────────────────────────────────
-function IconCard({ def, loading, success, disabled, onClick }) {
-  const { label, sub, ext, icon: Icon, color } = def;
+// ─── Export Row Card ───────────────────────────────────────────────────────────
+function ExportCard({ def, loading, success, disabled, onClick }) {
+  const { label, sub, ext, icon: Icon, accent } = def;
   const isLoading = loading === def.key;
   const isSuccess = success === def.key;
 
@@ -72,59 +72,80 @@ function IconCard({ def, loading, success, disabled, onClick }) {
     <motion.button
       onClick={onClick}
       disabled={disabled || isLoading}
-      whileHover={!disabled && !isLoading ? { scale: 1.03, y: -2 } : {}}
-      whileTap={!disabled && !isLoading ? { scale: 0.97 } : {}}
-      className={`relative flex flex-col items-center justify-center gap-3 p-6 rounded-3xl border transition-all overflow-hidden group
+      aria-label={`Exporter au format ${def.label} (${def.ext})${isLoading ? ' — en cours' : ''}${isSuccess ? ' — terminé' : ''}`}
+      aria-busy={isLoading}
+      aria-disabled={disabled}
+      whileHover={!disabled && !isLoading ? { scale: 1.01 } : {}}
+      whileTap={!disabled && !isLoading ? { scale: 0.98 } : {}}
+      className={`relative flex items-center gap-4 p-4 rounded-2xl border text-left transition-all overflow-hidden group
         ${disabled
-          ? 'opacity-25 grayscale border-white/5 cursor-not-allowed'
-          : `${color.bg} ${color.border} hover:shadow-lg cursor-pointer`
+          ? 'opacity-30 cursor-not-allowed'
+          : 'cursor-pointer hover:brightness-105'
         }`}
-      style={!disabled ? { boxShadow: isSuccess ? `0 0 20px ${color.glow}40` : undefined } : undefined}
+      style={{
+        background: 'var(--bg-elevated)',
+        borderColor: 'var(--border-subtle)',
+        borderLeftWidth: '3px',
+        borderLeftColor: disabled ? 'var(--border-subtle)' : accent,
+      }}
     >
-      {/* Glow pulse on success */}
-      {isSuccess && (
-        <motion.div
-          initial={{ opacity: 0.6, scale: 0.8 }}
-          animate={{ opacity: 0, scale: 2 }}
-          transition={{ duration: 0.8 }}
-          className="absolute inset-0 rounded-3xl"
-          style={{ background: `radial-gradient(circle, ${color.glow}30, transparent)` }}
-        />
-      )}
-
-      {/* Icon container */}
-      <div className={`relative w-14 h-14 rounded-2xl flex items-center justify-center border transition-all
-        ${isSuccess ? 'bg-emerald-500 border-emerald-400' : `${color.bg} ${color.border} group-hover:scale-110`}`}
-        style={{ transition: 'transform 0.2s ease' }}
+      {/* Left: Icon */}
+      <div
+        className="relative w-11 h-11 rounded-xl flex items-center justify-center shrink-0 transition-colors"
+        style={{
+          background: disabled ? 'var(--bg-higher)' : `${accent}15`,
+          color: disabled ? 'var(--text-muted)' : accent,
+        }}
       >
         {isLoading ? (
-          <Loader2 size={22} className="animate-spin text-white" />
+          <Loader2 size={20} className="animate-spin" />
         ) : isSuccess ? (
-          <Check size={22} className="text-white" />
+          <Check size={20} />
         ) : (
-          <Icon size={22} className={color.icon} />
+          <Icon size={20} />
         )}
       </div>
 
-      {/* Labels */}
-      <div className="text-center space-y-0.5">
-        <p className={`text-[12px] font-black uppercase tracking-wider ${disabled ? 'text-slate-600' : 'text-white'}`}>
-          {label}
+      {/* Center: Text */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <p
+            className="text-[12px] font-black uppercase tracking-wider truncate"
+            style={{ color: disabled ? 'var(--text-muted)' : 'var(--text-primary)' }}
+          >
+            {label}
+          </p>
+          <span
+            className="text-[9px] font-black font-mono px-1.5 py-0.5 rounded-md shrink-0"
+            style={{
+              background: disabled ? 'var(--bg-higher)' : `${accent}15`,
+              color: disabled ? 'var(--text-dim)' : accent,
+            }}
+          >
+            {ext}
+          </span>
+        </div>
+        <p className="text-[10px] font-medium truncate" style={{ color: 'var(--text-secondary)' }}>
+          {sub}
         </p>
-        <p className="text-[9px] text-slate-500 font-medium">{sub}</p>
       </div>
 
-      {/* Extension badge */}
-      <span className={`text-[8px] font-black font-mono px-2 py-0.5 rounded-full border ${color.bg} ${color.border} ${color.icon}`}>
-        {ext}
-      </span>
+      {/* Right: Arrow / State */}
+      <div className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg transition-colors"
+        style={{
+          background: isSuccess ? 'var(--green-500)' : isLoading ? 'var(--bg-higher)' : 'var(--bg-higher)',
+          color: isSuccess ? '#fff' : disabled ? 'var(--text-dim)' : 'var(--text-muted)',
+        }}
+      >
+        {isSuccess ? <Check size={14} /> : isLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+      </div>
 
       {/* Loading progress bar */}
       {isLoading && (
         <motion.div
-          className="absolute bottom-0 left-0 h-0.5 rounded-full"
-          style={{ background: color.glow }}
-          animate={{ width: ['0%', '90%'] }}
+          className="absolute bottom-0 left-0 h-[2px] rounded-full"
+          style={{ background: accent }}
+          animate={{ width: ['0%', '85%'] }}
           transition={{ duration: 2, ease: 'easeInOut', repeat: Infinity }}
         />
       )}
@@ -231,22 +252,26 @@ export default function ExportPanel({ onClose }) {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#050508] overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--bg-base)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06] shrink-0">
+      <div className="flex items-center justify-between px-6 py-4 border-b shrink-0" style={{ borderColor: 'var(--border-subtle)' }}>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-            <Download size={14} className="text-indigo-400" />
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: 'var(--blue-500)', color: '#fff' }}>
+            <Download size={14} />
           </div>
           <div>
-            <h3 className="text-[13px] font-black text-white uppercase tracking-tight">Exports & Livrables</h3>
-            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">
+            <h3 className="text-[13px] font-black uppercase tracking-tight" style={{ color: 'var(--text-primary)' }}>Exports & Livrables</h3>
+            <p className="text-[9px] font-bold uppercase tracking-widest mt-0.5" style={{ color: 'var(--text-muted)' }}>
               {sessionId ? `Session · ${sessionId.substring(0, 12)}` : 'En attente de session'}
             </p>
           </div>
         </div>
         {onClose && (
-          <button onClick={onClose} className="p-2 rounded-xl text-slate-600 hover:text-white bg-white/5 hover:bg-white/10 transition-all">
+          <button onClick={onClose} aria-label="Fermer le panneau d'export" className="p-2 rounded-xl transition-all"
+            style={{ color: 'var(--text-muted)', background: 'var(--bg-elevated)' }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--bg-higher)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'var(--bg-elevated)'; }}
+          >
             <X size={16} />
           </button>
         )}
@@ -264,10 +289,10 @@ export default function ExportPanel({ onClose }) {
           </motion.div>
         )}
 
-        {/* Icon grid — 2 columns */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* Export list — single column rows */}
+        <div className="flex flex-col gap-3">
           {EXPORTS.map(def => (
-            <IconCard
+            <ExportCard
               key={def.key}
               def={def}
               loading={loading}
@@ -279,9 +304,12 @@ export default function ExportPanel({ onClose }) {
         </div>
 
         {/* Status info */}
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${pipelineDone ? 'bg-emerald-500' : canExport ? 'bg-amber-500 animate-pulse' : 'bg-slate-700'}`} />
-          <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
+          <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{
+            background: pipelineDone ? 'var(--green-500)' : canExport ? 'var(--orange-400)' : 'var(--text-dim)',
+            animation: canExport && !pipelineDone ? 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' : 'none',
+          }} />
+          <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
             {pipelineDone
               ? 'Pipeline complet — tous les exports disponibles'
               : canExport
@@ -306,9 +334,9 @@ export default function ExportPanel({ onClose }) {
       </div>
 
       {/* Footer */}
-      <div className="px-6 py-3 border-t border-white/5 text-center">
-        <span className="text-[8px] font-black text-slate-800 uppercase tracking-[0.3em] font-mono">
-          Agent DW v3.0 · Export Engine
+      <div className="px-6 py-3 border-t text-center shrink-0" style={{ borderColor: 'var(--border-subtle)' }}>
+        <span className="text-[8px] font-black uppercase tracking-[0.3em] font-mono" style={{ color: 'var(--text-dim)' }}>
+          Agent DW v3.0 · Moteur d'Export
         </span>
       </div>
     </div>

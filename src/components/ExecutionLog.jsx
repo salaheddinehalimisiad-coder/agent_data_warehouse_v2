@@ -66,9 +66,9 @@ export default function ExecutionLog({ onClose }) {
       <div className="flex items-center justify-between px-5 h-11 border-b border-white/[0.06] shrink-0">
         <div className="flex items-center gap-3">
           <Terminal size={13} className="text-slate-600" />
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Execution Log</span>
+          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Journal d'Exécution</span>
           <span className="text-[10px] font-mono text-slate-600 bg-white/[0.04] px-2 py-0.5 rounded-md border border-white/[0.06]">
-            {executionLog.length} events
+            {executionLog.length} événements
           </span>
         </div>
 

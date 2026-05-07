@@ -1,14 +1,15 @@
-// src/components/ConnectionModal.jsx — Enterprise-Grade Connection Interface (V4 PRO)
-import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-  X, Database, FileText, Globe, Loader2,
-  CheckCircle2, ShieldCheck, Server,
-  Cpu, HardDrive, UploadCloud, Info, Rocket, Zap as LucideZap,
-  ChevronRight, Ban
+import { AnimatePresence, motion } from 'framer-motion';
+import {Ban,
+  CheckCircle2,
+  ChevronRight,
+  Cpu, Database, FileText, Globe, HardDrive, Info, Loader2, Rocket, Server, ShieldCheck, UploadCloud,
+  X, Zap as LucideZap
 } from 'lucide-react';
-import { usePipelineStore } from '../store/pipelineStore';
+import AgentBILogo from './AgentBILogo';
+// src/components/ConnectionModal.jsx — Enterprise-Grade Connection Interface (V4 PRO)
+import { useEffect, useRef, useState } from 'react';
 import { apiClient } from '../api/client';
+import { usePipelineStore } from '../store/pipelineStore';
 
 // Formate un nombre de secondes en "Xm YYs" ou "YYs"
 const fmtElapsed = (s) => {
@@ -274,7 +275,7 @@ export default function ConnectionModal({ isOpen, onClose }) {
       if (err?.name === 'AbortError') {
         setError("Upload annulé. Le fichier partiel a été abandonné — aucune base n'a été modifiée.");
       } else {
-        setError(`Upload failed: ${err.message || 'Unknown error'}`);
+        setError(`Échec de l'upload : ${err.message || 'Erreur inconnue'}`);
       }
     } finally {
       uploadAbortRef.current = null;
@@ -291,10 +292,10 @@ export default function ConnectionModal({ isOpen, onClose }) {
     
     let finalSourceConfig;
     if (source === 'csv') {
-      if (!sourceConfig.file_path) { setError('Please upload a file.'); setIsLaunching(false); return; }
+      if (!sourceConfig.file_path) { setError('Veuillez uploader un fichier.'); setIsLaunching(false); return; }
       finalSourceConfig = { type: source, file_path: sourceConfig.file_path, filename: sourceConfig.filename };
     } else if (source === 'bak') {
-      if (!sourceConfig.file_path) { setError('Please upload a file.'); setIsLaunching(false); return; }
+      if (!sourceConfig.file_path) { setError('Veuillez uploader un fichier.'); setIsLaunching(false); return; }
       finalSourceConfig = {
         type: source,
         file_path: sourceConfig.file_path,
@@ -307,7 +308,7 @@ export default function ConnectionModal({ isOpen, onClose }) {
       await startPipeline(finalSourceConfig, dwConfig);
       onClose();
     } catch (err) {
-      setError('Strategic launch sequence failed. Verify credentials.');
+      setError("Le lancement a échoué. Vérifiez les identifiants.");
     } finally {
       setIsLaunching(false);
     }
@@ -323,19 +324,19 @@ export default function ConnectionModal({ isOpen, onClose }) {
 
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: 'var(--grad-primary)', opacity: 0.8 }} />
         
-        <div className="flex h-[580px]">
+        <div className="flex h-[660px]">
           {/* Sidebar */}
           <div style={{ width: 240, flexShrink: 0, background: 'var(--bg-elevated)', borderRight: '1px solid var(--border-hair)', padding: '36px 28px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
              <div>
                  <div style={{ marginBottom: 32 }}>
-                   <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(61,106,232,0.12)', border: '1px solid rgba(61,106,232,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
-                      <Cpu size={22} style={{ color: 'var(--blue-300)' }} />
+                   <div style={{ width: 52, height: 52, borderRadius: 14, background: 'rgba(61,106,232,0.12)', border: '1px solid rgba(61,106,232,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                      <AgentBILogo size={40} variant="mark" />
                    </div>
-                   <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>New Pipeline</h2>
+                   <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Nouveau Pipeline</h2>
                    <p style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>Configuration · v4.1</p>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                   {[{ s: 1, l: 'Source' }, { s: 2, l: 'Configuration' }, { s: 3, l: 'Lancement' }].map(item => (
+                   {[{ s: 1, l: 'Source' }, { s: 2, l: 'Configuration' }, { s: 3, l: 'Synthèse' }].map(item => (
                       <div key={item.s} style={{ display: 'flex', alignItems: 'center', gap: 12, opacity: step >= item.s ? 1 : 0.35, transition: 'opacity 0.2s' }}>
                          <div style={{
                            width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700,
@@ -355,7 +356,7 @@ export default function ConnectionModal({ isOpen, onClose }) {
           </div>
 
           {/* Main Content */}
-          <div className="flex-1 p-8 flex flex-col relative" style={{ background: 'var(--bg-base)' }}>
+          <div className="flex-1 p-6 flex flex-col relative" style={{ background: 'var(--bg-base)' }}>
              <button onClick={onClose} className="absolute top-8 right-8 p-2 rounded-xl text-slate-500 hover:text-white bg-white/5 hover:bg-white/10 transition-all"><X size={20} /></button>
 
              <div className="flex-1 pt-4 overflow-y-auto pr-2 custom-scrollbar">
@@ -363,8 +364,8 @@ export default function ConnectionModal({ isOpen, onClose }) {
                   <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6">
                      <div className="mb-2">
                         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--blue-400)' }}>Étape 01 · Sélection</span>
-                        <h3 className="text-3xl font-black text-white tracking-tight mt-2">Choose Intelligence Source</h3>
-                        <p className="text-xs text-slate-500 mt-2 font-medium">Select the data medium for neural ingestion.</p>
+                        <h3 className="text-3xl font-black tracking-tight mt-2" style={{ color: 'var(--text-primary)' }}>Choisir la Source</h3>
+                        <p className="text-xs mt-2 font-medium" style={{ color: 'var(--text-muted)' }}>Sélectionnez le type de données à ingérer.</p>
                      </div>
                      <div className="grid grid-cols-1 gap-4">
                         {SOURCES.map(s => {
@@ -419,7 +420,7 @@ export default function ConnectionModal({ isOpen, onClose }) {
                    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-8">
                       <div>
                          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--blue-400)' }}>Étape 02 · Configuration</span>
-                         <h3 className="text-2xl font-black text-white tracking-tight mt-1">Configure & Target</h3>
+                         <h3 className="text-2xl font-black tracking-tight mt-1" style={{ color: 'var(--text-primary)' }}>Configurer la Cible</h3>
                       </div>
                       
                       {/* Source Params */}
@@ -478,10 +479,10 @@ export default function ConnectionModal({ isOpen, onClose }) {
                                          : <UploadCloud size={32}/>}
                                     </div>
                                     <div>
-                                      <p className="text-lg font-black text-white italic tracking-tight">
+                                      <p className="text-lg font-black italic tracking-tight" style={{ color: 'var(--text-primary)' }}>
                                         {sourceConfig.filename || (source === 'csv'
-                                          ? 'Drag CSV Dump / Logs'
-                                          : 'Drag .BAK · .SQL · .BACPAC')}
+                                          ? 'Déposer un fichier CSV'
+                                          : 'Déposer .BAK · .SQL · .BACPAC')}
                                       </p>
                                       <p className="text-[11px] text-slate-500 font-medium mt-1">
                                         {sourceConfig.filename
@@ -552,8 +553,8 @@ export default function ConnectionModal({ isOpen, onClose }) {
                                       </div>
                                     )}
                                     {!sourceConfig.filename && (
-                                      <div className="mt-4 px-6 py-2 text-white rounded-full text-[10px] font-black uppercase tracking-widest inline-block shadow-lg transition-transform active:scale-95" style={{ background: 'var(--grad-primary)', boxShadow: '0 4px 12px rgba(61,106,232,0.3)' }}>
-                                        Browse Files
+                                      <div className="mt-4 px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest inline-block shadow-lg transition-transform active:scale-95" style={{ background: 'var(--grad-primary)', color: '#fff', boxShadow: '0 4px 12px rgba(61,106,232,0.3)' }}>
+                                        Parcourir les Fichiers
                                       </div>
                                     )}
                                   </div>
@@ -695,20 +696,128 @@ export default function ConnectionModal({ isOpen, onClose }) {
                       <div className="flex justify-between"><span className="text-slate-500">Database :</span><span className="text-emerald-300 font-bold">{bridgeInfo.database}</span></div>
                     </div>
                     <p className="mt-3 text-[10px] text-slate-400 leading-relaxed">
-                      La cible DW ci-dessous a été automatiquement mise à jour vers le conteneur bridge. Clique <span className="text-slate-200 font-bold">Next Step</span> pour continuer.
+                      La cible DW ci-dessous a été automatiquement mise à jour vers le conteneur bridge. Cliquez sur <span className="font-bold" style={{ color: 'var(--text-primary)' }}>Étape suivante</span> pour continuer.
                     </p>
                   </div>
                 )}
              </div>
 
+             {/* ── STEP 3 : SYNTHÈSE / RÉCAPITULATIF ── */}
+             {step === 3 && (
+               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
+                 <div>
+                   <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--blue-400)' }}>Étape 03 · Vérification</span>
+                   <h3 className="text-xl font-black tracking-tight mt-1" style={{ color: 'var(--text-primary)' }}>Synthèse avant lancement</h3>
+                   <p className="text-xs mt-1 font-medium" style={{ color: 'var(--text-muted)' }}>Vérifiez les paramètres avant de lancer.</p>
+                 </div>
+
+                 <div className="space-y-2">
+                   {/* Source */}
+                   <div className="p-3 rounded-xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
+                     <div className="flex items-center gap-2 mb-3">
+                       <Database size={14} style={{ color: 'var(--blue-400)' }} />
+                       <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Source de données</span>
+                     </div>
+                     <div className="space-y-2 text-[12px]">
+                       <div className="flex justify-between">
+                         <span style={{ color: 'var(--text-secondary)' }}>Type</span>
+                         <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{source === 'csv' ? 'Fichier CSV' : 'SQL Server Backup'}</span>
+                       </div>
+                       <div className="flex justify-between">
+                         <span style={{ color: 'var(--text-secondary)' }}>Fichier</span>
+                         <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{sourceConfig.filename || '—'}</span>
+                       </div>
+                       {restoreResult?.tables && restoreResult.tables.length > 0 && (
+                         <div className="flex justify-between">
+                           <span style={{ color: 'var(--text-secondary)' }}>Tables détectées</span>
+                           <span className="font-bold text-emerald-400">{restoreResult.tables.length} tables</span>
+                         </div>
+                       )}
+                       {restoreResult?.restored_db && (
+                         <div className="flex justify-between">
+                           <span style={{ color: 'var(--text-secondary)' }}>Base restaurée</span>
+                           <span className="font-bold text-emerald-400">{restoreResult.restored_db}</span>
+                         </div>
+                       )}
+                     </div>
+                   </div>
+
+                   {/* Target */}
+                   <div className="p-3 rounded-xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
+                     <div className="flex items-center gap-2 mb-2">
+                       <Server size={14} style={{ color: 'var(--blue-400)' }} />
+                       <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Cible Data Warehouse</span>
+                     </div>
+                     <div className="space-y-1.5 text-[12px]">
+                       <div className="flex justify-between">
+                         <span style={{ color: 'var(--text-secondary)' }}>Infrastructure</span>
+                         <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{dwConfig.host}</span>
+                       </div>
+                       <div className="flex justify-between">
+                         <span style={{ color: 'var(--text-secondary)' }}>Base cible</span>
+                         <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{dwConfig.database}</span>
+                       </div>
+                       <div className="flex justify-between">
+                         <span style={{ color: 'var(--text-secondary)' }}>Utilisateur</span>
+                         <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{dwConfig.user}</span>
+                       </div>
+                     </div>
+                   </div>
+
+                   {/* Pipeline steps preview */}
+                   <div className="p-3 rounded-xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
+                     <div className="flex items-center gap-2 mb-2">
+                       <LucideZap size={14} style={{ color: 'var(--blue-400)' }} />
+                       <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Pipeline à exécuter</span>
+                     </div>
+                     <div className="grid grid-cols-3 gap-1.5">
+                       {[
+                         { n: '1', label: 'Explorer', desc: 'Analyse' },
+                         { n: '2', label: 'Drift', desc: 'Schéma' },
+                         { n: '3', label: 'Modeler', desc: 'IA' },
+                         { n: '4', label: 'Review', desc: 'Validation' },
+                         { n: '5', label: 'ETL', desc: 'Code' },
+                         { n: '6', label: 'Healer', desc: 'Déploy' },
+                       ].map((s, i) => (
+                         <div key={i} className="flex items-center gap-1.5 p-1.5 rounded-lg" style={{ background: 'var(--bg-base)' }}>
+                           <span className="text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'var(--blue-400)', color: '#fff' }}>{s.n}</span>
+                           <div className="min-w-0">
+                             <div className="text-[9px] font-bold truncate" style={{ color: 'var(--text-primary)' }}>{s.label}</div>
+                             <div className="text-[8px] truncate" style={{ color: 'var(--text-muted)' }}>{s.desc}</div>
+                           </div>
+                         </div>
+                       ))}
+                     </div>
+                   </div>
+                 </div>
+               </motion.div>
+             )}
              {/* Footer */}
-             <div className="mt-8 pt-8 border-t border-white/5 flex items-center justify-between">
-                <div>{step > 1 && <button onClick={prevStep} className="px-6 py-3 rounded-2xl text-slate-500 hover:text-white font-black text-[11px] uppercase tracking-widest">Back</button>}</div>
-                {step < 3 ? (
-                  <button onClick={nextStep} className="flex items-center gap-3 px-7 py-3 rounded-xl font-bold text-[12px] uppercase tracking-wider text-white transition-opacity hover:opacity-90" style={{ background: 'var(--grad-primary)', boxShadow: '0 2px 12px rgba(61,106,232,0.3)' }}>Étape suivante</button>
-                ) : (
-                  <button onClick={handleLaunch} disabled={isLaunching} className="flex items-center gap-3 px-8 py-3 rounded-xl font-bold text-[12px] uppercase tracking-wider text-white transition-opacity hover:opacity-90 disabled:opacity-50" style={{ background: 'var(--grad-primary)', boxShadow: '0 2px 16px rgba(61,106,232,0.35)' }}>
-                     {isLaunching ? <Loader2 className="animate-spin" size={18} /> : "🎁"} BEGIN SYNTHESIS
+             <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between flex-shrink-0">
+                <div>{step > 1 && <button onClick={prevStep} className="px-6 py-3 rounded-2xl font-black text-[11px] uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Retour</button>}</div>
+                {step === 1 && (
+                  <button onClick={nextStep} className="flex items-center gap-3 px-7 py-3 rounded-xl font-bold text-[12px] uppercase tracking-wider transition-opacity hover:opacity-90" style={{ background: 'var(--grad-primary)', color: '#fff', boxShadow: '0 2px 12px rgba(61,106,232,0.3)' }}>Étape suivante</button>
+                )}
+                {step === 2 && (
+                  <button
+                    onClick={nextStep}
+                    disabled={!sourceConfig.file_path || isUploading || (source === 'bak' && restoreResult?.success === false)}
+                    className="flex items-center gap-3 px-7 py-3 rounded-xl font-bold text-[12px] uppercase tracking-wider transition-opacity hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{ background: 'var(--grad-primary)', color: '#fff', boxShadow: '0 2px 12px rgba(61,106,232,0.3)' }}
+                  >
+                    {isUploading ? <Loader2 className="animate-spin" size={16} /> : null}
+                    {isUploading ? 'Upload en cours...' : 'Étape suivante'}
+                  </button>
+                )}
+                {step === 3 && (
+                  <button
+                    onClick={handleLaunch}
+                    disabled={isLaunching}
+                    className="flex items-center gap-3 px-8 py-3 rounded-xl font-bold text-[12px] uppercase tracking-wider transition-opacity hover:opacity-90 disabled:opacity-50"
+                    style={{ background: 'var(--grad-primary)', color: '#fff', boxShadow: '0 2px 16px rgba(61,106,232,0.35)' }}
+                  >
+                    {isLaunching ? <Loader2 className="animate-spin" size={18} /> : <Rocket size={16} />}
+                    {isLaunching ? 'Lancement en cours...' : 'Lancer la Synthèse'}
                   </button>
                 )}
              </div>

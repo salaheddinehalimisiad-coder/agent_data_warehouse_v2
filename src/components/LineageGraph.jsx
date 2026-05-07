@@ -368,7 +368,7 @@ export default function LineageGraph() {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-4 opacity-40 bg-[#050508]">
         <GitMerge size={32} className="text-slate-600" />
-        <p className="text-[12px] font-black text-slate-500 uppercase tracking-widest">Lineage pending</p>
+        <p className="text-[12px] font-black text-slate-500 uppercase tracking-widest">Lignage en attente</p>
         <p className="text-[10px] text-slate-600 uppercase tracking-widest font-bold">
           Visible après exécution ETL complète
         </p>

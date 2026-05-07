@@ -171,8 +171,8 @@ function QueryCell({ query, result, index, onRun, isRunning }) {
             }`}
           >
             {isRunning
-              ? <><Loader2 size={12} className="animate-spin"/> Running</>
-              : <><Play size={12} fill="currentColor"/> Run</>
+              ? <><Loader2 size={12} className="animate-spin"/> En cours</>
+              : <><Play size={12} fill="currentColor"/> Exécuter</>
             }
           </button>
         </div>
@@ -339,7 +339,7 @@ export default function QueryRunner() {
             <BarChart3 size={15} className="text-amber-400" />
           </div>
           <div>
-            <h2 className="text-[13px] font-black text-white">Query Runner</h2>
+            <h2 className="text-[13px] font-black text-white">Exécuteur de Requêtes</h2>
             <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
               {queries.length} requête{queries.length > 1 ? 's' : ''} · OLAP · SQL Server
             </p>
@@ -349,7 +349,7 @@ export default function QueryRunner() {
           onClick={runAll}
           className="flex items-center gap-2 text-[10px] font-black px-4 py-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-all uppercase tracking-wider"
         >
-          <Play size={11} fill="currentColor" /> Run All
+          <Play size={11} fill="currentColor" /> Tout Exécuter
         </button>
       </div>
 

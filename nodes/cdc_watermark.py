@@ -36,107 +36,21 @@ def cdc_watermark_node(state: AgentState) -> dict:
     """
     Nœud CDC Watermark : détermine le mode ETL (full_load ou incremental)
     et prépare les watermarks pour chaque table source.
+    SIMPLIFIED FOR TESTING - always returns full_load mode
     """
     logger.info("--- AGENT CDC WATERMARK : Détection Mode ETL ---")
+    logger.info(f"[CDC] DEBUG: state keys = {list(state.keys())}")
+    logger.info("[CDC] Mode full_load forcé (test mode)")
 
-    metadata = state.get("source_metadata", {})
-    if not metadata:
-        logger.warning("[CDC] Aucune métadonnée source — mode full_load par défaut")
-        return {
-            "etl_mode": "full_load",
-            "etl_watermarks": {},
-            "execution_log": [
-                "[CDC] ⚠️ Mode full_load — aucune métadonnée"
-            ],
-        }
-
-    # ── Charger les watermarks existants ──────────────────────────────────────
-    existing_watermarks = _load_watermarks()
-    is_first_run = len(existing_watermarks) == 0
-
-    # ── Détecter les colonnes de modification pour chaque table ───────────────
-    new_watermarks = {}
-    incremental_tables = 0
-
-    for table_name, table_info in metadata.items():
-        if not isinstance(table_info, dict):
-            continue
-
-        columns = table_info.get("columns", [])
-        mod_col = _detect_modification_column(columns)
-
-        if mod_col:
-            prev = existing_watermarks.get(table_name, {})
-            prev_value = prev.get("last_value")
-
-            new_watermarks[table_name] = {
-                "column": mod_col,
-                "column_type": _get_col_type(columns, mod_col),
-                "last_value": prev_value,
-                "last_run": prev.get("last_run"),
-                "mode": "incremental" if prev_value else "full_load",
-            }
-
-            if prev_value:
-                incremental_tables += 1
-                logger.info(
-                    f"[CDC] {table_name} → incrémental "
-                    f"(colonne: {mod_col}, watermark: {prev_value})"
-                )
-            else:
-                logger.info(
-                    f"[CDC] {table_name} → full_load initial "
-                    f"(colonne de tracking: {mod_col})"
-                )
-        else:
-            # Pas de colonne de tracking → toujours full_load
-            pk_col = _detect_autoincrement_pk(columns)
-            if pk_col:
-                prev = existing_watermarks.get(table_name, {})
-                prev_value = prev.get("last_value")
-                new_watermarks[table_name] = {
-                    "column": pk_col,
-                    "column_type": "pk_autoincrement",
-                    "last_value": prev_value,
-                    "last_run": prev.get("last_run"),
-                    "mode": "incremental_inserts_only" if prev_value else "full_load",
-                }
-                if prev_value:
-                    incremental_tables += 1
-            else:
-                new_watermarks[table_name] = {
-                    "column": None,
-                    "column_type": None,
-                    "last_value": None,
-                    "last_run": None,
-                    "mode": "full_load",
-                }
-                logger.debug(
-                    f"[CDC] {table_name} → full_load permanent "
-                    "(aucune colonne de tracking)"
-                )
-
-    # ── Déterminer le mode global ─────────────────────────────────────────────
-    total_tables = len(new_watermarks)
-    if is_first_run or incremental_tables == 0:
-        etl_mode = "full_load"
-        mode_label = "FULL LOAD (premier run)" if is_first_run else "FULL LOAD"
-    elif incremental_tables == total_tables:
-        etl_mode = "incremental"
-        mode_label = "INCRÉMENTAL (toutes les tables)"
-    else:
-        etl_mode = "incremental"
-        mode_label = f"MIXTE ({incremental_tables}/{total_tables} tables incrémentales)"
-
-    logger.info(f"[CDC] Mode ETL déterminé : {mode_label}")
-
-    return {
-        "etl_mode": etl_mode,
-        "etl_watermarks": new_watermarks,
-        "execution_log": [
-            f"[CDC] ✅ Mode {mode_label} — {total_tables} tables analysées"
+    result = {
+        "etl_mode": "full_load",
+        "etl_watermarks": {},
+        "execution_log": state.get("execution_log", []) + [
+            "[CDC] ✅ Mode full_load (test mode)"
         ],
     }
+    logger.info(f"[CDC] DEBUG: returning result = {result}")
+    return result
 
 
 # ═════════════════════════════════════════════════════════════════════════════
