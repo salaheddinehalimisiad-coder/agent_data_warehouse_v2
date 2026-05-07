@@ -159,13 +159,35 @@ def _all_tables(model: dict) -> List[dict]:
     return _all_fact_tables(model) + _all_dimensions(model)
 
 
+def _normalize_table_name(n: str) -> str:
+    """Strip common DW prefixes/suffixes and underscores to compare table names
+    across naming conventions (fact_orders <-> Orders_fact <-> orders)."""
+    n = str(n).lower().strip()
+    n = re.sub(r"^(dim|fact|stg|stage|f|d)_+", "", n)
+    n = re.sub(r"_+(dim|fact|f|d)$", "", n)
+    n = n.replace("_", "")
+    return n
+
+
 def _find_table(model: dict, name: str) -> Optional[dict]:
     if not name:
         return None
     target = str(name).lower().strip()
+    # Pass 1: exact / suffix match (legacy behavior, fast path)
     for t in _all_tables(model):
         tn = str(t.get("name", "")).lower()
         if tn == target or tn.endswith("_" + target) or tn.endswith(target):
+            return t
+    # Pass 2: fuzzy match on normalized base name (handles dim_/fact_ swaps,
+    # singular/plural differences are caught by startswith below)
+    target_norm = _normalize_table_name(target)
+    if not target_norm:
+        return None
+    for t in _all_tables(model):
+        tn_norm = _normalize_table_name(str(t.get("name", "")))
+        if not tn_norm:
+            continue
+        if tn_norm == target_norm or tn_norm.startswith(target_norm) or target_norm.startswith(tn_norm):
             return t
     return None
 
@@ -653,7 +675,9 @@ def chat_modifier_node(state: AgentState) -> dict:
         logger.warning(f"[ChatModifier] Tous les LLM Human Review KO : {e}")
         llm = None
 
+    failed_apply_log: List[str] = []  # garde trace des [!] si toutes les ops echouent
     if llm is not None:
+        raw = ""
         try:
             chain = PATCH_PROMPT | llm
             response = call_with_retry(chain, {
@@ -675,9 +699,26 @@ def chat_modifier_node(state: AgentState) -> dict:
             ops = parsed.get("ops") or []
             change_summary = (parsed.get("summary") or "").strip()
             if isinstance(ops, list) and ops:
-                new_model, apply_log = _apply_ops(current_model, ops)
+                candidate_model, candidate_log = _apply_ops(current_model, ops)
+                # Detect "all ops failed" (no [+] line in apply_log) -> trigger fallback
+                # instead of pretending the modification was applied.
+                successful = sum(
+                    1 for line in candidate_log if line.lstrip().startswith("[+]")
+                )
+                if successful > 0:
+                    new_model, apply_log = candidate_model, candidate_log
+                else:
+                    failed_apply_log = candidate_log
+                    logger.warning(
+                        f"[ChatModifier] LLM ops rejetees (0/{len(ops)} appliquees) — "
+                        f"fallback smart parser. Log: {candidate_log[:5]}"
+                    )
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"[ChatModifier] JSON invalide du LLM : {e}. Raw (extrait) : {raw[:500]!r}"
+            )
         except Exception as e:
-            logger.error(f"[ChatModifier] LLM erreur : {e}")
+            logger.error(f"[ChatModifier] LLM erreur : {e}. Raw (extrait) : {raw[:500]!r}")
 
     if new_model is None:
         smart_ops = _smart_parse_complex_request(user_request, current_model)
@@ -695,6 +736,16 @@ def chat_modifier_node(state: AgentState) -> dict:
             apply_log = [f"  [+] {det_summary}"]
 
     if new_model is None:
+        # Build a more informative failure message that surfaces the LLM rejection
+        # log when available, so the user can see why their suggestion was ignored.
+        failure_detail = ""
+        if failed_apply_log:
+            failure_detail = (
+                "\n\n--- Pourquoi le LLM a echoue a appliquer ---\n"
+                + "\n".join(failed_apply_log[:10])
+                + "\n\nAstuce : verifie que les noms de tables/colonnes dans ta demande "
+                  "correspondent exactement a ceux du modele courant."
+            )
         return {
             "is_validated": None,
             "logical_model_version": next_ver,
@@ -703,11 +754,14 @@ def chat_modifier_node(state: AgentState) -> dict:
             "critic_review": (
                 "[!] Modification non appliquee\n"
                 f"Demande : {user_request[:200]}\n\n"
-                "Ni le LLM (Blaze/Ollama) ni le smart parser n'ont interprete cette demande.\n"
-                "Pour la prochaine fois :\n"
-                "  - Verifier BLAZE_API_KEY et BLAZE_BASE_URL dans .env\n"
-                "  - Ou installer Ollama leger : ollama pull phi3:mini\n"
-                "  - Ou reformuler en operations atomiques explicites"
+                "Ni le LLM (GLM-5/OpenRouter/Blaze/Ollama) ni le smart parser "
+                "n'ont reussi a appliquer cette demande."
+                + failure_detail
+                + "\n\nPistes :\n"
+                "  - Reformuler en operations atomiques explicites "
+                "(ex: 'Ajoute la colonne net_amount DECIMAL(15,4) dans fact_orders')\n"
+                "  - Verifier les cles API GLM5_API_KEYS et OPENROUTER_API_KEY dans .env\n"
+                "  - Consulter les logs serveur pour la reponse brute du LLM"
             ),
             "execution_log": [f"[ChatModifier] v{next_ver} ECHEC : {user_request[:80]}"],
         }
