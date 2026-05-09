@@ -1,10 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import {ArrowRight, 
-  Database, Eye, EyeOff,Loader2, ShieldCheck, Sparkles, 
+  Check, Database, Eye, EyeOff,Loader2, ShieldCheck, Sparkles, 
   X, Zap
 } from 'lucide-react';
 // src/components/AuthModal.jsx
 import { useState } from 'react';
+import AgentBILogo from './AgentBILogo';
 import { apiClient } from '../api/client';
 import { usePipelineStore } from '../store/pipelineStore';
 
@@ -40,6 +41,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
   const [password, setPassword] = useState('');
   const [prefix,   setPrefix]   = useState('');
   const [showPwd,  setShowPwd]  = useState(false);
+  const [pwdFocused,setPwdFocused]= useState(false);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
 
@@ -111,9 +113,9 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
 
               <div style={{ position: 'relative', zIndex: 1 }}>
                 {/* Badge */}
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 99, background: 'rgba(61,106,232,0.12)', border: '1px solid rgba(61,106,232,0.22)', marginBottom: 20 }}>
-                  <Database size={12} style={{ color: 'var(--blue-300)' }} />
-                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--blue-300)' }}>Agent Data Warehouse</span>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '5px 12px', borderRadius: 99, background: 'rgba(61,106,232,0.12)', border: '1px solid rgba(61,106,232,0.22)', marginBottom: 20 }}>
+                  <AgentBILogo size={22} />
+                  <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--blue-300)' }}>Agent BI</span>
                 </div>
 
                 <h2 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3, marginBottom: 10 }}>
@@ -207,14 +209,14 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
                     />
                   </Field>
 
-                  <Field label="Mot de passe" hint={mode === 'register' ? 'Min. 8 caractères, avec majuscule, minuscule et chiffre.' : ''}>
+                  <Field label="Mot de passe">
                     <div style={{ position: 'relative' }}>
                       <input
                         type={showPwd ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
                         placeholder="••••••••"
                         style={{ ...FIELD_STYLE, paddingRight: 40 }}
-                        onFocus={e => { e.target.style.borderColor = 'var(--blue-400)'; e.target.style.boxShadow = '0 0 0 3px rgba(61,106,232,0.12)'; }}
-                        onBlur={e => { e.target.style.borderColor = 'var(--border-default)'; e.target.style.boxShadow = 'none'; }}
+                        onFocus={e => { e.target.style.borderColor = 'var(--blue-400)'; e.target.style.boxShadow = '0 0 0 3px rgba(61,106,232,0.12)'; setPwdFocused(true); }}
+                        onBlur={e => { e.target.style.borderColor = 'var(--border-default)'; e.target.style.boxShadow = 'none'; setPwdFocused(false); }}
                       />
                       <button
                         type="button" onClick={() => setShowPwd(!showPwd)}
@@ -224,6 +226,24 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
                       </button>
                     </div>
                   </Field>
+
+                  {mode === 'register' && pwdFocused && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginTop: 2 }}>
+                      {[
+                        { label: '8 caractères minimum', valid: password.length >= 8 },
+                        { label: 'Une majuscule (A-Z)', valid: /[A-Z]/.test(password) },
+                        { label: 'Une minuscule (a-z)', valid: /[a-z]/.test(password) },
+                        { label: 'Un chiffre (0-9)', valid: /[0-9]/.test(password) },
+                      ].map((req, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 500, color: req.valid ? '#22c55e' : '#ef4444', transition: 'color 0.2s' }}>
+                          <div style={{ width: 14, height: 14, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: req.valid ? '#22c55e' : 'transparent', border: req.valid ? 'none' : '1px solid #ef4444', transition: 'all 0.2s' }}>
+                            {req.valid ? <Check size={9} color="#fff" strokeWidth={3} /> : <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#ef4444' }} />}
+                          </div>
+                          {req.label}
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   <AnimatePresence>
                     {mode === 'register' && (

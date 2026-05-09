@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Play, Terminal, LogOut, Database, ChevronLeft, ChevronRight,
+  Play, Terminal, LogOut, Database, ChevronLeft, ChevronRight, ChevronDown,
   Settings, Activity, Sparkles, ShieldCheck, Star, GitMerge,
   BrainCircuit, Zap, Sun, Moon, Book, Lock, Home, User, AlertCircle,
   Download, BarChart3, Layers, Table2, Search, Bell, Workflow,
@@ -82,12 +82,48 @@ function StatusPill({ status }) {
   );
 }
 
+// ─── Error Boundary (temporaire pour debug)
+class DocsErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error('DocsErrorBoundary caught:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 40, color: 'white', background: '#09090b', minHeight: '100vh', fontFamily: 'monospace' }}>
+          <h2 style={{ color: '#ef4444', marginBottom: 20 }}>DocumentationPage crashed:</h2>
+          <pre style={{ background: '#111', padding: 20, borderRadius: 8, overflow: 'auto', fontSize: 13, lineHeight: 1.6 }}>
+            {this.state.error?.toString?.() || 'Unknown error'}
+            {'\n'}
+            {this.state.error?.stack || ''}
+          </pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─── Docs standalone
 const IS_DOCS_TAB = new URLSearchParams(window.location.search).get('view') === 'docs';
 function DocsStandalone() {
+  const handleBack = () => {
+    window.location.href = window.location.pathname;
+  };
   return (
     <div className="min-h-screen overflow-y-auto" style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}>
-      <Suspense fallback={<Spinner />}><DocumentationPage /></Suspense>
+      <Suspense fallback={<Spinner />}>
+        <DocsErrorBoundary>
+          <DocumentationPage onBack={handleBack} />
+        </DocsErrorBoundary>
+      </Suspense>
     </div>
   );
 }
@@ -160,8 +196,11 @@ export default function App() {
   const [leftCollapsed,  setLeftCollapsed]  = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [isDarkMode,     setIsDarkMode]     = useState(true);
+  const [headerDark,     setHeaderDark]     = useState(true);
   const [profile,        setProfile]        = useState(null);
   const [goodbyeUser,    setGoodbyeUser]    = useState(null);
+  const [welcomeUser,    setWelcomeUser]    = useState(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
   // Auth + theme persistence
   useEffect(() => {
@@ -183,14 +222,28 @@ export default function App() {
 
   const handleLogout = () => {
     const name = profile?.full_name || userPrefix || 'utilisateur';
+    setProfileMenuOpen(false);
     setGoodbyeUser(name);
     setTimeout(() => {
       setGoodbyeUser(null);
       logout();
-      setAppView('landing'); // FIX: 'auth' n'existe pas, utiliser 'landing'
+      setProfile(null);
+      setAppView('landing');
       setShowAuth(true);
     }, 2200);
   };
+
+  const handleWelcomeDismiss = () => {
+    setWelcomeUser(null);
+  };
+
+  // Fetch profile on auth
+  useEffect(() => {
+    if (!authToken) { setProfile(null); return; }
+    let alive = true;
+    apiClient.getProfile().then(p => alive && setProfile(p)).catch(() => {});
+    return () => { alive = false; };
+  }, [authToken]);
 
   // Nav groups
   const NAV_GROUPS = [
@@ -257,6 +310,13 @@ export default function App() {
             onSuccess={() => {
               setShowAuth(false);
               setAppView('dashboard');
+              // Fetch profile then show welcome
+              apiClient.getProfile().then(p => {
+                setProfile(p);
+                setWelcomeUser(p?.full_name || p?.email?.split('@')[0] || 'Utilisateur');
+              }).catch(() => {
+                setWelcomeUser('Utilisateur');
+              });
             }}
           />
         )}
@@ -289,8 +349,56 @@ export default function App() {
                 </span>
               </motion.h2>
               <p style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)' }}>
-                Agent Data Warehouse · Session fermée
+                Agent BI · Session fermée
               </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Welcome overlay */}
+      <AnimatePresence>
+        {welcomeUser && (
+          <motion.div
+            key="welcome"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={handleWelcomeDismiss}
+            style={{ position: 'fixed', inset: 0, zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(20px)', background: 'rgba(6,8,16,0.88)', cursor: 'pointer' }}
+          >
+            <motion.div
+              initial={{ scale: 0.88, y: 24, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 220, damping: 22 }}
+              onClick={e => e.stopPropagation()}
+              className="card-premium flex flex-col items-center gap-5 px-12 py-10"
+              style={{ cursor: 'default' }}
+            >
+              <AgentBILogo size={72} variant="hero" animated />
+              <motion.h2
+                initial={{ letterSpacing: '0.02em' }} animate={{ letterSpacing: '0.06em' }}
+                transition={{ duration: 1.2 }}
+                style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)' }}
+              >
+                Bonjour,{' '}
+                <span style={{ background: 'var(--grad-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  {welcomeUser}
+                </span>
+              </motion.h2>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center', maxWidth: 280 }}>
+                Bienvenue sur <strong>Agent BI</strong>. Votre plateforme de Data Warehouse intelligente est prête.
+              </p>
+              <button
+                onClick={handleWelcomeDismiss}
+                style={{ marginTop: 8, padding: '8px 24px', borderRadius: 8, background: 'var(--grad-primary)', color: '#fff', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', boxShadow: '0 2px 12px rgba(61,106,232,0.35)' }}
+              >
+                Continuer
+              </button>
+              <motion.div
+                initial={{ width: 0 }} animate={{ width: '100%' }}
+                transition={{ duration: 3, ease: 'linear' }}
+                style={{ height: 2, background: 'var(--blue-400)', borderRadius: 1, marginTop: 4 }}
+              />
             </motion.div>
           </motion.div>
         )}
@@ -304,11 +412,14 @@ export default function App() {
               onEnterDashboard={() => authToken ? setAppView('dashboard') : setShowAuth(true)}
               onSelectSource={() => { setAppView('dashboard'); setShowConnection(true); }}
               onAuthOpen={() => setShowAuth(true)}
+              onLogout={handleLogout}
+              onProfile={() => { setAppView('dashboard'); setActiveMainView('profile'); }}
               onUseCaseOpen={() => setAppView('usecases')}
               onDocsOpen={() => window.open('/?view=docs', '_blank')}
               isDarkMode={isDarkMode}
               setIsDarkMode={setIsDarkMode}
               user={authToken ? { prefix: userPrefix } : null}
+              profile={profile}
             />
           </motion.div>
         )}
@@ -329,27 +440,28 @@ export default function App() {
           {/* ── Header ── */}
           <header style={{
             display: 'flex', alignItems: 'center', padding: '0 20px', height: 52, flexShrink: 0,
-            background: 'var(--bg-elevated)', backdropFilter: 'blur(20px)',
-            borderBottom: '1px solid var(--border-subtle)',
+            background: headerDark ? 'var(--bg-elevated)' : '#ffffff',
+            backdropFilter: 'blur(20px)',
+            borderBottom: `1px solid ${headerDark ? 'var(--border-subtle)' : '#e2e8f0'}`,
           }}>
             {/* Brand */}
             <button onClick={() => setAppView('landing')} style={{ display: 'flex', alignItems: 'center', gap: 10, marginRight: 20, background: 'none', border: 'none', cursor: 'pointer' }}>
               <AgentBILogo size={28} variant="mark" animated />
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-                Agent <span style={{ background: 'var(--grad-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>DW</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: headerDark ? 'var(--text-primary)' : '#1e293b', letterSpacing: '-0.02em' }}>
+                Agent <span style={{ background: 'var(--grad-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>BI</span>
               </span>
             </button>
 
             {/* Divider */}
-            <div style={{ width: 1, height: 20, background: 'var(--border-subtle)', marginRight: 16 }} />
+            <div style={{ width: 1, height: 20, background: headerDark ? 'var(--border-subtle)' : '#e2e8f0', marginRight: 16 }} />
 
             {/* Status */}
             <StatusPill status={pipelineStatus} />
             {dqScore !== null && (
               <span style={{
                 marginLeft: 8, fontSize: 10, fontWeight: 600, padding: '2px 8px',
-                borderRadius: 99, color: 'var(--text-muted)',
-                background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-subtle)',
+                borderRadius: 99, color: headerDark ? 'var(--text-muted)' : '#64748b',
+                background: headerDark ? 'rgba(255,255,255,0.04)' : '#f1f5f9', border: `1px solid ${headerDark ? 'var(--border-subtle)' : '#e2e8f0'}`,
               }}>
                 DQ {Math.round(dqScore)}%
               </span>
@@ -357,54 +469,80 @@ export default function App() {
 
             {/* Right actions */}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <button
-                onClick={() => setShowLog(!showLog)}
-                title="Logs d'exécution"
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  width: 32, height: 32, borderRadius: 7, cursor: 'pointer',
-                  background: showLog ? 'rgba(61,106,232,0.15)' : 'transparent',
-                  border: `1px solid ${showLog ? 'rgba(61,106,232,0.3)' : 'transparent'}`,
-                  color: showLog ? 'var(--blue-300)' : 'var(--text-muted)',
-                  transition: 'all 0.15s',
-                }}
-                onMouseEnter={e => { if (!showLog) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text-primary)'; }}}
-                onMouseLeave={e => { if (!showLog) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}}
-              >
-                <Terminal size={14} />
-              </button>
+              {/* Profile dropdown */}
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setProfileMenuOpen(v => !v)}
+                  title="Profil"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 32, height: 32, borderRadius: '50%', cursor: 'pointer',
+                    background: headerDark ? 'var(--bg-higher)' : '#f1f5f9', border: `1px solid ${headerDark ? 'var(--border-default)' : '#e2e8f0'}`,
+                    color: headerDark ? 'var(--text-primary)' : '#1e293b', transition: 'all 0.15s',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {profile?.has_avatar ? (
+                    <img src={apiClient.getAvatarUrl(profile.user_id)} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.currentTarget.style.display = 'none'; }} />
+                  ) : (
+                    <span style={{ fontSize: 11, fontWeight: 700 }}>
+                      {(profile?.full_name || profile?.email || 'U').split(/\s+|@/).map(s => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()}
+                    </span>
+                  )}
+                </button>
 
-              <button
-                onClick={() => setIsDarkMode(!isDarkMode)}
-                title="Changer le thème"
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  width: 32, height: 32, borderRadius: 7, cursor: 'pointer',
-                  background: 'transparent', border: '1px solid transparent',
-                  color: 'var(--text-muted)', transition: 'all 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-              >
-                {isDarkMode ? <Sun size={14} /> : <Moon size={14} />}
-              </button>
+                {profileMenuOpen && (
+                  <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 200 }} onClick={() => setProfileMenuOpen(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, y: -4, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      style={{
+                        position: 'absolute', top: 40, right: 0, zIndex: 210,
+                        minWidth: 200, borderRadius: 12,
+                        background: 'var(--bg-elevated)', border: '1px solid var(--border-default)',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.4)', overflow: 'hidden',
+                      }}
+                    >
+                      {/* User info */}
+                      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-hair)' }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {profile?.full_name || profile?.email?.split('@')[0] || 'Utilisateur'}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{profile?.email}</div>
+                      </div>
+                      {/* Actions */}
+                      <button
+                        onClick={() => { setProfileMenuOpen(false); setActiveMainView('profile'); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px',
+                          background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)',
+                          fontSize: 12, fontWeight: 500, textAlign: 'left', transition: 'all 0.1s',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                      >
+                        <User size={14} /> Modifier le profil
+                      </button>
+                      <button
+                        onClick={handleLogout}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px',
+                          background: 'none', border: 'none', cursor: 'pointer', color: 'var(--red-400)',
+                          fontSize: 12, fontWeight: 500, textAlign: 'left', transition: 'all 0.1s',
+                          borderTop: '1px solid var(--border-hair)',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.06)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <LogOut size={14} /> Se déconnecter
+                      </button>
+                    </motion.div>
+                  </>
+                )}
+              </div>
 
-              <button
-                onClick={handleLogout}
-                title="Se déconnecter"
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  width: 32, height: 32, borderRadius: 7, cursor: 'pointer',
-                  background: 'transparent', border: '1px solid transparent',
-                  color: 'var(--text-muted)', transition: 'all 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,68,68,0.08)'; e.currentTarget.style.color = 'var(--red-400)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
-              >
-                <LogOut size={14} />
-              </button>
-
-              <div style={{ width: 1, height: 20, background: 'var(--border-subtle)', margin: '0 4px' }} />
+              <div style={{ width: 1, height: 20, background: headerDark ? 'var(--border-subtle)' : '#e2e8f0', margin: '0 4px' }} />
 
               <button
                 onClick={() => { resetPipeline(); setShowConnection(true); }}
@@ -428,6 +566,7 @@ export default function App() {
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
             {/* ── Left Sidebar ── */}
+            {activeMainView !== 'profile' && (
             <aside style={{
               display: 'flex', flexDirection: 'column', flexShrink: 0,
               width: leftCollapsed ? 52 : 192,
@@ -486,6 +625,7 @@ export default function App() {
                 {leftCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
               </button>
             </aside>
+            )}
 
             {/* ── Main Canvas ── */}
             <main style={{ flex: 1, position: 'relative', background: 'var(--bg-base)', overflow: 'hidden' }}>
@@ -502,6 +642,7 @@ export default function App() {
                 {renderView('metrics',    <RunMetrics />)}
                 {renderView('governance', <GovernancePanel />)}
                 {renderView('export',     <ExportPanel onClose={undefined} />)}
+                {renderView('profile',    <ProfilePage onBack={() => setAppView('landing')} />)}
               </ErrorBoundary>
             </main>
 
@@ -552,11 +693,6 @@ export default function App() {
               </aside>
             )}
           </div>
-
-          {/* ── Floating Chat Widget (toujours dispo, bouton bas-droite) ── */}
-          <Suspense fallback={null}>
-            <FloatingChatWidget />
-          </Suspense>
 
           {/* ── Log Panel ── */}
           <AnimatePresence>

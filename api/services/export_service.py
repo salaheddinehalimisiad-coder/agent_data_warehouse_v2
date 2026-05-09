@@ -2168,51 +2168,1048 @@ def _ws_measures_kpi(wb, state: dict):
     ws.freeze_panes = "A4"
 
 
+# =============================================================================
+#  AIDES "EXÉCUTIVES" — palette, scorecards, recommandations, hyperliens
+# =============================================================================
+
+# Palette dédiée à la version pour décideurs (couleurs sobres, contraste élevé).
+_EC = {
+    "primary":     "1E3A8A",   # bleu marine profond — bandeaux, titres
+    "primary_lt":  "DBEAFE",   # bleu pâle — fond de section
+    "accent":      "0EA5E9",   # cyan — hyperliens, boutons
+    "ok":          "16A34A",   # vert santé
+    "ok_lt":       "DCFCE7",
+    "warn":        "D97706",   # orange ambre
+    "warn_lt":     "FEF3C7",
+    "alert":       "DC2626",   # rouge alerte
+    "alert_lt":    "FEE2E2",
+    "neutral":     "475569",   # ardoise pour textes secondaires
+    "neutral_lt":  "F1F5F9",
+    "border":      "CBD5E1",
+    "ink":         "0F172A",
+    "white":       "FFFFFF",
+    "stripe":      "F8FAFC",   # zébrure légère
+    "gold":        "B45309",
+    "gold_lt":     "FFF7ED",
+    "card_lt":     "FFFFFF",
+}
+
+
+def _exec_overall_grade(state: dict) -> dict:
+    """
+    Calcule une note globale du pipeline (A à D) et un libellé synthétique.
+    Combine score qualité, succès ETL, alertes, auto-corrections.
+    """
+    dq = float(state.get("dq_score", 0) or 0)
+    etl_ok = (state.get("etl_status") or "") == "success"
+    n_alerts = len(state.get("dq_alerts", []) or [])
+    n_heal = len(state.get("heal_history", []) or [])
+
+    score = dq
+    if etl_ok:
+        score += 5
+    score -= min(n_alerts * 2, 10)
+    score -= min(max(0, n_heal - 3) * 2, 8)
+    score = max(0, min(100, score))
+
+    if score >= 90:
+        return {"score": int(score), "letter": "A", "label": "Excellence opérationnelle",
+                "color": _EC["ok"], "color_lt": _EC["ok_lt"],
+                "narrative": "La plateforme livre un Data Warehouse aux normes attendues. Aucune action corrective majeure n'est requise."}
+    if score >= 75:
+        return {"score": int(score), "letter": "B", "label": "Conforme aux attentes",
+                "color": _EC["ok"], "color_lt": _EC["ok_lt"],
+                "narrative": "Le pipeline est en bonne santé. Quelques optimisations marginales restent recommandées pour atteindre l'excellence."}
+    if score >= 60:
+        return {"score": int(score), "letter": "C", "label": "Acceptable avec réserves",
+                "color": _EC["warn"], "color_lt": _EC["warn_lt"],
+                "narrative": "Le pipeline fonctionne, mais des points de vigilance doivent être traités avant la prochaine mise en production."}
+    return {"score": int(score), "letter": "D", "label": "Action requise",
+            "color": _EC["alert"], "color_lt": _EC["alert_lt"],
+            "narrative": "Plusieurs indicateurs sont sous le seuil acceptable. Une intervention est nécessaire avant exploitation."}
+
+
+def _exec_health_categories(state: dict) -> list[dict]:
+    """Retourne 5 catégories de santé évaluées chacune sur 100."""
+    dq = float(state.get("dq_score", 0) or 0)
+    etl_ok = (state.get("etl_status") or "") == "success"
+    n_alerts = len(state.get("dq_alerts", []) or [])
+    n_heal = len(state.get("heal_history", []) or [])
+    lm = state.get("logical_model") or {}
+    n_dims = len(lm.get("dimension_tables") or [])
+    has_fact = bool(lm.get("fact_table") or lm.get("fact_tables"))
+    pii_count = len(state.get("pii_findings", []) or [])
+
+    cats = [
+        {"name": "Qualité des données", "score": int(dq),
+         "factors": [f"{n_alerts} alerte(s) DQ", "12 dimensions évaluées"]},
+        {"name": "Modèle dimensionnel",
+         "score": 95 if (has_fact and n_dims >= 3) else (70 if has_fact else 30),
+         "factors": [f"{1 if has_fact else 0} table de faits", f"{n_dims} dimensions"]},
+        {"name": "Pipeline ETL",
+         "score": (95 if etl_ok else 40) - min(n_heal * 4, 20),
+         "factors": [f"Statut : {state.get('etl_status') or 'inconnu'}", f"{n_heal} auto-correction(s)"]},
+        {"name": "Sécurité & gouvernance",
+         "score": max(40, 95 - pii_count * 5),
+         "factors": [f"{pii_count} colonne(s) PII détectée(s)", "Politiques RGPD : actives"]},
+        {"name": "Performance",
+         "score": 90 if state.get("node_durations") else 70,
+         "factors": ["Index columnstore : oui" if (state.get("logical_model") or {}).get("indexes_created", True) else "Index : à vérifier",
+                     f"Durée totale : {round(sum(float(v) for v in (state.get('node_durations') or {}).values() if isinstance(v,(int,float))),0)}s"]},
+    ]
+    for c in cats:
+        s = max(0, min(100, c["score"]))
+        c["score"] = s
+        if s >= 85:
+            c["status"] = "Bon";        c["color"] = _EC["ok"];    c["color_lt"] = _EC["ok_lt"]
+        elif s >= 65:
+            c["status"] = "Vigilance";  c["color"] = _EC["warn"];  c["color_lt"] = _EC["warn_lt"]
+        else:
+            c["status"] = "Action";     c["color"] = _EC["alert"]; c["color_lt"] = _EC["alert_lt"]
+    return cats
+
+
+def _exec_top_recommendations(state: dict) -> list[dict]:
+    """Liste de recommandations priorisées, dérivées de l'état."""
+    recs = []
+    dq = float(state.get("dq_score", 0) or 0)
+    etl_ok = (state.get("etl_status") or "") == "success"
+    n_alerts = len(state.get("dq_alerts", []) or [])
+    n_heal = len(state.get("heal_history", []) or [])
+    pii_count = len(state.get("pii_findings", []) or [])
+    lm = state.get("logical_model") or {}
+    n_dims = len(lm.get("dimension_tables") or [])
+
+    if dq < 70:
+        recs.append({"priority": "ÉLEVÉE", "title": "Renforcer la qualité des données sources",
+                     "rationale": f"Le score qualité est de {int(dq)}/100. Une revue des règles de validation et un nettoyage des sources sont recommandés avant la mise en production.",
+                     "color": _EC["alert"]})
+    if not etl_ok:
+        recs.append({"priority": "ÉLEVÉE", "title": "Stabiliser le pipeline ETL",
+                     "rationale": f"Le pipeline n'a pas terminé en succès (statut : {state.get('etl_status') or 'inconnu'}). Investiguer le journal d'exécution.",
+                     "color": _EC["alert"]})
+    if pii_count > 0:
+        recs.append({"priority": "MOYENNE", "title": "Activer le masquage des colonnes PII",
+                     "rationale": f"{pii_count} colonne(s) potentiellement PII identifiée(s). Définir les règles de masquage avant exposition aux exports.",
+                     "color": _EC["warn"]})
+    if n_heal > 3:
+        recs.append({"priority": "MOYENNE", "title": "Investiguer les auto-corrections récurrentes",
+                     "rationale": f"{n_heal} corrections automatiques appliquées. Une dérive de schéma est probable côté source.",
+                     "color": _EC["warn"]})
+    if n_alerts > 0:
+        recs.append({"priority": "FAIBLE", "title": "Traiter les alertes qualité résiduelles",
+                     "rationale": f"{n_alerts} alerte(s) actuellement ouverte(s). Voir l'onglet Qualité Données.",
+                     "color": _EC["accent"]})
+    if n_dims < 3:
+        recs.append({"priority": "FAIBLE", "title": "Enrichir le modèle dimensionnel",
+                     "rationale": f"Seulement {n_dims} dimension(s). Identifier les axes d'analyse manquants pour les utilisateurs métier.",
+                     "color": _EC["accent"]})
+    if not recs:
+        recs.append({"priority": "INFORMATION", "title": "Aucune action corrective requise",
+                     "rationale": "Le pipeline est conforme aux attentes. Continuer le suivi régulier des métriques de qualité.",
+                     "color": _EC["ok"]})
+    return recs[:5]
+
+
+def _exec_top_risks(state: dict) -> list[dict]:
+    """Liste de risques métier identifiés."""
+    risks = []
+    dq = float(state.get("dq_score", 0) or 0)
+    etl_ok = (state.get("etl_status") or "") == "success"
+    n_heal = len(state.get("heal_history", []) or [])
+    pii_count = len(state.get("pii_findings", []) or [])
+
+    if dq < 50:
+        risks.append({"severity": "CRITIQUE", "title": "Données non fiables pour la décision",
+                      "description": "Un score qualité inférieur à 50 expose la direction à des décisions basées sur des chiffres potentiellement erronés.",
+                      "color": _EC["alert"]})
+    if not etl_ok:
+        risks.append({"severity": "ÉLEVÉ", "title": "Indisponibilité du Data Warehouse",
+                      "description": "Tant que le pipeline n'est pas en succès, les tableaux de bord aval risquent d'afficher des données obsolètes.",
+                      "color": _EC["alert"]})
+    if pii_count > 5:
+        risks.append({"severity": "ÉLEVÉ", "title": "Exposition de données personnelles",
+                      "description": f"{pii_count} colonnes PII détectées. Risque de non-conformité RGPD si exportées sans masquage.",
+                      "color": _EC["warn"]})
+    if n_heal > 5:
+        risks.append({"severity": "MOYEN", "title": "Dette technique sur la source",
+                      "description": "Le nombre élevé d'auto-corrections suggère un schéma source instable qui demandera une refonte.",
+                      "color": _EC["warn"]})
+    if not risks:
+        risks.append({"severity": "FAIBLE", "title": "Aucun risque majeur identifié",
+                      "description": "L'analyse automatique ne détecte pas de risque opérationnel significatif sur cette exécution.",
+                      "color": _EC["ok"]})
+    return risks[:4]
+
+
+def _ec_kpi_card(ws, row, col, label, value, sub, accent_hex, span=3, height_label=18, height_value=34, height_sub=18):
+    """Carte KPI sur 3 lignes — label / valeur / sous-texte."""
+    end_col = col + span - 1
+    # Ligne 1 — label
+    ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=end_col)
+    c = ws.cell(row=row, column=col, value=label.upper())
+    c.font      = _mk_font(bold=True, size=9, color=_EC["white"])
+    c.fill      = _mk_fill(accent_hex)
+    c.alignment = _mk_align(h="center", v="center")
+    _set_row_height(ws, row, height_label)
+    # Ligne 2 — valeur
+    ws.merge_cells(start_row=row+1, start_column=col, end_row=row+1, end_column=end_col)
+    v = ws.cell(row=row+1, column=col, value=value)
+    v.font      = _mk_font(bold=True, size=22, color=accent_hex)
+    v.fill      = _mk_fill(_EC["white"])
+    v.alignment = _mk_align(h="center", v="center")
+    v.border    = _mk_border("thin", _EC["border"])
+    _set_row_height(ws, row+1, height_value)
+    # Ligne 3 — sous-texte
+    ws.merge_cells(start_row=row+2, start_column=col, end_row=row+2, end_column=end_col)
+    s = ws.cell(row=row+2, column=col, value=sub or "")
+    s.font      = _mk_font(size=9, italic=True, color=_EC["neutral"])
+    s.fill      = _mk_fill(_EC["stripe"])
+    s.alignment = _mk_align(h="center", v="center")
+    s.border    = _mk_border("thin", _EC["border"])
+    _set_row_height(ws, row+2, height_sub)
+
+
+def _ec_link_cell(ws, row, col, target_sheet, label, span=1):
+    """Cellule contenant un hyperlien interne vers une autre feuille."""
+    end_col = col + span - 1
+    if span > 1:
+        ws.merge_cells(start_row=row, start_column=col, end_row=row, end_column=end_col)
+    c = ws.cell(row=row, column=col, value=label)
+    # Échappe les guillemets et apostrophes du nom de feuille
+    safe = str(target_sheet).replace("'", "''")
+    c.hyperlink = f"#'{safe}'!A1"
+    c.font      = _mk_font(bold=True, size=10, color=_EC["accent"])
+    c.alignment = _mk_align(h="left", v="center", wrap=True)
+    return c
+
+
+def _ec_traffic_light(score: float):
+    """(label, fill_color, text_color) selon score 0-100."""
+    if score >= 85:  return ("BON",      _EC["ok"],    _EC["white"])
+    if score >= 65:  return ("VIGILANCE",_EC["warn"],  _EC["white"])
+    return            ("ACTION",   _EC["alert"], _EC["white"])
+
+
+def _ec_gauge_bar(ws, row, col, score: float, span=10):
+    """
+    Rend une jauge horizontale faite de cellules colorées proportionnellement.
+    span = nombre total de cellules disponibles ; on en remplit (span * score/100).
+    """
+    s = max(0, min(100, float(score)))
+    filled = max(1, round(span * s / 100))
+    color = _EC["ok"] if s >= 85 else (_EC["warn"] if s >= 65 else _EC["alert"])
+    for i in range(span):
+        cell = ws.cell(row=row, column=col + i, value="")
+        cell.fill   = _mk_fill(color if i < filled else _EC["neutral_lt"])
+        cell.border = _mk_border("thin", _EC["border"])
+    _set_row_height(ws, row, 18)
+
+
+# =============================================================================
+#  Feuille 01 : COUVERTURE
+# =============================================================================
+def _ws_cover(wb, state: dict, session_id: str):
+    ws = wb.create_sheet("01 Couverture", index=0)
+    ws.sheet_view.showGridLines = False
+
+    # Largeurs colonnes (12 colonnes utiles)
+    for letter, w in {"A":4,"B":18,"C":18,"D":18,"E":18,"F":18,"G":18,"H":18,"I":18,"J":18,"K":18,"L":4}.items():
+        ws.column_dimensions[letter].width = w
+
+    # Bandeau supérieur navy
+    ws.merge_cells("A1:L2")
+    band = ws["A1"]
+    band.fill = _mk_fill(_EC["primary"])
+    _set_row_height(ws, 1, 14); _set_row_height(ws, 2, 14)
+
+    # Titre principal
+    ws.merge_cells("B4:K6")
+    title = ws["B4"]
+    title.value     = "RAPPORT DÉCISIONNEL"
+    title.font      = _mk_font(bold=True, size=36, color=_EC["primary"])
+    title.alignment = _mk_align(h="center", v="center")
+    for r in (4, 5, 6):
+        _set_row_height(ws, r, 22)
+
+    ws.merge_cells("B7:K8")
+    subtitle = ws["B7"]
+    subtitle.value     = "Data Warehouse — Pipeline d'Intégration"
+    subtitle.font      = _mk_font(size=18, color=_EC["neutral"], italic=True)
+    subtitle.alignment = _mk_align(h="center", v="center")
+    _set_row_height(ws, 7, 18); _set_row_height(ws, 8, 18)
+
+    # Ligne séparatrice
+    ws.merge_cells("B10:K10")
+    sep = ws["B10"]
+    sep.fill = _mk_fill(_EC["accent"])
+    _set_row_height(ws, 10, 4)
+
+    # Note globale
+    grade = _exec_overall_grade(state)
+
+    ws.merge_cells("B12:E18")
+    g_box = ws["B12"]
+    g_box.value     = grade["letter"]
+    g_box.font      = _mk_font(bold=True, size=120, color=grade["color"])
+    g_box.fill      = _mk_fill(grade["color_lt"])
+    g_box.alignment = _mk_align(h="center", v="center")
+    for r in range(12, 19):
+        _set_row_height(ws, r, 22)
+
+    ws.merge_cells("F12:K13")
+    label = ws["F12"]
+    label.value     = "Note globale du pipeline"
+    label.font      = _mk_font(bold=True, size=11, color=_EC["neutral"])
+    label.alignment = _mk_align(h="left", v="center")
+
+    ws.merge_cells("F14:K15")
+    score = ws["F14"]
+    score.value     = f"{grade['score']}/100 — {grade['label']}"
+    score.font      = _mk_font(bold=True, size=18, color=grade["color"])
+    score.alignment = _mk_align(h="left", v="center")
+
+    ws.merge_cells("F16:K18")
+    nar = ws["F16"]
+    nar.value     = grade["narrative"]
+    nar.font      = _mk_font(size=11, color=_EC["ink"])
+    nar.alignment = _mk_align(h="left", v="top", wrap=True)
+
+    # Métadonnées
+    meta_row = 21
+    ws.merge_cells(f"B{meta_row}:K{meta_row}")
+    h = ws.cell(row=meta_row, column=2, value="INFORMATIONS DE GÉNÉRATION")
+    h.font      = _mk_font(bold=True, size=10, color=_EC["white"])
+    h.fill      = _mk_fill(_EC["primary"])
+    h.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, meta_row, 22)
+
+    metas = [
+        ("Identifiant de session",  session_id),
+        ("Préfixe utilisateur",     (state.get("user_prefix") or "—").upper()),
+        ("Base cible",              state.get("target_database") or state.get("restored_db_name") or "—"),
+        ("Mode d'exécution",        (state.get("etl_mode") or "—").replace("_", " ").title()),
+        ("Date de génération",      datetime.now().strftime("%d/%m/%Y à %H:%M:%S")),
+        ("Version de la plateforme", "Agent Data Warehouse v3.0.1"),
+    ]
+    for i, (k, v) in enumerate(metas):
+        r = meta_row + 1 + i
+        ws.merge_cells(f"B{r}:E{r}")
+        kc = ws.cell(row=r, column=2, value=k)
+        kc.font      = _mk_font(bold=True, size=10, color=_EC["neutral"])
+        kc.fill      = _mk_fill(_EC["stripe"])
+        kc.alignment = _mk_align(h="left", v="center")
+        kc.border    = _mk_border("thin", _EC["border"])
+
+        ws.merge_cells(f"F{r}:K{r}")
+        vc = ws.cell(row=r, column=6, value=str(v))
+        vc.font      = _mk_font(size=10, color=_EC["ink"])
+        vc.fill      = _mk_fill(_EC["white"])
+        vc.alignment = _mk_align(h="left", v="center")
+        vc.border    = _mk_border("thin", _EC["border"])
+        _set_row_height(ws, r, 22)
+
+    # Bloc validation / signatures
+    sig_row = meta_row + 1 + len(metas) + 2
+    ws.merge_cells(f"B{sig_row}:K{sig_row}")
+    sh = ws.cell(row=sig_row, column=2, value="VALIDATION")
+    sh.font      = _mk_font(bold=True, size=10, color=_EC["white"])
+    sh.fill      = _mk_fill(_EC["primary"])
+    sh.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, sig_row, 22)
+
+    roles = [("Responsable données",   "Nom · Date · Visa"),
+             ("Direction métier",       "Nom · Date · Visa"),
+             ("Direction des systèmes", "Nom · Date · Visa")]
+    for i, (role, line) in enumerate(roles):
+        r = sig_row + 1 + i
+        ws.merge_cells(f"B{r}:E{r}")
+        kc = ws.cell(row=r, column=2, value=role)
+        kc.font      = _mk_font(bold=True, size=10, color=_EC["neutral"])
+        kc.fill      = _mk_fill(_EC["stripe"])
+        kc.alignment = _mk_align(h="left", v="center")
+        kc.border    = _mk_border("thin", _EC["border"])
+
+        ws.merge_cells(f"F{r}:K{r}")
+        vc = ws.cell(row=r, column=6, value=line)
+        vc.font      = _mk_font(size=10, italic=True, color=_EC["neutral"])
+        vc.fill      = _mk_fill(_EC["white"])
+        vc.alignment = _mk_align(h="left", v="center")
+        vc.border    = _mk_border("thin", _EC["border"])
+        _set_row_height(ws, r, 30)
+
+    # Pied de page
+    foot_row = sig_row + 1 + len(roles) + 2
+    ws.merge_cells(f"A{foot_row}:L{foot_row}")
+    f = ws.cell(row=foot_row, column=1,
+                value="Document confidentiel — diffusion strictement interne. Toute reproduction est subordonnée à autorisation préalable.")
+    f.font      = _mk_font(size=8.5, italic=True, color=_EC["neutral"])
+    f.alignment = _mk_align(h="center", v="center")
+    _set_row_height(ws, foot_row, 18)
+
+
+# =============================================================================
+#  Feuille 02 : SOMMAIRE
+# =============================================================================
+def _ws_toc(wb, state: dict, sheet_index: list[tuple[str, str, str]]):
+    """
+    sheet_index : liste de (sheet_name, audience, description) déjà ordonnée
+    selon l'apparition dans le classeur.
+    """
+    ws = wb.create_sheet("02 Sommaire", index=1)
+    ws.sheet_view.showGridLines = False
+
+    for letter, w in {"A":4,"B":6,"C":36,"D":18,"E":54,"F":4}.items():
+        ws.column_dimensions[letter].width = w
+
+    # Titre
+    ws.merge_cells("B2:E3")
+    t = ws["B2"]
+    t.value     = "SOMMAIRE DU RAPPORT"
+    t.font      = _mk_font(bold=True, size=22, color=_EC["primary"])
+    t.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, 2, 18); _set_row_height(ws, 3, 18)
+
+    ws.merge_cells("B4:E4")
+    sub = ws["B4"]
+    sub.value     = "Cliquez sur un titre pour accéder directement à la section correspondante."
+    sub.font      = _mk_font(size=10, italic=True, color=_EC["neutral"])
+    sub.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, 4, 18)
+
+    # En-têtes
+    headers = [("B", "#"), ("C", "Section"), ("D", "Audience"), ("E", "Description")]
+    for letter, label in headers:
+        c = ws[f"{letter}6"]
+        c.value     = label
+        c.font      = _mk_font(bold=True, size=10, color=_EC["white"])
+        c.fill      = _mk_fill(_EC["primary"])
+        c.alignment = _mk_align(h="left", v="center")
+        c.border    = _mk_border("thin", _EC["primary"])
+    _set_row_height(ws, 6, 24)
+
+    r = 7
+    for i, (sheet_name, audience, description) in enumerate(sheet_index, start=1):
+        # Numéro
+        nc = ws.cell(row=r, column=2, value=i)
+        nc.font      = _mk_font(bold=True, size=10, color=_EC["neutral"])
+        nc.fill      = _mk_fill(_EC["stripe"] if i % 2 else _EC["white"])
+        nc.alignment = _mk_align(h="center", v="center")
+        nc.border    = _mk_border("thin", _EC["border"])
+        # Titre cliquable
+        link = _ec_link_cell(ws, r, 3, sheet_name, sheet_name)
+        link.fill   = _mk_fill(_EC["stripe"] if i % 2 else _EC["white"])
+        link.border = _mk_border("thin", _EC["border"])
+        # Audience
+        ac = ws.cell(row=r, column=4, value=audience)
+        ac.font      = _mk_font(size=9, color=_EC["neutral"])
+        ac.fill      = _mk_fill(_EC["stripe"] if i % 2 else _EC["white"])
+        ac.alignment = _mk_align(h="left", v="center")
+        ac.border    = _mk_border("thin", _EC["border"])
+        # Description
+        dc = ws.cell(row=r, column=5, value=description)
+        dc.font      = _mk_font(size=9.5, color=_EC["ink"])
+        dc.fill      = _mk_fill(_EC["stripe"] if i % 2 else _EC["white"])
+        dc.alignment = _mk_align(h="left", v="center", wrap=True)
+        dc.border    = _mk_border("thin", _EC["border"])
+        _set_row_height(ws, r, 28)
+        r += 1
+
+
+# =============================================================================
+#  Feuille 03 : SYNTHÈSE EXÉCUTIVE
+# =============================================================================
+def _ws_executive_summary(wb, state: dict, session_id: str):
+    ws = wb.create_sheet("03 Synthese Executive", index=2)
+    ws.sheet_view.showGridLines = False
+
+    for letter, w in {"A":3,"B":14,"C":14,"D":14,"E":14,"F":14,"G":14,
+                      "H":14,"I":14,"J":14,"K":14,"L":14,"M":14,"N":3}.items():
+        ws.column_dimensions[letter].width = w
+
+    # En-tête
+    ws.merge_cells("B2:M3")
+    h = ws["B2"]
+    h.value     = "SYNTHÈSE EXÉCUTIVE"
+    h.font      = _mk_font(bold=True, size=22, color=_EC["primary"])
+    h.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, 2, 18); _set_row_height(ws, 3, 18)
+
+    ws.merge_cells("B4:M4")
+    sub = ws["B4"]
+    grade = _exec_overall_grade(state)
+    sub.value     = f"Vue à 360° destinée aux décideurs · Note globale : {grade['letter']} ({grade['score']}/100)"
+    sub.font      = _mk_font(size=11, italic=True, color=_EC["neutral"])
+    sub.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, 4, 20)
+
+    # ---- Bandeau narratif ---------------------------------------------------
+    ws.merge_cells("B6:M9")
+    nar = ws["B6"]
+    nar.value     = grade["narrative"]
+    nar.font      = _mk_font(size=12, color=_EC["ink"])
+    nar.fill      = _mk_fill(grade["color_lt"])
+    nar.alignment = _mk_align(h="left", v="center", wrap=True)
+    nar.border    = _mk_border("medium", grade["color"])
+    for r in (6, 7, 8, 9):
+        _set_row_height(ws, r, 16)
+
+    # ---- KPIs (6 cartes en 2 rangées de 3) ---------------------------------
+    dq = float(state.get("dq_score", 0) or 0)
+    etl_status = (state.get("etl_status") or "—").upper()
+    lm = state.get("logical_model") or {}
+    n_dims = len(lm.get("dimension_tables") or [])
+    n_facts = 1 if lm.get("fact_table") else len(lm.get("fact_tables") or [])
+    n_alerts = len(state.get("dq_alerts", []) or [])
+    n_heal = len(state.get("heal_history", []) or [])
+
+    lm_metrics = state.get("load_metrics") or {}
+    total_rows = 0
+    if isinstance(lm_metrics, dict):
+        for v in lm_metrics.values():
+            if isinstance(v, dict):    total_rows += int(v.get("inserted", 0) or 0)
+            elif isinstance(v, (int, float)): total_rows += int(v)
+
+    node_dur = state.get("node_durations") or {}
+    total_dur = round(sum(float(v) for v in node_dur.values() if isinstance(v, (int, float))), 0)
+
+    cards_row1 = [
+        ("Score qualité",   f"{int(dq)}/100",     "Données prêtes pour la décision",        _EC["primary"]),
+        ("Statut pipeline", etl_status,           "Fiabilité de l'intégration",             _EC["accent"]),
+        ("Lignes intégrées",f"{total_rows:,}".replace(",", " "), "Volume traité durant cette exécution", _EC["ok"]),
+    ]
+    cards_row2 = [
+        ("Modèle étoile",     f"{n_facts}F + {n_dims}D",        "Tables de faits + dimensions",       _EC["gold"]),
+        ("Alertes qualité",   str(n_alerts),                     "Anomalies à examiner",                _EC["warn"]),
+        ("Auto-corrections",  str(n_heal),                       "Réparations automatiques",            _EC["alert"] if n_heal > 3 else _EC["ok"]),
+    ]
+
+    # Rangée 1 — colonnes B..M (12 cells = 3 cartes de 4 colonnes)
+    for idx, (label, value, sub_t, col) in enumerate(cards_row1):
+        start_col = 2 + idx * 4
+        _ec_kpi_card(ws, 11, start_col, label, value, sub_t, col, span=4)
+    # Rangée 2
+    for idx, (label, value, sub_t, col) in enumerate(cards_row2):
+        start_col = 2 + idx * 4
+        _ec_kpi_card(ws, 16, start_col, label, value, sub_t, col, span=4)
+
+    # ---- Indicateurs de santé par domaine ----------------------------------
+    r = 22
+    ws.merge_cells(f"B{r}:M{r}")
+    ti = ws.cell(row=r, column=2, value="INDICATEURS DE SANTÉ")
+    ti.font      = _mk_font(bold=True, size=11, color=_EC["white"])
+    ti.fill      = _mk_fill(_EC["primary"])
+    ti.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, r, 22)
+    r += 1
+
+    # En-têtes
+    headers = [("Domaine", 3), ("Score", 1), ("Jauge", 5), ("Statut", 1), ("Facteurs clés", 2)]
+    col = 2
+    for label, span in headers:
+        ws.merge_cells(start_row=r, start_column=col, end_row=r, end_column=col + span - 1)
+        c = ws.cell(row=r, column=col, value=label)
+        c.font      = _mk_font(bold=True, size=9, color=_EC["white"])
+        c.fill      = _mk_fill(_EC["neutral"])
+        c.alignment = _mk_align(h="center", v="center")
+        c.border    = _mk_border("thin", _EC["neutral"])
+        col += span
+    _set_row_height(ws, r, 18); r += 1
+
+    for cat in _exec_health_categories(state):
+        # Domaine (3 col)
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=4)
+        n = ws.cell(row=r, column=2, value=cat["name"])
+        n.font      = _mk_font(bold=True, size=10, color=_EC["ink"])
+        n.fill      = _mk_fill(_EC["white"])
+        n.alignment = _mk_align(h="left", v="center")
+        n.border    = _mk_border("thin", _EC["border"])
+        # Score (1 col)
+        sc = ws.cell(row=r, column=5, value=f"{cat['score']}")
+        sc.font      = _mk_font(bold=True, size=12, color=cat["color"])
+        sc.fill      = _mk_fill(_EC["white"])
+        sc.alignment = _mk_align(h="center", v="center")
+        sc.border    = _mk_border("thin", _EC["border"])
+        # Jauge (5 col)
+        _ec_gauge_bar(ws, r, 6, cat["score"], span=5)
+        # Statut (1 col)
+        st = ws.cell(row=r, column=11, value=cat["status"].upper())
+        st.font      = _mk_font(bold=True, size=9, color=_EC["white"])
+        st.fill      = _mk_fill(cat["color"])
+        st.alignment = _mk_align(h="center", v="center")
+        st.border    = _mk_border("thin", _EC["border"])
+        # Facteurs (2 col)
+        ws.merge_cells(start_row=r, start_column=12, end_row=r, end_column=13)
+        f = ws.cell(row=r, column=12, value=" · ".join(cat["factors"]))
+        f.font      = _mk_font(size=9, color=_EC["neutral"])
+        f.fill      = _mk_fill(_EC["white"])
+        f.alignment = _mk_align(h="left", v="center", wrap=True)
+        f.border    = _mk_border("thin", _EC["border"])
+        _set_row_height(ws, r, 26)
+        r += 1
+
+    r += 1
+
+    # ---- Recommandations ----------------------------------------------------
+    ws.merge_cells(f"B{r}:M{r}")
+    th = ws.cell(row=r, column=2, value="ACTIONS RECOMMANDÉES")
+    th.font      = _mk_font(bold=True, size=11, color=_EC["white"])
+    th.fill      = _mk_fill(_EC["primary"])
+    th.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, r, 22); r += 1
+
+    for rec in _exec_top_recommendations(state):
+        # Priorité
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        p = ws.cell(row=r, column=2, value=rec["priority"])
+        p.font      = _mk_font(bold=True, size=9, color=_EC["white"])
+        p.fill      = _mk_fill(rec["color"])
+        p.alignment = _mk_align(h="center", v="center")
+        p.border    = _mk_border("thin", rec["color"])
+        # Titre + rationale
+        ws.merge_cells(start_row=r, start_column=4, end_row=r, end_column=13)
+        body = ws.cell(row=r, column=4,
+                       value=f"{rec['title']}\n{rec['rationale']}")
+        body.font      = _mk_font(size=10, color=_EC["ink"])
+        body.fill      = _mk_fill(_EC["white"])
+        body.alignment = _mk_align(h="left", v="center", wrap=True)
+        body.border    = _mk_border("thin", _EC["border"])
+        _set_row_height(ws, r, 42); r += 1
+
+    r += 1
+
+    # ---- Risques ------------------------------------------------------------
+    ws.merge_cells(f"B{r}:M{r}")
+    th = ws.cell(row=r, column=2, value="RISQUES IDENTIFIÉS")
+    th.font      = _mk_font(bold=True, size=11, color=_EC["white"])
+    th.fill      = _mk_fill(_EC["alert"])
+    th.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, r, 22); r += 1
+
+    for risk in _exec_top_risks(state):
+        ws.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        s = ws.cell(row=r, column=2, value=risk["severity"])
+        s.font      = _mk_font(bold=True, size=9, color=_EC["white"])
+        s.fill      = _mk_fill(risk["color"])
+        s.alignment = _mk_align(h="center", v="center")
+        s.border    = _mk_border("thin", risk["color"])
+
+        ws.merge_cells(start_row=r, start_column=4, end_row=r, end_column=13)
+        body = ws.cell(row=r, column=4,
+                       value=f"{risk['title']}\n{risk['description']}")
+        body.font      = _mk_font(size=10, color=_EC["ink"])
+        body.fill      = _mk_fill(_EC["white"])
+        body.alignment = _mk_align(h="left", v="center", wrap=True)
+        body.border    = _mk_border("thin", _EC["border"])
+        _set_row_height(ws, r, 42); r += 1
+
+    ws.freeze_panes = "A6"
+
+
+# =============================================================================
+#  Feuille 04 : TABLEAU DE DÉCISION (graphiques natifs)
+# =============================================================================
+def _ws_decision_dashboard(wb, state: dict):
+    ws = wb.create_sheet("04 Tableau de Decision", index=3)
+    ws.sheet_view.showGridLines = False
+
+    for letter, w in {"A":3,"B":24,"C":14,"D":14,"E":14,"F":14,"G":14,"H":14,"I":14,"J":14,"K":14,"L":3}.items():
+        ws.column_dimensions[letter].width = w
+
+    # Titre
+    ws.merge_cells("B2:K3")
+    t = ws["B2"]
+    t.value     = "TABLEAU DE DÉCISION"
+    t.font      = _mk_font(bold=True, size=22, color=_EC["primary"])
+    t.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, 2, 18); _set_row_height(ws, 3, 18)
+
+    ws.merge_cells("B4:K4")
+    sub = ws["B4"]
+    sub.value     = "Vue analytique consolidée pour le pilotage opérationnel."
+    sub.font      = _mk_font(size=11, italic=True, color=_EC["neutral"])
+    sub.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, 4, 18)
+
+    # ---- Section 1 : volumétrie par table ----------------------------------
+    r = 6
+    ws.merge_cells(f"B{r}:K{r}")
+    s1 = ws.cell(row=r, column=2, value="VOLUMÉTRIE PAR TABLE CIBLE")
+    s1.font      = _mk_font(bold=True, size=11, color=_EC["white"])
+    s1.fill      = _mk_fill(_EC["primary"])
+    s1.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, r, 22); r += 1
+
+    # En-têtes
+    hdrs = [("B", "Table"), ("C", "Insérées"), ("D", "Mises à jour"), ("E", "Rejetées"), ("F", "Total")]
+    for letter, label in hdrs:
+        c = ws[f"{letter}{r}"]
+        c.value     = label
+        c.font      = _mk_font(bold=True, size=10, color=_EC["white"])
+        c.fill      = _mk_fill(_EC["neutral"])
+        c.alignment = _mk_align(h="center", v="center")
+        c.border    = _mk_border("thin", _EC["neutral"])
+    _set_row_height(ws, r, 20); r += 1
+    chart_data_start = r
+
+    lm_metrics = state.get("load_metrics") or {}
+    if isinstance(lm_metrics, dict) and lm_metrics:
+        for i, (tbl, m) in enumerate(lm_metrics.items()):
+            if isinstance(m, dict):
+                ins = int(m.get("inserted", 0) or 0)
+                upd = int(m.get("updated", 0) or 0)
+                rej = int(m.get("rejected", 0) or 0)
+            elif isinstance(m, (int, float)):
+                ins, upd, rej = int(m), 0, 0
+            else:
+                continue
+            tot = ins + upd + rej
+            stripe = _EC["stripe"] if i % 2 else _EC["white"]
+            row_vals = [(2, tbl, "left"), (3, ins, "right"), (4, upd, "right"),
+                        (5, rej, "right"), (6, tot, "right")]
+            for col, val, h in row_vals:
+                cc = ws.cell(row=r, column=col, value=val)
+                cc.font      = _mk_font(bold=(col == 2 or col == 6), size=10, color=_EC["ink"])
+                cc.fill      = _mk_fill(stripe)
+                cc.alignment = _mk_align(h=h, v="center")
+                cc.border    = _mk_border("thin", _EC["border"])
+                if col > 2:
+                    cc.number_format = "#,##0"
+            _set_row_height(ws, r, 20)
+            r += 1
+    else:
+        ws.merge_cells(f"B{r}:F{r}")
+        c = ws.cell(row=r, column=2, value="Aucune métrique de chargement disponible pour cette exécution.")
+        c.font      = _mk_font(size=10, italic=True, color=_EC["neutral"])
+        c.fill      = _mk_fill(_EC["stripe"])
+        c.alignment = _mk_align(h="center", v="center")
+        c.border    = _mk_border("thin", _EC["border"])
+        _set_row_height(ws, r, 22)
+        r += 1
+
+    chart_data_end = r - 1
+
+    # Tente de greffer un BarChart natif si openpyxl le permet
+    try:
+        if chart_data_end >= chart_data_start:
+            from openpyxl.chart import BarChart, Reference
+            chart = BarChart()
+            chart.type = "bar"
+            chart.style = 11
+            chart.title = "Lignes intégrées par table"
+            chart.y_axis.title = "Lignes"
+            chart.x_axis.title = "Table"
+            data = Reference(ws, min_col=3, min_row=chart_data_start - 1, max_col=5, max_row=chart_data_end)
+            cats = Reference(ws, min_col=2, min_row=chart_data_start, max_row=chart_data_end)
+            chart.add_data(data, titles_from_data=True)
+            chart.set_categories(cats)
+            chart.width = 18
+            chart.height = 9
+            ws.add_chart(chart, f"H{chart_data_start - 1}")
+    except Exception as e:
+        logger.debug(f"[Excel] Bar chart skipped: {e}")
+
+    r += 2
+
+    # ---- Section 2 : durée par module --------------------------------------
+    ws.merge_cells(f"B{r}:K{r}")
+    s2 = ws.cell(row=r, column=2, value="DURÉE D'EXÉCUTION PAR MODULE")
+    s2.font      = _mk_font(bold=True, size=11, color=_EC["white"])
+    s2.fill      = _mk_fill(_EC["primary"])
+    s2.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, r, 22); r += 1
+
+    for letter, label in [("B", "Module"), ("C", "Durée (s)"), ("D", "Part du total"), ("E", "Statut")]:
+        c = ws[f"{letter}{r}"]
+        c.value     = label
+        c.font      = _mk_font(bold=True, size=10, color=_EC["white"])
+        c.fill      = _mk_fill(_EC["neutral"])
+        c.alignment = _mk_align(h="center", v="center")
+        c.border    = _mk_border("thin", _EC["neutral"])
+    _set_row_height(ws, r, 20); r += 1
+
+    durations = state.get("node_durations") or {}
+    total = sum(float(v) for v in durations.values() if isinstance(v, (int, float))) or 1.0
+    sorted_dur = sorted(
+        ((k, float(v)) for k, v in durations.items() if isinstance(v, (int, float))),
+        key=lambda x: x[1], reverse=True
+    )
+    if sorted_dur:
+        for i, (mod, d) in enumerate(sorted_dur):
+            stripe = _EC["stripe"] if i % 2 else _EC["white"]
+            pct = (d / total) * 100
+            status = "Rapide" if d < 5 else ("Normal" if d < 30 else ("Lent" if d < 90 else "Très lent"))
+            status_color = _EC["ok"] if d < 5 else (_EC["accent"] if d < 30 else (_EC["warn"] if d < 90 else _EC["alert"]))
+
+            mc = ws.cell(row=r, column=2, value=mod)
+            mc.font      = _mk_font(bold=True, size=10, color=_EC["ink"])
+            mc.fill      = _mk_fill(stripe)
+            mc.alignment = _mk_align(h="left", v="center")
+            mc.border    = _mk_border("thin", _EC["border"])
+
+            dc = ws.cell(row=r, column=3, value=round(d, 1))
+            dc.font      = _mk_font(size=10, color=_EC["ink"])
+            dc.fill      = _mk_fill(stripe)
+            dc.alignment = _mk_align(h="right", v="center")
+            dc.border    = _mk_border("thin", _EC["border"])
+            dc.number_format = '#,##0.0" s"'
+
+            pc = ws.cell(row=r, column=4, value=pct / 100)
+            pc.font      = _mk_font(size=10, color=_EC["ink"])
+            pc.fill      = _mk_fill(stripe)
+            pc.alignment = _mk_align(h="right", v="center")
+            pc.border    = _mk_border("thin", _EC["border"])
+            pc.number_format = "0.0%"
+
+            sc = ws.cell(row=r, column=5, value=status)
+            sc.font      = _mk_font(bold=True, size=9, color=_EC["white"])
+            sc.fill      = _mk_fill(status_color)
+            sc.alignment = _mk_align(h="center", v="center")
+            sc.border    = _mk_border("thin", _EC["border"])
+
+            _set_row_height(ws, r, 20); r += 1
+    else:
+        ws.merge_cells(f"B{r}:E{r}")
+        c = ws.cell(row=r, column=2, value="Aucune mesure de durée pour cette exécution.")
+        c.font      = _mk_font(size=10, italic=True, color=_EC["neutral"])
+        c.fill      = _mk_fill(_EC["stripe"])
+        c.alignment = _mk_align(h="center", v="center")
+        c.border    = _mk_border("thin", _EC["border"])
+        _set_row_height(ws, r, 22)
+        r += 1
+
+    ws.freeze_panes = "A6"
+
+
+# =============================================================================
+#  Feuille 05 : SCORECARD QUALITÉ
+# =============================================================================
+def _ws_scorecard(wb, state: dict):
+    ws = wb.create_sheet("05 Scorecard Sante", index=4)
+    ws.sheet_view.showGridLines = False
+
+    for letter, w in {"A":3,"B":22,"C":12,"D":40,"E":14,"F":14,"G":14,"H":14,"I":14,"J":14,"K":3}.items():
+        ws.column_dimensions[letter].width = w
+
+    ws.merge_cells("B2:J3")
+    t = ws["B2"]
+    t.value     = "SCORECARD DE SANTÉ"
+    t.font      = _mk_font(bold=True, size=22, color=_EC["primary"])
+    t.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, 2, 18); _set_row_height(ws, 3, 18)
+
+    ws.merge_cells("B4:J4")
+    sub = ws["B4"]
+    sub.value     = "Évaluation détaillée par domaine — barème : Bon (≥85) · Vigilance (65-84) · Action (<65)."
+    sub.font      = _mk_font(size=11, italic=True, color=_EC["neutral"])
+    sub.alignment = _mk_align(h="left", v="center")
+    _set_row_height(ws, 4, 18)
+
+    # En-têtes
+    r = 6
+    headers = [("B", "Domaine", 1), ("C", "Score / 100", 1), ("D", "Évaluation", 1),
+               ("E", "Jauge", 5), ("J", "Statut", 1)]
+    for (letter, label, span) in headers:
+        col = ord(letter) - 64
+        if span > 1:
+            ws.merge_cells(start_row=r, start_column=col, end_row=r, end_column=col + span - 1)
+        c = ws.cell(row=r, column=col, value=label)
+        c.font      = _mk_font(bold=True, size=10, color=_EC["white"])
+        c.fill      = _mk_fill(_EC["primary"])
+        c.alignment = _mk_align(h="center", v="center")
+        c.border    = _mk_border("thin", _EC["primary"])
+    _set_row_height(ws, r, 24); r += 1
+
+    for cat in _exec_health_categories(state):
+        # Domaine
+        n = ws.cell(row=r, column=2, value=cat["name"])
+        n.font      = _mk_font(bold=True, size=11, color=_EC["ink"])
+        n.fill      = _mk_fill(_EC["white"])
+        n.alignment = _mk_align(h="left", v="center")
+        n.border    = _mk_border("thin", _EC["border"])
+        # Score
+        s = ws.cell(row=r, column=3, value=cat["score"])
+        s.font      = _mk_font(bold=True, size=14, color=cat["color"])
+        s.fill      = _mk_fill(_EC["white"])
+        s.alignment = _mk_align(h="center", v="center")
+        s.border    = _mk_border("thin", _EC["border"])
+        # Évaluation textuelle
+        e = ws.cell(row=r, column=4, value=" · ".join(cat["factors"]))
+        e.font      = _mk_font(size=10, color=_EC["neutral"])
+        e.fill      = _mk_fill(_EC["white"])
+        e.alignment = _mk_align(h="left", v="center", wrap=True)
+        e.border    = _mk_border("thin", _EC["border"])
+        # Jauge
+        _ec_gauge_bar(ws, r, 5, cat["score"], span=5)
+        # Statut
+        st = ws.cell(row=r, column=10, value=cat["status"].upper())
+        st.font      = _mk_font(bold=True, size=10, color=_EC["white"])
+        st.fill      = _mk_fill(cat["color"])
+        st.alignment = _mk_align(h="center", v="center")
+        st.border    = _mk_border("thin", _EC["border"])
+        _set_row_height(ws, r, 32)
+        r += 1
+
+    # Note explicative
+    r += 1
+    ws.merge_cells(f"B{r}:J{r+3}")
+    note = ws.cell(row=r, column=2, value=(
+        "Lecture du tableau\n"
+        "• Bon (≥85) : aucun blocage identifié, poursuivre la surveillance régulière.\n"
+        "• Vigilance (65-84) : points à examiner avant la prochaine itération du pipeline.\n"
+        "• Action (<65) : intervention requise — voir l'onglet Synthèse Exécutive pour les recommandations."
+    ))
+    note.font      = _mk_font(size=10, color=_EC["neutral"], italic=True)
+    note.fill      = _mk_fill(_EC["neutral_lt"])
+    note.alignment = _mk_align(h="left", v="top", wrap=True)
+    note.border    = _mk_border("thin", _EC["border"])
+    for rr in range(r, r + 4):
+        _set_row_height(ws, rr, 18)
+
+
 # ============================================================
 # FONCTION PRINCIPALE
 # ============================================================
 
 def generate_xlsx_report(state: dict, session_id: str) -> str:
-    """Genere un rapport Excel professionnel 10 feuilles pour decideurs."""
+    """
+    Génère un classeur Excel décisionnel professionnel.
+
+    Structure (14 feuilles ordonnées pour la consultation par un décideur) :
+      01 Couverture            — Page de garde + note globale + bloc validation
+      02 Sommaire              — Index cliquable de toutes les feuilles
+      03 Synthèse Exécutive    — Vue à 360° pour la direction (KPI, recommandations, risques)
+      04 Tableau de Décision   — Volumétrie + durées avec graphiques natifs
+      05 Scorecard Sante       — 5 domaines évalués avec jauges
+      06 Mesures et KPI        — Détail des mesures par dimension temporelle
+      07 Qualite Donnees       — 12 dimensions DQ avec alertes
+      08 Performance ETL       — Métriques par module ETL
+      09 Schema Etoile         — Description du modèle dimensionnel
+      10 Catalogue             — Tables, colonnes, descriptions, tags
+      11 Lignage               — Lineage colonne par colonne
+      12 Analyses              — Requêtes analytiques pré-construites
+      13 DDL                   — Script SQL complet
+      14 Journal               — Journal d'exécution détaillé
+    """
     from openpyxl import Workbook
 
     os.makedirs("outputs", exist_ok=True)
     xlsx_path = os.path.abspath(f"outputs/{session_id}_report.xlsx")
 
     wb = Workbook()
-
-    try:
-        _ws_dashboard(wb, state, session_id)
-    except Exception as e:
-        logger.warning(f"[XLSX] Dashboard error: {e}")
-
-    for fn, name in [
-        (_ws_measures_kpi,    "Mesures & KPI"),
-        (_ws_data_quality,    "Qualite Donnees"),
-        (_ws_star_schema,     "Schema Etoile"),
-        (_ws_etl_performance, "Performance ETL"),
-        (_ws_analytics,       "Analyses"),
-        (_ws_catalog,         "Catalogue"),
-        (_ws_lineage,         "Lignage"),
-        (_ws_ddl,             "DDL"),
-        (_ws_execution_log,   "Journal"),
-    ]:
+    # On supprime la feuille par défaut "Sheet" (les nouvelles sont créées avec create_sheet)
+    if "Sheet" in wb.sheetnames:
         try:
-            fn(wb, state)
-        except Exception as e:
-            logger.warning(f"[XLSX] Feuille '{name}' error: {e}", exc_info=True)
+            del wb["Sheet"]
+        except Exception:
+            pass
+
+    # ---- Index des feuilles (utilisé par le sommaire) ---------------------
+    sheet_index = [
+        ("01 Couverture",            "Tous publics",       "Page de garde, note globale, bloc de validation."),
+        ("02 Sommaire",              "Tous publics",       "Index cliquable de toutes les sections."),
+        ("03 Synthese Executive",    "Direction",          "Vue à 360°, KPI majeurs, recommandations et risques."),
+        ("04 Tableau de Decision",   "Direction métier",   "Volumétrie consolidée et durées d'exécution avec graphiques."),
+        ("05 Scorecard Sante",       "Direction métier",   "Évaluation détaillée par domaine (qualité, modèle, ETL, sécurité, performance)."),
+        ("06 Mesures & KPI",         "Analystes",          "Détail des mesures clés par axe d'analyse temporel."),
+        ("07 Qualite Donnees",       "Data Officer",       "Évaluation détaillée selon les douze dimensions de qualité."),
+        ("08 Performance ETL",       "Équipe technique",   "Métriques opérationnelles d'exécution ETL."),
+        ("09 Schema Etoile",         "Architectes",        "Description complète du modèle dimensionnel généré."),
+        ("10 Catalogue",             "Architectes",        "Catalogue des tables, colonnes, types et tags."),
+        ("11 Lignage",               "Data Officer",       "Traçabilité colonne par colonne, source vers cible."),
+        ("12 Analyses",              "Analystes",          "Requêtes analytiques prêtes à l'emploi."),
+        ("13 DDL",                   "Équipe technique",   "Script SQL complet de création du Data Warehouse."),
+        ("14 Journal",               "Équipe technique",   "Journal détaillé du déroulement du pipeline."),
+    ]
+
+    # ---- 1. Feuilles de tête (création + ordre) ---------------------------
+    try:
+        _ws_cover(wb, state, session_id)
+    except Exception as e:
+        logger.warning(f"[XLSX] Couverture error: {e}", exc_info=True)
 
     try:
-        wb.properties.title = "Rapport Data Warehouse"
-        wb.properties.subject = "Pipeline ETL - Rapport Decisionnel"
-        wb.properties.creator = "Agent Data Warehouse v3.0"
-        wb.properties.description = f"Session {session_id} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        wb.properties.keywords = "data warehouse ETL OLAP decision"
+        _ws_toc(wb, state, sheet_index)
+    except Exception as e:
+        logger.warning(f"[XLSX] Sommaire error: {e}", exc_info=True)
+
+    try:
+        _ws_executive_summary(wb, state, session_id)
+    except Exception as e:
+        logger.warning(f"[XLSX] Synthese exec error: {e}", exc_info=True)
+
+    try:
+        _ws_decision_dashboard(wb, state)
+    except Exception as e:
+        logger.warning(f"[XLSX] Tableau decision error: {e}", exc_info=True)
+
+    try:
+        _ws_scorecard(wb, state)
+    except Exception as e:
+        logger.warning(f"[XLSX] Scorecard error: {e}", exc_info=True)
+
+    # ---- 2. Feuilles de détail (existantes) renommées sans emojis --------
+    detail_sheets = [
+        (_ws_measures_kpi,    "06 Mesures & KPI"),
+        (_ws_data_quality,    "07 Qualite Donnees"),
+        (_ws_etl_performance, "08 Performance ETL"),
+        (_ws_star_schema,     "09 Schema Etoile"),
+        (_ws_catalog,         "10 Catalogue"),
+        (_ws_lineage,         "11 Lignage"),
+        (_ws_analytics,       "12 Analyses"),
+        (_ws_ddl,             "13 DDL"),
+        (_ws_execution_log,   "14 Journal"),
+    ]
+    for fn, target_name in detail_sheets:
+        try:
+            # Mémorise les feuilles existantes pour identifier celle créée par fn(...)
+            before = set(wb.sheetnames)
+            fn(wb, state)
+            after = set(wb.sheetnames)
+            new_sheets = after - before
+            for nm in new_sheets:
+                # Renomme avec le préfixe ordonné, en respectant les contraintes Excel
+                try:
+                    wb[nm].title = _sanitize_sheet_name(target_name)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"[XLSX] Feuille '{target_name}' error: {e}", exc_info=True)
+
+    # Si une feuille "Sheet" résiduelle subsiste, on la supprime
+    for name in list(wb.sheetnames):
+        if name.lower() in ("sheet", "feuille", "feuil1"):
+            try:
+                del wb[name]
+            except Exception:
+                pass
+
+    # ---- 3. Feuille active à l'ouverture : la couverture ------------------
+    try:
+        if "01 Couverture" in wb.sheetnames:
+            wb.active = wb.sheetnames.index("01 Couverture")
+    except Exception:
+        pass
+
+    # ---- 4. Métadonnées du document --------------------------------------
+    try:
+        wb.properties.title       = "Rapport Décisionnel — Data Warehouse"
+        wb.properties.subject     = "Pipeline d'intégration de données — vue décisionnelle"
+        wb.properties.creator     = "Agent Data Warehouse v3.0.1"
+        wb.properties.description = (
+            f"Rapport généré pour la session {session_id} le "
+            f"{datetime.now().strftime('%d/%m/%Y à %H:%M')}. "
+            "Présente la note globale du pipeline, les KPI majeurs, les recommandations "
+            "priorisées et les risques identifiés à destination de la direction."
+        )
+        wb.properties.keywords    = "data warehouse, pipeline ETL, qualité, décisionnel, KPI"
+        wb.properties.category    = "Rapport décisionnel"
+        wb.properties.lastModifiedBy = "Agent Data Warehouse"
     except Exception:
         pass
 
     wb.save(xlsx_path)
-    logger.info(f"[Export] XLSX premium genere : {xlsx_path}")
+    logger.info(f"[Export] XLSX décisionnel généré : {xlsx_path}")
     return xlsx_path
 
 

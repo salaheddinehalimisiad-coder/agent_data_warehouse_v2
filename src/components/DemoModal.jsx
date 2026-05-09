@@ -593,6 +593,7 @@ function MetricsDemoView() {
           <Activity size={14} /> DQ Score : 94%
         </span>
       </div>
+    
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {[
           { label: 'Completeness', val: '98%', color: '#34d399', bg: 'rgba(16,185,129,0.08)' },

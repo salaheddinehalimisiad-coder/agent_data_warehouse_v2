@@ -9,8 +9,9 @@ import {
   Sun, Moon, ChevronRight, TrendingUp, Lock, Eye, Gauge,
   Star, Users, Clock, Target, Lightbulb, ChevronDown, ChevronUp,
   Quote, ArrowUp, Menu, X, Monitor, FileJson, Server,
-  Figma, Table, MousePointer, ShieldCheck
+  Figma, Table, MousePointer, ShieldCheck, LogOut, User
 } from 'lucide-react';
+import { apiClient } from '../api/client';
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
 
 /* ── Animation variants ── */
@@ -66,12 +67,13 @@ function useCounter(end, duration = 2000) {
   return count;
 }
 
-export default function LandingPage({ onEnterDashboard, onSelectSource, user, onAuthOpen, onDocsOpen, onUseCaseOpen, isDarkMode, setIsDarkMode }) {
+export default function LandingPage({ onEnterDashboard, onSelectSource, user, onAuthOpen, onLogout, onProfile, onDocsOpen, onUseCaseOpen, isDarkMode, setIsDarkMode, profile }) {
   const [activeTab, setActiveTab] = useState('explorer');
   const [isPaused, setIsPaused] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState(null);
   const [showDemo, setShowDemo] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
   const { scrollYProgress } = useScroll();
   const showSticky = useTransform(scrollYProgress, [0.05, 0.15], [0, 1]);
@@ -216,7 +218,55 @@ export default function LandingPage({ onEnterDashboard, onSelectSource, user, on
             <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 rounded-xl border transition-all duration-300 hover:scale-105" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)', color: isDarkMode ? '#fbbf24' : '#6366f1' }} title={isDarkMode ? 'Mode Clair' : 'Mode Sombre'}>
               {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            {user ? null : (
+            {user ? (
+              <div className="relative">
+                <button
+                  onClick={() => setProfileMenuOpen(v => !v)}
+                  className="flex items-center justify-center w-9 h-9 rounded-full border overflow-hidden transition-all hover:scale-105"
+                  style={{ background: 'var(--bg-higher)', borderColor: 'var(--border-default)' }}
+                  title="Profil"
+                >
+                  {profile?.has_avatar ? (
+                    <img src={apiClient.getAvatarUrl(profile.user_id)} alt="avatar" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = 'none'; }} />
+                  ) : (
+                    <span className="text-[11px] font-bold" style={{ color: 'var(--text-primary)' }}>
+                      {(profile?.full_name || profile?.email || 'U').split(/\s+|@/).map(s => s[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()}
+                    </span>
+                  )}
+                </button>
+
+                {profileMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[150]" onClick={() => setProfileMenuOpen(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, y: -4, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      className="absolute top-11 right-0 z-[160] min-w-[200px] rounded-xl border shadow-xl overflow-hidden"
+                      style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-default)' }}
+                    >
+                      <div className="px-3.5 py-2.5 border-b" style={{ borderColor: 'var(--border-hair)' }}>
+                        <div className="text-[13px] font-bold" style={{ color: 'var(--text-primary)' }}>{profile?.full_name || profile?.email?.split('@')[0] || 'Utilisateur'}</div>
+                        <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>{profile?.email}</div>
+                      </div>
+                      <button
+                        onClick={() => { setProfileMenuOpen(false); onProfile?.(); }}
+                        className="flex items-center gap-2 w-full px-3.5 py-2.5 text-left text-[12px] font-medium transition-colors hover:bg-white/5"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        <User size={14} /> Mon espace
+                      </button>
+                      <button
+                        onClick={() => { setProfileMenuOpen(false); onLogout?.(); }}
+                        className="flex items-center gap-2 w-full px-3.5 py-2.5 text-left text-[12px] font-medium transition-colors hover:bg-red-500/5 border-t"
+                        style={{ color: '#ef4444', borderColor: 'var(--border-hair)' }}
+                      >
+                        <LogOut size={14} /> Se déconnecter
+                      </button>
+                    </motion.div>
+                  </>
+                )}
+              </div>
+            ) : (
               <button onClick={onAuthOpen} className="hidden sm:block text-sm font-semibold transition-colors" style={{ color: 'var(--text-secondary)' }}>Se connecter</button>
             )}
             <button onClick={onSelectSource} className="text-sm font-bold text-white px-5 py-2.5 rounded-full hover:opacity-90 transition-all active:scale-95 shadow-md" style={{ background: 'var(--grad-primary)', boxShadow: '0 2px 12px rgba(61,106,232,0.25)' }}>
