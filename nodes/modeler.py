@@ -74,19 +74,19 @@ def _to_tsql(dtype: str, col: str, role: str = 'attribute') -> str:
 
 # ── Prompt LLM enrichi ────────────────────────────────────────────────────────
 MODELER_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", """Tu es un Expert Architecte Data Warehouse Senior spécialisé en modélisation OLAP Kimball.
+    ("system", """Tu es un Expert Data Engineer spécialisé en architecture Data Warehouse Kimball et en T-SQL (SQL Server).
 
-Tu analyses une base de données OLTP relationnelle et tu dois concevoir le Star Schema Kimball optimal.
+Tu analyses une base de données OLTP relationnelle et tu dois concevoir le Star/Constellation Schema Kimball optimal.
 
 ## Processus obligatoire :
 1. **IDENTIFIER LA FACT TABLE** : table avec le plus de FK sortantes + métriques numériques + lignes
 2. **PATTERN HEADER/DÉTAIL** : si la best-fact table référence une autre table transactionnelle (ex: Orders),
-   fusionne-les en une seule fact_sales. La grain = la table de détail.
+   fusionne-les en une seule fact. La grain = la table de détail.
 3. **CRÉER UNE DIMENSION** par entité référencée (client, produit, employé, date, transporteur, fournisseur)
 4. **SNOWFLAKE → STAR** : si une dimension référence une autre table (Products→Categories),
    inclure les attributs de la table référencée dans la dimension (CategoryName, Description dans dim_product)
 5. **dim_date OBLIGATOIRE** avec hiérarchie complète
-6. **SCD Type 2** sur chaque dimension : valid_from DATE, valid_to DATE, is_current BIT
+6. **SCD Type 2** sur chaque dimension (sauf dim_date)
 
 ## Pour le domaine métier en cours :
 - Analyse les noms des tables pour déduire le domaine cible (Santé, Finance, E-commerce, Logistique, RH, etc.).
@@ -95,13 +95,37 @@ Tu analyses une base de données OLTP relationnelle et tu dois concevoir le Star
 - Identifie les métriques logiques (montants, quantités, durée, scores) respectives du domaine pour les inclure dans la table de faits.
 - Si pertinent, ajoute des métriques calculées logiques (ex: montant_total, cout_net, anciennete, etc.).
 
-## Règles strictes :
-- Préfixe fact_ pour la table de faits
-- Préfixe dim_ pour les dimensions
-- Surrogate key suffixe _sk, type BIGINT IDENTITY(1,1)
-- Pas de FK physiques sur la fact_ (INDEX seulement)
+## RÈGLES DE NOMMAGE ET PRÉFIXES (strictes) :
+- Toutes les tables : préfixe `dw_`
+- Dimensions : préfixe `dim_` → nom final `dw_dim_<entite>`
+- Faits : préfixe `fact_` → nom final `dw_fact_<domaine>`
+- Tables de rejets/quarantaine : préfixe `rejets_` → nom final `dw_rejets_<fact>`
+- Index Columnstore : préfixe `CCI_`
+- Index non-cluster : préfixe `idx_`
+- Contraintes CHECK : préfixe `CHK_`
+
+## RÈGLES DES DIMENSIONS (SCD Type 2) :
+- Clé primaire : `[nom_dimension_sans_prefix]_sk` de type `BIGINT IDENTITY(1,1)` (ex: pour dim_product → product_sk)
+- Champs SCD2 obligatoires : `valid_from DATE`, `valid_to DATE`, `is_current BIT DEFAULT 1`
+- Contrainte CHECK : `CHK_<dim>_Dates` vérifiant `valid_from < valid_to`
+- Index : `idx_<dim>_validity` sur `([valid_from], [valid_to]) INCLUDE ([is_current])`
+- Membres inconnus : insérer `-1` ('Unknown') et `-2` ('N/A') avec `SET IDENTITY_INSERT ON/OFF`
 - natural_key de la source doit rester dans chaque dimension
-- Identifier et lister les hiérarchies logiques (ex: category -> subcategory -> product) dans l'array "hierarchies" pour les dimensions concernées.
+
+## RÈGLES DES TABLES DE FAITS :
+- Clés étrangères : suffixe `_sk`, type `BIGINT`, référençant les dimensions
+- Index principal : `CLUSTERED COLUMNSTORE INDEX` nommé `CCI_dw_fact_<xxx>`
+- Index secondaire : un `NONCLUSTERED INDEX` individuel `idx_<fact>_<col>_sk` pour chaque colonne `_sk`
+- Pas de FK physiques (INDEX seulement)
+
+## RÈGLES DES TABLES DE REJETS (par fait) :
+- Nom : `dw_rejets_<nom_du_fait>`
+- Colonnes obligatoires : `reject_sk BIGINT IDENTITY(1,1) PRIMARY KEY`, `pipeline_run_id BIGINT NOT NULL DEFAULT -1`, `rejected_at DATETIME2 DEFAULT GETDATE()`, `error_reason NVARCHAR(500)`, `source_row_json NVARCHAR(MAX)`
+
+## RÈGLES D'IDEMPOTENCE :
+- Tout DDL doit être idempotent : `IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '...')` pour les tables
+- `IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = '...')` pour les contraintes
+- `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = '...')` pour les index
 
 ## FORMAT JSON OBLIGATOIRE (pur, sans markdown). CECI EST UN TEMPLATE GÉNÉRIQUE :
 {{
