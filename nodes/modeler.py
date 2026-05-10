@@ -1115,11 +1115,18 @@ def _build_dim(
 
     cols = [{"name": sk_name, "type": "BIGINT IDENTITY(1,1)", "role": "pk"}]
 
-    # Clé naturelle
+    # Clé naturelle — préserver le type source si disponible
     if nat_key:
+        nk_type = "NVARCHAR(50)"
+        for c in src_info.get("columns", []):
+            if c.get("name", "").lower() == nat_key.lower():
+                nk_src = c.get("dtype", c.get("type", ""))
+                if nk_src:
+                    nk_type = _to_tsql(nk_src, nat_key)
+                break
         cols.append({
             "name": nat_key.lower(),
-            "type": "NVARCHAR(50)",
+            "type": nk_type,
             "role": "attribute",
             "natural_key": True,
             "source_table": src_table,
@@ -1397,7 +1404,7 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
         "-- ============================================================\n",
     ]
 
-    def _col_def(col: dict) -> str:
+    def _col_def(col: dict, for_fact: bool = False) -> str:
         name  = col.get("name", "col")
         ctype = col.get("type", "NVARCHAR(255)")
         role  = col.get("role", "attribute")
@@ -1405,7 +1412,8 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
         ctype = ctype.replace("AUTO_INCREMENT", "").strip()
         ctype = ctype.replace("TINYINT(1)", "BIT")
         parts = [f"[{name}] {ctype}"]
-        if role == "pk":
+        # PK sur dimension = PRIMARY KEY ; sur fact = on laisse libre pour CCI
+        if role == "pk" and not for_fact:
             parts.append("PRIMARY KEY")
         return " ".join(parts)
 
@@ -1421,11 +1429,21 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
         lines.append(",\n".join(f"  {c}" for c in cols))
         lines.append(");\n")
 
-        # ── SCD2 : index filtré unique + index sur valid_from/valid_to ────────
+        # ── SCD2 : contrainte CHECK + index filtré unique + index validité ──────
         is_scd2 = dim.get("scd_type") == 2 or any(
             c.get("name") == "is_current" for c in dim.get("columns", [])
         )
         if is_scd2 and "dim_date" not in dim["name"]:
+            # Contrainte CHECK valid_from < valid_to
+            chk = f"CHK_{dim['name']}_Dates"
+            lines.append(
+                f"IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name='{chk}' "
+                f"AND parent_object_id=OBJECT_ID('{tname}'))"
+            )
+            lines.append(
+                f"ALTER TABLE [{tname}] ADD CONSTRAINT [{chk}] CHECK ([valid_from] < [valid_to]);"
+            )
+
             nk_col = dim.get("natural_key")
             if not nk_col:
                 nk_col = next(
@@ -1443,7 +1461,7 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
                     f"([{nk_col}]) WHERE [is_current] = 1;"
                 )
 
-            # Index sur la fenêtre temporelle : accélère les AS OF queries
+            # Index sur la fenêtre temporelle
             tidx = f"idx_{dim['name']}_validity"
             lines.append(
                 f"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='{tidx}' "
@@ -1454,19 +1472,50 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
                 f"([valid_from], [valid_to]) INCLUDE ([is_current]);\n"
             )
 
+            # Dummy records : Unknown (-1) et Not Applicable (-2)
+            has_identity = any("IDENTITY" in c.get("type", "") for c in dim.get("columns", []))
+            sk_col = next((c["name"] for c in dim.get("columns", []) if c.get("role") == "pk"), "sk")
+            lines.append(f"-- Membres inconnus : {dim['name']}")
+            if has_identity:
+                lines.append(f"SET IDENTITY_INSERT [{tname}] ON;")
+            lines.append(
+                f"IF NOT EXISTS (SELECT 1 FROM [{tname}] WHERE [{sk_col}] = -1)"
+                f" INSERT INTO [{tname}] ([{sk_col}],[{nk_col or 'natural_key'}],[valid_from],[valid_to],[is_current])"
+                f" VALUES (-1,'Unknown','1900-01-01','9999-12-31',1);"
+            )
+            lines.append(
+                f"IF NOT EXISTS (SELECT 1 FROM [{tname}] WHERE [{sk_col}] = -2)"
+                f" INSERT INTO [{tname}] ([{sk_col}],[{nk_col or 'natural_key'}],[valid_from],[valid_to],[is_current])"
+                f" VALUES (-2,'N/A','1900-01-01','9999-12-31',1);"
+            )
+            if has_identity:
+                lines.append(f"SET IDENTITY_INSERT [{tname}] OFF;")
+            lines.append("")
+
     # ── Tables de faits ──────────────────────────────────────────────────────
     for fact in fact_tables:
         if not fact:
             continue
         tname  = f"{prefix}_{fact['name']}"
-        cols   = [_col_def(c) for c in fact.get("columns", []) if c.get("role") != "computed"]
+        cols   = [_col_def(c, for_fact=True) for c in fact.get("columns", []) if c.get("role") != "computed"]
         source = ", ".join(fact.get("source_tables", [])) or fact["name"]
 
         lines.append(f"-- Fait : {fact['name']} (source : {source})")
+        lines.append("-- NOTE : freight vient de l'entête Orders. En ETL, allouer au prorata du")
+        lines.append("--         montant de ligne (unitprice * quantity) ou retirer si non allouable.")
         lines.append(f"IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '{tname}')")
         lines.append(f"CREATE TABLE [{tname}] (")
         lines.append(",\n".join(f"  {c}" for c in cols))
         lines.append(");\n")
+
+        # Clustered Columnstore Index (standard analytique SQL Server)
+        lines.append(
+            f"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='CCI_{tname}' "
+            f"AND object_id=OBJECT_ID('{tname}'))"
+        )
+        lines.append(
+            f"CREATE CLUSTERED COLUMNSTORE INDEX [CCI_{tname}] ON [{tname}];\n"
+        )
 
         # Index sur les FK
         fk_cols = [c["name"] for c in fact.get("columns", []) if c.get("role") == "fk"]
@@ -1484,6 +1533,7 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
         lines.append(f"IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '{reject_tname}')")
         lines.append(f"CREATE TABLE [{reject_tname}] (")
         lines.append("  [reject_sk] BIGINT IDENTITY(1,1) PRIMARY KEY,")
+        lines.append("  [pipeline_run_id] BIGINT NOT NULL DEFAULT -1,")
         lines.append("  [rejected_at] DATETIME2 DEFAULT GETDATE(),")
         lines.append("  [error_reason] NVARCHAR(500),")
         lines.append("  [source_row_json] NVARCHAR(MAX)")
