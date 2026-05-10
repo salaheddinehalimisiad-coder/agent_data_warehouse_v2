@@ -110,9 +110,10 @@ export default function FloatingChatWidget() {
               position: 'fixed', right: 20, bottom: 20, zIndex: 9990,
               width: 56, height: 56, borderRadius: '50%',
               border: 'none',
-              background: 'transparent',
-              boxShadow: 'none',
+              background: 'linear-gradient(135deg, #1a1a2e 0%, #0f0f1a 100%)',
+              boxShadow: '0 8px 32px rgba(99,102,241,0.25), 0 0 0 2px rgba(139,92,246,0.15)',
               justifyContent: 'center',
+              cursor: 'pointer',
             }}
           >
             <img src="/atlas.png" alt="Atlas" style={{ width: '100%', height: '100%', position: 'relative', zIndex: 2, borderRadius: '50%', objectFit: 'cover' }} />
@@ -192,6 +193,7 @@ export default function FloatingChatWidget() {
               width: dim.w, height: dim.h,
               maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100vh - 32px)',
               borderRadius: maximized ? 16 : 18,
+              backgroundColor: '#08080f',
               background: 'linear-gradient(180deg, #0d0d18 0%, #08080f 100%)',
               border: '1px solid rgba(139,92,246,0.18)',
               boxShadow: '0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04) inset, 0 0 60px rgba(139,92,246,0.1)',
