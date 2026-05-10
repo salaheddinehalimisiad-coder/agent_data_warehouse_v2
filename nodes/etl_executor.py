@@ -235,7 +235,7 @@ def etl_executor_node(state: AgentState) -> dict:
 #  DIMENSIONS — SCD Type 1 + SCD Type 2
 # ═════════════════════════════════════════════════════════════════════════════
 
-_MAX_ATTR_LEN = 450  # safe for NVARCHAR(450) / VARCHAR(450)
+_MAX_ATTR_LEN = 4000  # safe for NVARCHAR(MAX) long text fields
 
 def _safe_attr_val(raw) -> str:
     """Converts a raw cell value to a safe SQL string attribute.
@@ -493,78 +493,84 @@ def _load_dimension(engine, table_name: str, dim_model: dict, source_df, source_
 
 
 def _load_dim_date_from_source(engine, table_name: str, source_df) -> dict:
-    """Charge dim_date depuis les colonnes dates détectées (T-SQL MERGE)."""
+    """Charge dim_date depuis une plage calendaire complète + colonnes dates source."""
     import datetime
     from sqlalchemy import text
-
-    date_cols = [
-        c for c in source_df.columns
-        if "date" in c.lower() or (
-            source_df[c].dtype in ("datetime64[ns]", "object")
-            and _is_date_column(source_df[c])
-        )
-    ]
-
-    if not date_cols:
-        return {}
 
     sk_map: Dict[str, int] = {}
     dates_seen: set = set()
 
-    for dcol in date_cols[:1]:
-        try:
-            dates = pd.to_datetime(source_df[dcol], errors="coerce").dropna()
-            with engine.begin() as conn:
-                for d in dates.dt.date.unique():
-                    if d in dates_seen:
-                        continue
-                    dates_seen.add(d)
-                    key = str(d)
+    # ── 1. Plage calendaire par défaut (1990 → 2030) ──────────────────────────
+    calendar_dates = pd.date_range(start="1990-01-01", end="2030-12-31", freq="D").date
+    all_dates = set(calendar_dates)
 
-                    row = conn.execute(
-                        text(f"SELECT TOP 1 [date_sk] FROM [{table_name}] WHERE [date_full] = :d"),
-                        {"d": d}
-                    ).fetchone()
+    # ── 2. Ajouter les dates détectées dans la source ─────────────────────────
+    if source_df is not None and not source_df.empty:
+        date_cols = [
+            c for c in source_df.columns
+            if "date" in c.lower() or (
+                source_df[c].dtype in ("datetime64[ns]", "object")
+                and _is_date_column(source_df[c])
+            )
+        ]
+        for dcol in date_cols[:3]:
+            try:
+                src_dates = pd.to_datetime(source_df[dcol], errors="coerce").dropna().dt.date
+                all_dates.update(src_dates)
+            except Exception:
+                pass
 
-                    if row:
-                        sk_map[key] = row[0]
-                    else:
-                        dt = datetime.date.fromisoformat(key)
-                        iso = dt.isocalendar()
-                        conn.execute(text(f"""
-                            MERGE [{table_name}] AS Target
-                            USING (SELECT CAST(:df AS DATE) AS date_full) AS Source
-                            ON Target.[date_full] = Source.[date_full]
-                            WHEN NOT MATCHED THEN
-                                INSERT ([date_full],[year],[semester],[quarter],[month],[month_name],
-                                        [week],[day],[day_of_week],[day_name],[is_weekend],
-                                        [is_month_start],[is_month_end])
-                                VALUES (:df,:y,:sem,:q,:m,:mname,:w,:d2,:wd,:dname,:wkend,:mstart,:mend);
-                        """), {
-                            "df":     d,
-                            "y":      dt.year,
-                            "sem":    1 if dt.month <= 6 else 2,
-                            "q":      (dt.month - 1) // 3 + 1,
-                            "m":      dt.month,
-                            "mname":  dt.strftime("%B"),
-                            "w":      iso[1],
-                            "d2":     dt.day,
-                            "wd":     dt.isoweekday(),           # 1=Mon … 7=Sun
-                            "dname":  dt.strftime("%A"),
-                            "wkend":  1 if dt.weekday() >= 5 else 0,
-                            "mstart": 1 if dt.day == 1 else 0,
-                            "mend":   1 if (dt + datetime.timedelta(days=1)).month != dt.month else 0,
-                        })
+    # ── 3. Insérer / merger toutes les dates ──────────────────────────────────
+    with engine.begin() as conn:
+        for d in sorted(all_dates):
+            if d in dates_seen:
+                continue
+            dates_seen.add(d)
+            key = str(d)
 
-                        row2 = conn.execute(
-                            text(f"SELECT TOP 1 [date_sk] FROM [{table_name}] WHERE [date_full] = :d"),
-                            {"d": d}
-                        ).fetchone()
-                        if row2:
-                            sk_map[key] = row2[0]
-        except Exception as e:
-            logger.debug(f"[ETL] dim_date load : {e}")
+            row = conn.execute(
+                text(f"SELECT TOP 1 [date_sk] FROM [{table_name}] WHERE [date_full] = :d"),
+                {"d": d}
+            ).fetchone()
 
+            if row:
+                sk_map[key] = row[0]
+            else:
+                dt = d if isinstance(d, datetime.date) else datetime.date.fromisoformat(key)
+                iso = dt.isocalendar()
+                conn.execute(text(f"""
+                    MERGE [{table_name}] AS Target
+                    USING (SELECT CAST(:df AS DATE) AS date_full) AS Source
+                    ON Target.[date_full] = Source.[date_full]
+                    WHEN NOT MATCHED THEN
+                        INSERT ([date_full],[year],[semester],[quarter],[month],[month_name],
+                                [week],[day],[day_of_week],[day_name],[is_weekend],
+                                [is_month_start],[is_month_end])
+                        VALUES (:df,:y,:sem,:q,:m,:mname,:w,:d2,:wd,:dname,:wkend,:mstart,:mend);
+                """), {
+                    "df":     d,
+                    "y":      dt.year,
+                    "sem":    1 if dt.month <= 6 else 2,
+                    "q":      (dt.month - 1) // 3 + 1,
+                    "m":      dt.month,
+                    "mname":  dt.strftime("%B"),
+                    "w":      iso[1],
+                    "d2":     dt.day,
+                    "wd":     dt.isoweekday(),
+                    "dname":  dt.strftime("%A"),
+                    "wkend":  1 if dt.weekday() >= 5 else 0,
+                    "mstart": 1 if dt.day == 1 else 0,
+                    "mend":   1 if (dt + datetime.timedelta(days=1)).month != dt.month else 0,
+                })
+
+                row2 = conn.execute(
+                    text(f"SELECT TOP 1 [date_sk] FROM [{table_name}] WHERE [date_full] = :d"),
+                    {"d": d}
+                ).fetchone()
+                if row2:
+                    sk_map[key] = row2[0]
+
+    logger.info(f"[ETL] dim_date loaded : {len(sk_map)} dates (plage {min(dates_seen)} → {max(dates_seen)})")
     return sk_map
 
 

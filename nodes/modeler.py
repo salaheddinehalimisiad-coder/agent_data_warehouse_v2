@@ -66,6 +66,9 @@ def _to_tsql(dtype: str, col: str, role: str = 'attribute') -> str:
         if any(x in t for x in ('tinyint', 'smallint', 'int', 'integer', 'bigint')):
             return 'INT'
         return 'DECIMAL(15,4)'
+    # Types texte longs → NVARCHAR(MAX)
+    if any(x in t for x in ('text', 'memo', 'clob', 'blob', 'longvarchar', 'longchar', 'ntext', 'longtext')):
+        return 'NVARCHAR(MAX)'
     return 'NVARCHAR(255)'
 
 
