@@ -11,7 +11,7 @@
 //   • Accessibilité : ARIA roles, labels, live regions
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  Send, Square, Copy, Check, Bot, Sparkles, Plus, Search,
+  Send, Square, Copy, Check, Sparkles, Plus, Search,
   RotateCcw, ThumbsUp, ThumbsDown, Trash2, Download,
   ChevronDown, MessageSquare, X, Wifi, WifiOff,
   Pencil, Pin, Edit3, MoreHorizontal, PanelLeftClose, PanelLeftOpen
@@ -214,7 +214,7 @@ function AtlasMark({ size = 28 }) {
         boxShadow: '0 4px 12px rgba(139,92,246,0.35), inset 0 0 0 1px rgba(255,255,255,0.08)',
       }}
     >
-      <Bot size={size * 0.55} strokeWidth={2.2} className="text-white" />
+      <img src="/atlas.png" alt="Atlas" style={{ width: size * 0.55, height: size * 0.55, borderRadius: 4, objectFit: 'cover' }} />
     </div>
   );
 }

@@ -12,7 +12,7 @@
 import React, { useEffect, useRef, useState, lazy, Suspense, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Bot, X, Minimize2, Maximize2, Sparkles, Zap, Loader2,
+  X, Minimize2, Maximize2, Sparkles, Zap, Loader2,
   ArrowDownRight, ArrowUpLeft, MessageSquarePlus
 } from 'lucide-react';
 import { usePipelineStore } from '../store/pipelineStore';
@@ -128,7 +128,7 @@ export default function FloatingChatWidget() {
               }}
               aria-hidden="true"
             />
-            <Bot size={24} strokeWidth={2.2} style={{ position: 'relative', zIndex: 2 }} />
+            <img src="/atlas.png" alt="Atlas" style={{ width: 28, height: 28, position: 'relative', zIndex: 2, borderRadius: '50%', objectFit: 'cover' }} />
 
             {/* Badge unread */}
             <AnimatePresence>
@@ -230,7 +230,7 @@ export default function FloatingChatWidget() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 boxShadow: '0 4px 10px rgba(139,92,246,0.3)',
               }}>
-                <Bot size={14} color="white" strokeWidth={2} />
+                <img src="/atlas.png" alt="Atlas" style={{ width: 18, height: 18, borderRadius: 4, objectFit: 'cover' }} />
                 <span style={{
                   position: 'absolute', bottom: -2, right: -2,
                   width: 9, height: 9, borderRadius: '50%',
