@@ -103,7 +103,7 @@ function CodeBlock({ code, lang = 'sql' }) {
     setCopied(true); setTimeout(() => setCopied(false), 1400);
   });
   return (
-    <div className="my-3 rounded-xl overflow-hidden border border-white/[0.06] bg-[#0b0b10]">
+    <div className="my-3 rounded-xl overflow-hidden border border-white/[0.08] bg-[#141420]">
       <div className="flex items-center justify-between px-3 h-7 bg-white/[0.025]">
         <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-[0.18em]">{lang}</span>
         <button
@@ -150,8 +150,8 @@ function MarkdownContent({ content }) {
     const html = text
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/`([^`]+?)`/g, '<code class="px-1.5 py-0.5 rounded bg-white/[0.06] text-violet-200 font-mono text-[12.5px]">$1</code>')
-      .replace(/\*\*([^*]+?)\*\*/g, '<strong class="font-semibold text-zinc-50">$1</strong>')
-      .replace(/(?:^|\s)\*([^*\n]+?)\*(?=\s|$)/g, ' <em class="text-zinc-300 italic">$1</em>')
+      .replace(/\*\*([^*]+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
+      .replace(/(?:^|\s)\*([^*\n]+?)\*(?=\s|$)/g, ' <em class="text-zinc-200 italic">$1</em>')
       .replace(/\[([^\]]+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a class="text-violet-300 hover:text-violet-200 underline-offset-2 hover:underline" href="$2" target="_blank" rel="noopener">$1</a>');
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
   };
@@ -165,8 +165,8 @@ function MarkdownContent({ content }) {
       if (!listBuffer) return;
       const Tag = listBuffer.type;
       blocks.push(
-        <Tag key={`list-${blocks.length}`} className={`my-2 ${listBuffer.type === 'ul' ? 'list-disc' : 'list-decimal'} pl-5 space-y-1.5 marker:text-zinc-500`}>
-          {listBuffer.items.map((it, i) => <li key={i} className="text-zinc-300 leading-[1.7]">{renderInline(it)}</li>)}
+        <Tag key={`list-${blocks.length}`} className={`my-2 ${listBuffer.type === 'ul' ? 'list-disc' : 'list-decimal'} pl-5 space-y-1.5 marker:text-zinc-400`}>
+          {listBuffer.items.map((it, i) => <li key={i} className="text-zinc-100 leading-[1.7]">{renderInline(it)}</li>)}
         </Tag>
       );
       listBuffer = null;
@@ -175,26 +175,26 @@ function MarkdownContent({ content }) {
     lines.forEach((raw, i) => {
       const line = raw.replace(/\s+$/, '');
       if (!line.trim()) { flushList(); return; }
-      if (/^### /.test(line))      { flushList(); blocks.push(<h3 key={i} className="mt-4 mb-1.5 text-[15px] font-semibold text-zinc-50">{renderInline(line.slice(4))}</h3>); return; }
-      if (/^## /.test(line))       { flushList(); blocks.push(<h2 key={i} className="mt-4 mb-2 text-[16.5px] font-semibold text-zinc-50">{renderInline(line.slice(3))}</h2>); return; }
-      if (/^# /.test(line))        { flushList(); blocks.push(<h1 key={i} className="mt-4 mb-2 text-[18px] font-semibold text-zinc-50">{renderInline(line.slice(2))}</h1>); return; }
+      if (/^### /.test(line))      { flushList(); blocks.push(<h3 key={i} className="mt-4 mb-1.5 text-[15px] font-semibold text-white">{renderInline(line.slice(4))}</h3>); return; }
+      if (/^## /.test(line))       { flushList(); blocks.push(<h2 key={i} className="mt-4 mb-2 text-[16.5px] font-semibold text-white">{renderInline(line.slice(3))}</h2>); return; }
+      if (/^# /.test(line))        { flushList(); blocks.push(<h1 key={i} className="mt-4 mb-2 text-[18px] font-semibold text-white">{renderInline(line.slice(2))}</h1>); return; }
       const ulMatch = line.match(/^\s*[-*•]\s+(.*)$/);
       const olMatch = line.match(/^\s*\d+\.\s+(.*)$/);
       if (ulMatch) { if (!listBuffer || listBuffer.type !== 'ul') { flushList(); listBuffer = { type: 'ul', items: [] }; } listBuffer.items.push(ulMatch[1]); return; }
       if (olMatch) { if (!listBuffer || listBuffer.type !== 'ol') { flushList(); listBuffer = { type: 'ol', items: [] }; } listBuffer.items.push(olMatch[1]); return; }
       flushList();
       if (/^>\s/.test(line)) {
-        blocks.push(<blockquote key={i} className="my-2 pl-3 border-l-2 border-violet-500/35 text-zinc-400 italic">{renderInline(line.slice(2))}</blockquote>);
+        blocks.push(<blockquote key={i} className="my-2 pl-3 border-l-2 border-violet-500/35 text-zinc-300 italic">{renderInline(line.slice(2))}</blockquote>);
         return;
       }
-      blocks.push(<p key={i} className="text-zinc-300 leading-[1.75]">{renderInline(line)}</p>);
+      blocks.push(<p key={i} className="text-zinc-100 leading-[1.75]">{renderInline(line)}</p>);
     });
     flushList();
     return <div className="space-y-2">{blocks}</div>;
   };
 
   return (
-    <div className="text-[14.5px]">
+    <div className="text-[14.5px] text-zinc-100">
       {parts.map((p, i) => p.type === 'code'
         ? <CodeBlock key={i} code={p.code} lang={p.lang} />
         : <div key={i}>{renderProse(p.text)}</div>
