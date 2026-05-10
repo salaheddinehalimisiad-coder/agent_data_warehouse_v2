@@ -745,8 +745,8 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Atlas floating chat — hidden on profile ── */}
-      {activeMainView !== 'profile' && appView === 'dashboard' && (
+      {/* ── Atlas floating chat — only after pipeline starts ── */}
+      {activeMainView !== 'profile' && appView === 'dashboard' && pipelineStatus !== 'idle' && (
         <Suspense fallback={null}>
           <FloatingChatWidget />
         </Suspense>
