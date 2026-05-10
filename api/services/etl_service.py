@@ -496,6 +496,9 @@ _MODIFY_KEYWORDS = (
     # Spécifiques DW
     "fact_", "dim_", "primary key", "foreign key", "scd", "surrogate",
     "colonne ", "column ", "table ", "champ ", "field ",
+    # Conventions / naming
+    "préfixe", "prefixe", "prefix ", "convention", "nommage", "naming",
+    "règle", "regle", "rule", "corrige", "correction", "applique",
 )
 
 # Mots-clés qui indiquent une question / conversation

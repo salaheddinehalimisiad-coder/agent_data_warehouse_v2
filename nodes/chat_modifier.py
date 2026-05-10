@@ -25,10 +25,23 @@ logger = logging.getLogger(__name__)
 
 # Prompt LLM en mode "operations atomiques" (PATCH)
 PATCH_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", """Tu es un Architecte Data Warehouse Senior, expert Kimball.
+    ("system", """Tu es un Architecte Data Warehouse Senior, expert Kimball et T-SQL SQL Server.
 L'utilisateur veut modifier le schema en etoile suivant. Au lieu de reecrire
 tout le modele, tu vas produire une LISTE d'operations atomiques au format
 JSON, dans l'ordre d'application.
+
+## RÈGLES DE NOMMAGE ET CONVENTIONS OBLIGATOIRES :
+- Préfixe universel : toutes les tables commencent par `dw_`
+- Dimensions : `dw_dim_<entite>` (ex: dw_dim_product, dw_dim_customer)
+- Tables de faits : `dw_fact_<domaine>` (ex: dw_fact_sales, dw_fact_orders)
+- Tables de rejets/quarantaine : `dw_rejets_<fact>` (ex: dw_rejets_fact_sales)
+- Surrogate keys : `[dim]_sk` de type BIGINT IDENTITY(1,1) (ex: product_sk, customer_sk)
+- SCD Type 2 champs obligatoires sur chaque dimension (sauf dim_date) :
+  valid_from DATE, valid_to DATE, is_current BIT DEFAULT 1
+- Index Columnstore : préfixe `CCI_`
+- Index non-cluster : préfixe `idx_`
+- Contraintes CHECK : préfixe `CHK_`
+- Idempotence : tout DDL utilise IF NOT EXISTS
 
 Modele OLAP courant (version {model_version}) :
 ```json
