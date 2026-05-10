@@ -110,25 +110,12 @@ export default function FloatingChatWidget() {
               position: 'fixed', right: 20, bottom: 20, zIndex: 9990,
               width: 56, height: 56, borderRadius: '50%',
               border: 'none',
-              background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%)',
-              boxShadow: isWorking
-                ? '0 12px 36px rgba(139,92,246,0.55), 0 0 0 1px rgba(255,255,255,0.06) inset'
-                : '0 8px 28px rgba(139,92,246,0.4), 0 0 0 1px rgba(255,255,255,0.06) inset',
+              background: 'transparent',
+              boxShadow: 'none',
               justifyContent: 'center',
             }}
           >
-            {/* Halo pulsant */}
-            <motion.span
-              animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
-              transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
-              style={{
-                position: 'absolute', inset: -6, borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(139,92,246,0.55), transparent 65%)',
-                pointerEvents: 'none',
-              }}
-              aria-hidden="true"
-            />
-            <img src="/atlas.png" alt="Atlas" style={{ width: 28, height: 28, position: 'relative', zIndex: 2, borderRadius: '50%', objectFit: 'cover' }} />
+            <img src="/atlas.png" alt="Atlas" style={{ width: '100%', height: '100%', position: 'relative', zIndex: 2, borderRadius: '50%', objectFit: 'cover' }} />
 
             {/* Badge unread */}
             <AnimatePresence>

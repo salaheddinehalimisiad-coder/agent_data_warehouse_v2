@@ -828,10 +828,10 @@ export default function ChatInterface({ embedded = false }) {
 
           <div className={`max-w-3xl mx-auto ${isEmpty ? 'pb-8' : ''}`}>
             <div
-              className={`relative rounded-3xl transition-all bg-[#101015] ${
+              className={`relative rounded-3xl transition-all bg-white ${
                 inputOver
-                  ? 'border border-rose-500/40 shadow-[0_0_0_3px_rgba(244,63,94,0.08)]'
-                  : 'border border-white/[0.06] focus-within:border-white/[0.14] focus-within:shadow-[0_8px_24px_rgba(0,0,0,0.5),0_0_0_3px_rgba(139,92,246,0.08)]'
+                  ? 'border border-rose-400 shadow-[0_0_0_3px_rgba(244,63,94,0.08)]'
+                  : 'border border-slate-200 focus-within:border-violet-300 focus-within:shadow-[0_8px_24px_rgba(0,0,0,0.08),0_0_0_3px_rgba(139,92,246,0.06)]'
               }`}
             >
               <label htmlFor="atlas-input" className="sr-only">Message pour Atlas</label>
@@ -851,7 +851,7 @@ export default function ChatInterface({ embedded = false }) {
                 placeholder={canChat ? 'Demandez à Atlas…' : 'Connectez une source pour démarrer'}
                 rows={1}
                 aria-label="Saisir votre message"
-                className="w-full bg-transparent text-[14.5px] leading-[1.55] text-zinc-100 placeholder:text-zinc-500 px-5 pt-4 pb-12 resize-none focus:outline-none disabled:cursor-not-allowed"
+                className="w-full bg-transparent text-[14.5px] leading-[1.55] text-slate-800 placeholder:text-slate-400 px-5 pt-4 pb-12 resize-none focus:outline-none disabled:cursor-not-allowed"
                 style={{ maxHeight: 220 }}
               />
 
@@ -866,10 +866,10 @@ export default function ChatInterface({ embedded = false }) {
                       exit={{ opacity: 0 }}
                       className="text-[10px] text-zinc-600 pointer-events-auto select-none flex items-center gap-1.5"
                     >
-                      <kbd className="px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/[0.05] text-[9.5px] text-zinc-400 font-mono">↵</kbd>
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[9.5px] text-slate-500 font-mono">↵</kbd>
                       <span>envoyer</span>
-                      <span className="text-zinc-700">·</span>
-                      <kbd className="px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/[0.05] text-[9.5px] text-zinc-400 font-mono">⇧↵</kbd>
+                      <span className="text-slate-300">·</span>
+                      <kbd className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[9.5px] text-slate-500 font-mono">⇧↵</kbd>
                       <span>nouvelle ligne</span>
                     </motion.div>
                   )}
@@ -880,7 +880,7 @@ export default function ChatInterface({ embedded = false }) {
                 {/* Compteur (apparaît seulement si > 80%) + bouton envoi */}
                 <div className="flex items-center gap-2.5 pointer-events-auto ml-auto">
                   {showCounter && (
-                    <span className={`text-[10.5px] font-mono tabular-nums ${inputOver ? 'text-rose-400' : 'text-zinc-500'}`}>
+                    <span className={`text-[10.5px] font-mono tabular-nums ${inputOver ? 'text-rose-500' : 'text-slate-400'}`}>
                       {inputCount}/{MAX_INPUT_CHARS}
                     </span>
                   )}
