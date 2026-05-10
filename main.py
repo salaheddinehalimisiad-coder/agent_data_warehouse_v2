@@ -113,9 +113,17 @@ def route_after_critic(state: AgentState) -> str:
 
 def route_after_chat_modifier(state: AgentState) -> str:
     """
-    Après chat_modifier : toujours repasser par critic pour re-valider les changements,
-    que critic_approved ait été True ou False avant. Le critic reset critic_approved.
+    Après chat_modifier : repasser par critic UNIQUEMENT si le modèle est valide.
+    Si le modèle est vide/invalide, forcer human_review pour éviter boucle infinie.
     """
+    logical_model = state.get("logical_model", {})
+    has_fact = logical_model.get("fact_table") or logical_model.get("fact_tables")
+    if not logical_model or not has_fact:
+        logger.error(
+            "[Router] ChatModifier a laissé un modèle VIDE — "
+            "forçage vers human_review pour éviter boucle infinie"
+        )
+        return "human_review"
     logger.info("[Router] ChatModifier → critic (re-validation)")
     return "critic"
 

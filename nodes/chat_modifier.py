@@ -18,7 +18,7 @@ from app_state import AgentState
 from langchain_core.prompts import ChatPromptTemplate
 
 from nodes.llm_factory import call_with_retry, extract_text, get_llm, get_llm_strict, get_human_review_llm
-from nodes.modeler import _generate_ddl, _parse_json
+from nodes.modeler import _generate_ddl, _is_valid_schema_model, _parse_json
 
 logger = logging.getLogger(__name__)
 
@@ -670,9 +670,22 @@ def chat_modifier_node(state: AgentState) -> dict:
 
 
     if not user_request:
-        return {"is_validated": None, "execution_log": ["[ChatModifier] SKIP - aucune demande"]}
+        # Force critic_approved=True pour sortir de la boucle critic→chat_modifier
+        # et aller à human_review. Sinon on boucle indéfiniment car MAX_CRITIC_LOOPS
+        # ne compte pas les SKIP (logical_model_version n'est pas incrémenté).
+        return {
+            "is_validated": None,
+            "logical_model_version": next_ver,
+            "critic_approved": True,
+            "execution_log": ["[ChatModifier] SKIP - aucune demande, forçage vers validation"],
+        }
     if not current_model or not _all_fact_tables(current_model):
-        return {"is_validated": None, "execution_log": ["[ChatModifier] SKIP - modele absent"]}
+        return {
+            "is_validated": None,
+            "logical_model_version": next_ver,
+            "critic_approved": True,
+            "execution_log": ["[ChatModifier] SKIP - modele absent, forçage vers validation"],
+        }
 
     new_model = None
     change_summary = ""
@@ -747,6 +760,17 @@ def chat_modifier_node(state: AgentState) -> dict:
             change_summary = det_summary
             used_strategy = "deterministic-regex"
             apply_log = [f"  [+] {det_summary}"]
+
+    # Validation cruciale : le modèle modifié doit toujours être un schéma OLAP valide
+    if new_model is not None and not _is_valid_schema_model(new_model):
+        logger.error(
+            f"[ChatModifier] Le modèle après ops est INVALIDE — "
+            f"fact_table={bool(new_model.get('fact_table'))}, "
+            f"fact_tables={len(new_model.get('fact_tables', []))}, "
+            f"dims={len(new_model.get('dimension_tables', []))}. "
+            f"Les ops ont cassé le schéma. Traité comme échec."
+        )
+        new_model = None
 
     if new_model is None:
         # Build a more informative failure message that surfaces the LLM rejection
