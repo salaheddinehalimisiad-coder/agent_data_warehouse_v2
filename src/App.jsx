@@ -599,7 +599,7 @@ export default function App() {
           </header>
 
           {/* ── Body ── */}
-          <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
 
             {/* ── Left Sidebar ── */}
             {activeMainView !== 'profile' && (
