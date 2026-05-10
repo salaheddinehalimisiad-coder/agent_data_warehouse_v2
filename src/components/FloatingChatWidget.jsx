@@ -114,8 +114,7 @@ export default function FloatingChatWidget() {
               boxShadow: isWorking
                 ? '0 12px 36px rgba(139,92,246,0.55), 0 0 0 1px rgba(255,255,255,0.06) inset'
                 : '0 8px 28px rgba(139,92,246,0.4), 0 0 0 1px rgba(255,255,255,0.06) inset',
-              color: 'white', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              justifyContent: 'center',
             }}
           >
             {/* Halo pulsant */}
@@ -226,95 +225,53 @@ export default function FloatingChatWidget() {
               {/* Avatar */}
               <div style={{
                 position: 'relative',
-                width: 30, height: 30, borderRadius: 9,
-                background: 'linear-gradient(135deg, #6366f1, #8b5cf6, #d946ef)',
+                width: 28, height: 28, borderRadius: 8,
+                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(139,92,246,0.35)',
+                boxShadow: '0 4px 10px rgba(139,92,246,0.3)',
               }}>
-                <Bot size={16} color="white" strokeWidth={2.3} />
+                <Bot size={14} color="white" strokeWidth={2} />
                 <span style={{
                   position: 'absolute', bottom: -2, right: -2,
-                  width: 10, height: 10, borderRadius: '50%',
+                  width: 9, height: 9, borderRadius: '50%',
                   background: !isOnline ? '#f43f5e' : isWorking ? '#f59e0b' : hasReview ? '#f59e0b' : '#10b981',
                   border: '2px solid #0d0d18',
                   animation: (isWorking || hasReview) ? 'atlas-pulse 1.4s infinite' : 'none',
                 }} />
               </div>
 
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <h3
-                  id="atlas-panel-title"
-                  style={{
-                    margin: 0, fontSize: 13.5, fontWeight: 700, color: 'white',
-                    letterSpacing: '-0.01em',
-                    display: 'flex', alignItems: 'center', gap: 5,
-                  }}
-                >
-                  Atlas
-                  <Sparkles size={10} style={{ color: '#a78bfa' }} aria-hidden="true" />
-                </h3>
-                <p
-                  role="status"
-                  aria-live="polite"
-                  style={{
-                    margin: 0, fontSize: 10, color: '#9ca3b3',
-                    letterSpacing: '0.02em',
-                    display: 'flex', alignItems: 'center', gap: 4,
-                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  }}
-                >
-                  <span style={{
-                    display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-                    background: !isOnline ? '#f43f5e' : isWorking ? '#f59e0b' : '#10b981',
-                  }} />
-                  {!isOnline ? 'Hors ligne'
-                    : isWorking ? `Module ${currentAgent || 'pipeline'} en cours…`
-                    : hasReview ? 'Validation requise'
-                    : 'Architecte ETL · disponible'}
-                </p>
-              </div>
+              <h3
+                id="atlas-panel-title"
+                style={{
+                  margin: 0, fontSize: 13, fontWeight: 700, color: 'white',
+                  letterSpacing: '-0.01em',
+                  flex: 1, minWidth: 0,
+                }}
+              >
+                Atlas
+              </h3>
 
               {/* Boutons header */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                {/* Sélecteur de taille (visible quand non maximisé) */}
-                {!maximized && (
-                  <select
-                    value={size}
-                    onChange={(e) => setSize(e.target.value)}
-                    aria-label="Taille du panneau"
-                    style={{
-                      ...iconBtnStyle,
-                      width: 'auto', padding: '0 8px',
-                      fontSize: 10.5, fontWeight: 700, letterSpacing: '0.04em',
-                      textTransform: 'uppercase',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <option value="compact">Compact</option>
-                    <option value="normal">Normal</option>
-                    <option value="large">Large</option>
-                  </select>
-                )}
-
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                 <button
                   onClick={() => setMaximized(m => !m)}
                   title={maximized ? 'Réduire' : 'Plein écran'}
-                  aria-label={maximized ? 'Réduire le panneau' : 'Agrandir en plein écran'}
+                  aria-label={maximized ? 'Réduire' : 'Plein écran'}
                   style={iconBtnStyle}
                   onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#cbd5e1'; }}
                 >
-                  {maximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                  {maximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
                 </button>
                 <button
                   onClick={() => setOpen(false)}
                   title="Fermer (Esc)"
-                  aria-label="Fermer le panneau"
+                  aria-label="Fermer"
                   style={iconBtnStyle}
                   onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(244,63,94,0.15)'; e.currentTarget.style.color = '#fda4af'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#cbd5e1'; }}
                 >
-                  <X size={14} />
+                  <X size={13} />
                 </button>
               </div>
             </header>

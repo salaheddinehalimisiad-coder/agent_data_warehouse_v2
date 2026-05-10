@@ -145,6 +145,17 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "z-ai/glm-4.5")
 
+# ─── DeepSeek (priorité 1 si la clé est fournie) ─────────────────────────────
+# Endpoint OpenAI-compatible : https://api.deepseek.com/v1
+# Modèles supportés :
+#   - deepseek-chat      (DeepSeek-V3, généraliste, défaut)
+#   - deepseek-reasoner  (DeepSeek-R1, raisonnement avancé)
+DEEPSEEK_API_KEY  = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+DEEPSEEK_MODEL    = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "8192"))
+DEEPSEEK_TIMEOUT    = int(os.getenv("DEEPSEEK_TIMEOUT", "120"))
+
 
 class BlazeChatModel(BaseChatModel):
     """Custom LangChain LLM wrapping Blaze API via direct requests.
@@ -301,6 +312,26 @@ class OpenAICompatibleChatModel(BaseChatModel):
         return f"openai-compat:{self.provider_name}"
 
 
+def _build_deepseek_llm(temperature: float, max_tokens: int = None,
+                        model: str = None) -> Optional["OpenAICompatibleChatModel"]:
+    """Construit un client DeepSeek (OpenAI-compatible).
+
+    Renvoie None si la clé n'est pas configurée.
+    """
+    if not DEEPSEEK_API_KEY:
+        return None
+    return OpenAICompatibleChatModel(
+        model=model or DEEPSEEK_MODEL,
+        api_key=DEEPSEEK_API_KEY,
+        base_url=DEEPSEEK_BASE_URL,
+        temperature=temperature,
+        max_tokens=max_tokens or DEEPSEEK_MAX_TOKENS,
+        timeout=DEEPSEEK_TIMEOUT,
+        top_p=0.95,
+        provider_name="DeepSeek",
+    )
+
+
 def _next_glm5_key():
     """Round-robin sur la liste des cles GLM-5 (rotation pour distribuer la charge)."""
     global _GLM5_KEY_INDEX
@@ -358,18 +389,33 @@ except NameError:
 def get_llm(temperature: float = 0.1, task_type: str = "default") -> Any:
     """
     Sélectionne automatiquement le meilleur LLM disponible :
-    1. Blaze GLM-5 (cloud) — priorité 1, haute performance, large contexte
-    2. Ollama local — priorité 2, fallback offline
-    3. FakeChatModel — dernier recours
+    1. DeepSeek (cloud) — priorité 1 si la clé est fournie
+    2. Blaze GLM-5 (cloud) — priorité 2
+    3. Ollama local — priorité 3, fallback offline
+    4. FakeChatModel — dernier recours
 
     task_type : "default" | "code" | "analysis"
     - "code"     : ETL, dbt, Airflow, healer, modeler → temperature basse (0.0-0.05)
     - "analysis" : DQ, governance, explorer, critic   → température moyenne (0.1-0.2)
     - "default"  : général                             → température fournie
     """
-    # ── Priorité 1 : Blaze GLM-5 (cloud) ──────────────────────────────────────
     effective_temp = _adjust_temperature(temperature, task_type)
 
+    # ── Priorité 1 : DeepSeek (cloud, OpenAI-compatible) ──────────────────────
+    if DEEPSEEK_API_KEY:
+        try:
+            ds_llm = _build_deepseek_llm(effective_temp, max_tokens=DEEPSEEK_MAX_TOKENS)
+            if ds_llm and _test_llm_connection(ds_llm, timeout=15):
+                logger.info(
+                    f"[LLM] ✅ Route DeepSeek : {DEEPSEEK_MODEL} @ {DEEPSEEK_BASE_URL} "
+                    f"(task={task_type}, temp={effective_temp}, max_tokens={DEEPSEEK_MAX_TOKENS})"
+                )
+                return ds_llm
+            logger.warning("[LLM] DeepSeek indisponible — fallback Blaze GLM-5")
+        except Exception as e:
+            logger.warning(f"[LLM] DeepSeek connexion échouée ({type(e).__name__}) : {e} — fallback Blaze GLM-5")
+
+    # ── Priorité 2 : Blaze GLM-5 (cloud) ──────────────────────────────────────
     try:
         llm = BlazeChatModel(
             model=BLAZE_MODEL,
@@ -441,17 +487,36 @@ def get_llm(temperature: float = 0.1, task_type: str = "default") -> Any:
 
 def get_llm_strict(temperature: float = 0.1, task_type: str = "code", max_tokens: int = None) -> Any:
     """
-    Variante stricte : utilise UNIQUEMENT Blaze GLM-5 (pas de fallback Ollama/Fake).
-    A utiliser pour les taches critiques ou la qualite de generation est non-negociable
-    (chat_modifier, modeler complet, generateurs ETL T-SQL).
-    Leve une RuntimeError si Blaze n'est pas joignable.
+    Variante stricte : utilise un fournisseur cloud (pas de fallback Ollama/Fake).
+    Cascade :
+      1. DeepSeek (si DEEPSEEK_API_KEY est configurée)
+      2. Blaze GLM-5 (si BLAZE_API_KEY est configurée)
+    À utiliser pour les tâches critiques où la qualité de génération est non-négociable
+    (chat_modifier, modeler complet, générateurs ETL T-SQL).
+    Lève une RuntimeError si aucun fournisseur n'est joignable.
     """
+    effective_temp = _adjust_temperature(temperature, task_type)
+
+    # ── 1) DeepSeek ────────────────────────────────────────────────────────
+    if DEEPSEEK_API_KEY:
+        try:
+            ds_llm = _build_deepseek_llm(effective_temp, max_tokens=max_tokens or DEEPSEEK_MAX_TOKENS)
+            if ds_llm and _test_llm_connection(ds_llm, timeout=15):
+                logger.info(
+                    f"[LLM-STRICT] DeepSeek forcé pour {task_type} "
+                    f"(temp={effective_temp}, max_tokens={max_tokens or DEEPSEEK_MAX_TOKENS})"
+                )
+                return ds_llm
+            logger.warning("[LLM-STRICT] DeepSeek injoignable, tentative Blaze")
+        except Exception as e:
+            logger.warning(f"[LLM-STRICT] DeepSeek erreur ({type(e).__name__}) : {e} — tentative Blaze")
+
+    # ── 2) Blaze GLM-5 ────────────────────────────────────────────────────
     if not BLAZE_API_KEY:
         raise RuntimeError(
-            "BLAZE_API_KEY non configuree — get_llm_strict ne peut pas demarrer. "
-            "Mettre la cle dans .env (cf .env.example)."
+            "Aucun LLM strict disponible : DEEPSEEK_API_KEY et BLAZE_API_KEY sont vides. "
+            "Renseigner au moins une clé dans .env."
         )
-    effective_temp = _adjust_temperature(temperature, task_type)
     llm = BlazeChatModel(
         model=BLAZE_MODEL,
         api_key=BLAZE_API_KEY,
@@ -463,10 +528,10 @@ def get_llm_strict(temperature: float = 0.1, task_type: str = "code", max_tokens
     )
     if not _test_blaze_connection(llm):
         raise RuntimeError(
-            f"Blaze indisponible sur {BLAZE_BASE_URL} — verifier BLAZE_API_KEY et la connectivite reseau."
+            f"Blaze indisponible sur {BLAZE_BASE_URL} — vérifier BLAZE_API_KEY et la connectivité réseau."
         )
     logger.info(
-        f"[LLM-STRICT] Blaze GLM-5 force pour {task_type} "
+        f"[LLM-STRICT] Blaze GLM-5 forcé pour {task_type} "
         f"(temp={effective_temp}, max_tokens={max_tokens or BLAZE_MAX_TOKENS})"
     )
     return llm
@@ -476,14 +541,17 @@ def get_human_review_llm(temperature: float = 0.05, max_tokens: int = 8000) -> A
     """LLM dedie a la phase Human Review (chat_modifier).
 
     Cascade :
-      1. GLM-5 (ZhipuAI BigModel) avec rotation des cles configurees dans GLM5_API_KEYS
+      1. DeepSeek (si DEEPSEEK_API_KEY est definie)
+      2. GLM-5 (ZhipuAI BigModel) avec rotation des cles configurees dans GLM5_API_KEYS
          - Tente jusqu'a 3 cles differentes en cas d'echec
-      2. OpenRouter (z-ai/glm-4.5 ou autre modele configure)
-      3. Blaze (si OPENAI-compat)
-      4. Ollama leger
-      5. RuntimeError -> chat_modifier basculera sur smart parser
+      3. OpenRouter (z-ai/glm-4.5 ou autre modele configure)
+      4. Blaze (si OPENAI-compat)
+      5. Ollama leger
+      6. RuntimeError -> chat_modifier basculera sur smart parser
 
     Configure via .env :
+      DEEPSEEK_API_KEY=sk-...
+      DEEPSEEK_MODEL=deepseek-chat  (ou deepseek-reasoner pour les modifications complexes)
       GLM5_API_KEYS=key1,key2,key3
       GLM5_MODEL=glm-4-plus  (ou glm-4, glm-4-flash, glm-4-air)
       OPENROUTER_API_KEY=sk-or-v1-...
@@ -491,7 +559,15 @@ def get_human_review_llm(temperature: float = 0.05, max_tokens: int = 8000) -> A
     """
     effective_temp = _adjust_temperature(temperature, "code")
 
-    # ── 1) GLM-5 ZhipuAI BigModel avec rotation des cles ───────────────────
+    # ── 1) DeepSeek ────────────────────────────────────────────────────────
+    if DEEPSEEK_API_KEY:
+        ds_llm = _build_deepseek_llm(effective_temp, max_tokens=max_tokens)
+        if ds_llm and _test_llm_connection(ds_llm, timeout=15):
+            logger.info(f"[Human-Review-LLM] DeepSeek OK (model={DEEPSEEK_MODEL})")
+            return ds_llm
+        logger.warning("[Human-Review-LLM] DeepSeek KO")
+
+    # ── 2) GLM-5 ZhipuAI BigModel avec rotation des cles ───────────────────
     if GLM5_API_KEYS:
         max_attempts = min(len(GLM5_API_KEYS), 3)
         for attempt in range(max_attempts):

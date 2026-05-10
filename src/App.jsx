@@ -469,6 +469,42 @@ export default function App() {
 
             {/* Right actions */}
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {/* Log toggle — hidden on profile */}
+              {activeMainView !== 'profile' && (
+                <button
+                  onClick={() => setShowLog(v => !v)}
+                  title={showLog ? 'Masquer le log' : 'Afficher le log'}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 32, height: 32, borderRadius: 7, cursor: 'pointer',
+                    background: showLog ? 'var(--violet-500-15)' : 'transparent',
+                    border: `1px solid ${showLog ? 'var(--violet-500-30)' : headerDark ? 'var(--border-default)' : '#e2e8f0'}`,
+                    color: showLog ? 'var(--violet-300)' : headerDark ? 'var(--text-muted)' : '#64748b',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Terminal size={14} />
+                </button>
+              )}
+
+              {/* Theme toggle — hidden on profile */}
+              {activeMainView !== 'profile' && (
+                <button
+                  onClick={() => setIsDarkMode(v => !v)}
+                  title={isDarkMode ? 'Mode clair' : 'Mode sombre'}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 32, height: 32, borderRadius: 7, cursor: 'pointer',
+                    background: 'transparent',
+                    border: `1px solid ${headerDark ? 'var(--border-default)' : '#e2e8f0'}`,
+                    color: headerDark ? 'var(--text-muted)' : '#64748b',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {isDarkMode ? <Sun size={14} /> : <Moon size={14} />}
+                </button>
+              )}
+
               {/* Profile dropdown */}
               <div style={{ position: 'relative' }}>
                 <button
@@ -696,7 +732,7 @@ export default function App() {
 
           {/* ── Log Panel ── */}
           <AnimatePresence>
-            {showLog && (
+            {showLog && activeMainView !== 'profile' && (
               <motion.div
                 key="log"
                 initial={{ height: 0 }} animate={{ height: 240 }} exit={{ height: 0 }}
@@ -707,6 +743,13 @@ export default function App() {
             )}
           </AnimatePresence>
         </div>
+      )}
+
+      {/* ── Atlas floating chat — hidden on profile ── */}
+      {activeMainView !== 'profile' && appView === 'dashboard' && (
+        <Suspense fallback={null}>
+          <FloatingChatWidget />
+        </Suspense>
       )}
     </div>
   );
