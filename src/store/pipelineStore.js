@@ -489,7 +489,11 @@ function _handleSSEEvent(type, data, set, get) {
       const updated = { ...prev, [data.agent]: data.status };
       const doneCount = Object.values(updated).filter(s => s === 'done').length;
       const progress = Math.round((doneCount / AGENT_ORDER.length) * 100);
-      set({ agentStatuses: updated, pipelineProgress: progress });
+      const patch = { agentStatuses: updated, pipelineProgress: progress };
+      if (data.agent === 'human_review' && data.status === 'running') {
+        patch.pipelineStatus = 'awaiting_review';
+      }
+      set(patch);
       if (data.status === 'running') set({ currentAgent: data.agent });
       break;
     }
@@ -537,10 +541,12 @@ function _handleSSEEvent(type, data, set, get) {
 
     case 'stage':
     case 'stage_change':
-      if (data.stage === 'awaiting_human_review') {
+      if (['awaiting_human_review', 'human_review', 'hitl_review', 'review'].includes(data.stage)) {
         set({ pipelineStatus: 'awaiting_review' });
       } else if (['etl_generation', 'model_revision'].includes(data.stage)) {
-        set({ pipelineStatus: 'running' });
+        if (get().currentAgent !== 'human_review' && get().pipelineStatus !== 'awaiting_review') {
+          set({ pipelineStatus: 'running' });
+        }
       }
       break;
 

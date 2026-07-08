@@ -34,6 +34,24 @@ function Field({ label, children, hint }) {
   );
 }
 
+function normalizeAuthError(err) {
+  if (err instanceof Error && typeof err.message === 'string' && err.message.trim()) {
+    return err.message;
+  }
+  if (typeof err === 'string' && err.trim()) {
+    return err;
+  }
+  if (err && typeof err === 'object') {
+    if (typeof err.detail === 'string' && err.detail.trim()) return err.detail;
+    if (typeof err.message === 'string' && err.message.trim()) return err.message;
+    try {
+      const text = JSON.stringify(err);
+      if (text && text !== '{}') return text;
+    } catch {}
+  }
+  return "Erreur d'authentification.";
+}
+
 export default function AuthModal({ isOpen, onClose, onSuccess }) {
   const { setAuth } = usePipelineStore();
   const [mode,     setMode]     = useState('register');
@@ -68,7 +86,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }) {
       setAuth(data.token, data.user_id, data.prefix);
       onSuccess?.(); // FIX: Call onSuccess to redirect to dashboard
     } catch (err) {
-      setError(err.message || "Erreur d'authentification.");
+      setError(normalizeAuthError(err));
     } finally {
       setLoading(false);
     }

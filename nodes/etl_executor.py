@@ -936,11 +936,15 @@ def _normalize_sqlserver_target(host: str, port) -> str:
       - host = 'host,port' déjà fourni par l'utilisateur → on le garde.
       - sinon → 'host,port'.
     """
+    import os
+
     host = (host or "").strip()
     port = str(port or "").strip()
+    env_port = str(int(os.getenv("DB_PORT", "1433").strip()))
 
     if not host:
-        return "127.0.0.1,1433"
+        h = (os.getenv("DB_HOST", "127.0.0.1") or "127.0.0.1").strip()
+        return f"{h},{env_port}"
     if "," in host:
         return host
     if "\\" in host:
@@ -949,7 +953,7 @@ def _normalize_sqlserver_target(host: str, port) -> str:
             "SQL Browser requis, port ignoré pour éviter le conflit TDS."
         )
         return host
-    return f"{host},{port or '1433'}"
+    return f"{host},{port or env_port}"
 
 
 def _build_engine(config: dict):
@@ -970,12 +974,31 @@ def _build_engine(config: dict):
     pool_timeout = int(os.getenv("DB_POOL_TIMEOUT", "30"))
     pool_recycle = int(os.getenv("DB_POOL_RECYCLE", "1800"))
 
-    db_type  = config.get("type", "sqlserver").lower().replace("postgres", "postgresql")
-    host     = config.get("host", "localhost")
-    port     = config.get("port", 1433 if db_type in ("sqlserver", "mssql") else 3306)
+    db_type = config.get("type", "sqlserver").lower().replace("postgres", "postgresql")
     database = config.get("database", "data_warehouse")
-    user     = config.get("user", "sa")
-    password = config.get("password", "")
+
+    if db_type in ("sqlserver", "mssql"):
+        host = (config.get("host") or os.getenv("DB_HOST") or "localhost").strip()
+        user = (config.get("user") or os.getenv("DB_USER", "sa")).strip()
+        password = (config.get("password") or "").strip()
+        raw_port = config.get("port")
+        if raw_port is not None and str(raw_port).strip() != "":
+            port = int(str(raw_port).strip())
+        else:
+            # Le frontend n'envoie souvent pas le port ; aligner sur le backend (.env) / Docker.
+            port = int(os.getenv("DB_PORT", "1433").strip())
+        if not password:
+            password = (os.getenv("DB_PASSWORD", "") or "").strip()
+    else:
+        host = (config.get("host") or "localhost").strip()
+        port = config.get("port", 3306 if db_type in ("mysql", "mariadb") else 5432)
+        user = config.get("user", "root" if db_type in ("mysql", "mariadb") else "postgres")
+        password = config.get("password", "") or ""
+        if db_type not in ("sqlite",):
+            try:
+                port = int(port)
+            except (TypeError, ValueError):
+                port = 3306
 
     if db_type == "sqlite":
         return create_engine(f"sqlite:///{database}", pool_pre_ping=True)
@@ -1053,6 +1076,23 @@ def _test_connection(engine) -> None:
 _DDL_GO_SPLITTER = re.compile(r'^\s*GO\s*;?\s*$', re.IGNORECASE | re.MULTILINE)
 
 
+def _normalize_tsql_ddl(sql_ddl: str) -> str:
+    """
+    Last-line deterministic cleanup before SQL Server execution.
+    LLM/healer output can accidentally create invalid tokens such as
+    DATETIME22(3) or SYSUTCDATETIME2(); fix them here before splitting.
+    """
+    if not sql_ddl:
+        return sql_ddl
+
+    ddl = sql_ddl
+    ddl = re.sub(r"\bDATETIME22\b", "DATETIME2", ddl, flags=re.IGNORECASE)
+    ddl = re.sub(r"\bSYSUTCDATETIME2\s*\(", "SYSUTCDATETIME(", ddl, flags=re.IGNORECASE)
+    ddl = re.sub(r"\bDATETIME\b(?!\s*\()", "DATETIME2", ddl, flags=re.IGNORECASE)
+    ddl = ddl.replace("TINYINT(1)", "BIT").replace("AUTO_INCREMENT", "IDENTITY(1,1)")
+    return ddl
+
+
 def _split_tsql_batches(sql_ddl: str) -> list:
     """
     Découpe un script T-SQL comme sqlcmd :
@@ -1060,6 +1100,7 @@ def _split_tsql_batches(sql_ddl: str) -> list:
       2) split sur 'GO' en tant que ligne entière
       3) split chaque batch sur ';'
     """
+    sql_ddl = _normalize_tsql_ddl(sql_ddl)
     sql_clean = re.sub(r'--.*$', '', sql_ddl, flags=re.MULTILINE)
     sql_clean = re.sub(r'/\*.*?\*/', '', sql_clean, flags=re.DOTALL)
 

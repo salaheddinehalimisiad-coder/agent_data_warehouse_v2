@@ -14,10 +14,21 @@ def get_meta_connection(db_name="agent_dw_meta"):
     user     = os.getenv("DB_USER", "sa")
     if not password:
         raise RuntimeError("DB_PASSWORD manquant dans l'environnement")
+    
+    # Driver selection: prefer Driver 18, fallback to Driver 17
+    driver = "ODBC Driver 18 for SQL Server"
+    try:
+        drivers = [d for d in pyodbc.drivers() if "SQL Server" in d]
+        if driver not in drivers and "ODBC Driver 17 for SQL Server" in drivers:
+            driver = "ODBC Driver 17 for SQL Server"
+    except Exception:
+        driver = "ODBC Driver 17 for SQL Server"
+    
+    pw = password.replace("}", "}}")
     conn_str = (
-        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        f"DRIVER={{{driver}}};"
         f"SERVER={host},{port};DATABASE={db_name};"
-        f"UID={user};PWD={{{password}}};"
+        f"UID={user};PWD={{{pw}}};"
         f"Encrypt=no;TrustServerCertificate=yes;"
     )
     return pyodbc.connect(conn_str, autocommit=True, timeout=30)

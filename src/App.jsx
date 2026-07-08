@@ -185,7 +185,7 @@ export default function App() {
   const {
     pipelineStatus, executionLog, setAuth, authToken, userId,
     userPrefix, logout, resetPipeline, currentAgent,
-    dqScore, dqAlerts, pipelineProgress, sessionId
+    dqScore, dqAlerts, pipelineProgress, sessionId, agentStatuses
   } = usePipelineStore();
 
   const [appView,        setAppView]        = useState('landing');
@@ -201,6 +201,10 @@ export default function App() {
   const [goodbyeUser,    setGoodbyeUser]    = useState(null);
   const [welcomeUser,    setWelcomeUser]    = useState(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const isHumanReviewActive =
+    pipelineStatus?.includes('review') ||
+    currentAgent === 'human_review' ||
+    agentStatuses?.human_review === 'running';
 
   // Auth + theme persistence
   useEffect(() => {
@@ -251,7 +255,7 @@ export default function App() {
       label: 'Pipeline',
       items: [
         { id: 'pipeline',  icon: Workflow,      label: 'Pipeline',    alert: ['running','starting'].includes(pipelineStatus) },
-        { id: 'architect', icon: BrainCircuit,  label: 'Inspector',   alert: pipelineStatus === 'awaiting_review' },
+        { id: 'architect', icon: BrainCircuit,  label: 'Inspector',   alert: isHumanReviewActive },
         { id: 'metrics',   icon: TrendingUp,    label: 'Metrics',     alert: false },
         { id: 'export',    icon: Download,      label: 'Export',      alert: pipelineStatus === 'complete' },
       ]
@@ -664,56 +668,38 @@ export default function App() {
             )}
 
             {/* ── Main Canvas ── */}
-            <main style={{ flex: 1, position: 'relative', background: 'var(--bg-base)', overflow: 'hidden' }}>
-              {activeMainView === 'pipeline' ? (
-                <div style={{ display: 'flex', width: '100%', height: '100%' }}>
-                  {/* Pipeline stepper — narrow sidebar */}
-                  <div style={{ width: 300, flexShrink: 0, overflowY: 'auto', borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-surface)' }}>
-                    <PipelineCanvas />
-                  </div>
-                  {/* Main content area */}
-                  <div style={{ flex: 1, overflow: 'auto', padding: 32 }}>
-                    <div style={{ maxWidth: 720, margin: '0 auto' }}>
-                      <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>Agent BI Pipeline</h2>
-                      <p style={{ color: 'var(--text-muted)', fontSize: 14, lineHeight: 1.7 }}>
-                        Le pipeline Data Warehouse s&apos;exécute étape par étape. Consultez le stepper à gauche pour suivre la progression en temps réel de chaque agent.
-                      </p>
-                      <div style={{ marginTop: 32, padding: 20, borderRadius: 16, background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)', marginBottom: 12 }}>Navigation rapide</div>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          <button onClick={() => setActiveMainView('schema')} style={{ padding: '8px 14px', borderRadius: 8, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Voir le Schéma</button>
-                          <button onClick={() => setActiveMainView('explorer')} style={{ padding: '8px 14px', borderRadius: 8, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Explorer les Données</button>
-                          <button onClick={() => setActiveMainView('quality')} style={{ padding: '8px 14px', borderRadius: 8, background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>Qualité des Données</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <ErrorBoundary>
-                  {renderView('explorer',   <DataExplorer />)}
-                  {renderView('schema',     <StarSchemaViewer />)}
-                  {renderView('catalog',    <DataCatalog />)}
-                  {renderView('queries',    <QueryRunner />)}
-                  {renderView('olap',       <OlapExplorer />)}
-                  {renderView('quality',    <DataQualityPanel />)}
-                  {renderView('architect',  <ArchitectureInspector />)}
-                  {renderView('lineage',    <LineageGraph />)}
-                  {renderView('metrics',    <RunMetrics />)}
-                  {renderView('governance', <GovernancePanel />)}
-                  {renderView('export',     <ExportPanel onClose={undefined} />)}
-                  {renderView('profile',    <ProfilePage onBack={() => setAppView('landing')} />)}
-                </ErrorBoundary>
-              )}
+            <main style={{ 
+              flex: 1, 
+              position: 'relative', 
+              background: 'var(--bg-base)', 
+              overflow: 'hidden',
+              padding: isHumanReviewActive ? '0 380px 0 8px' : '0 16px 0 8px',
+            }}>
+              <ErrorBoundary>
+                {renderView('pipeline',   <PipelineCanvas />)}
+                {renderView('explorer',   <DataExplorer />)}
+                {renderView('schema',     <StarSchemaViewer />)}
+                {renderView('catalog',    <DataCatalog />)}
+                {renderView('queries',    <QueryRunner />)}
+                {renderView('olap',       <OlapExplorer />)}
+                {renderView('quality',    <DataQualityPanel />)}
+                {renderView('architect',  <ArchitectureInspector />)}
+                {renderView('lineage',    <LineageGraph />)}
+                {renderView('metrics',    <RunMetrics />)}
+                {renderView('governance', <GovernancePanel />)}
+                {renderView('export',     <ExportPanel onClose={undefined} />)}
+                {renderView('profile',    <ProfilePage onBack={() => setAppView('landing')} />)}
+              </ErrorBoundary>
             </main>
 
             {/* ── Sidebar HumanReview (visible UNIQUEMENT pendant la pause de validation) ── */}
-            {pipelineStatus?.includes('review') && (
+            {isHumanReviewActive && (
               <aside style={{
                 display: 'flex', flexDirection: 'column', flexShrink: 0,
+                order: -1,
                 width: rightCollapsed ? 44 : 360,
                 background: 'rgba(10,13,26,0.65)',
-                borderLeft: '1px solid var(--border-subtle)',
+                borderRight: '1px solid var(--border-subtle)',
                 transition: 'width 0.2s ease', overflow: 'hidden',
               }}>
                 <div style={{
@@ -740,7 +726,7 @@ export default function App() {
                     onMouseEnter={e => e.currentTarget.style.color = 'var(--text-secondary)'}
                     onMouseLeave={e => e.currentTarget.style.color = 'var(--text-dim)'}
                   >
-                    {rightCollapsed ? <ChevronLeft size={13} /> : <ChevronRight size={13} />}
+                    {rightCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
                   </button>
                 </div>
 

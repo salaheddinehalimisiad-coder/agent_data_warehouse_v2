@@ -47,7 +47,7 @@ services:
     volumes:
       - sql_data:/var/opt/mssql/data
       - sql_log:/var/opt/mssql/log
-      - uploads_bak:/var/opt/mssql/backup
+      - ./uploads/bak:/var/opt/mssql/backup
     healthcheck:
       test: [
         "CMD-SHELL",
@@ -95,7 +95,7 @@ services:
       APP_ENV: "${APP_ENV:-development}"
       ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:8080}"
     volumes:
-      - uploads_bak:/app/uploads/bak
+      - ./uploads/bak:/app/uploads/bak
       - outputs:/app/outputs
       # Hot reload en dev : decommenter UNIQUEMENT si APP_ENV=development
       # - ./api:/app/api

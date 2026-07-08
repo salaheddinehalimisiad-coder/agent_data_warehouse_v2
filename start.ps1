@@ -46,11 +46,27 @@ if (-not (Test-Path "node_modules")) {
     npm.cmd install
 }
 
+# SQL Server Docker (volume ./uploads/bak pour les .bak) - requis pour la restauration en dev local
+New-Item -ItemType Directory -Force -Path "uploads\bak" | Out-Null
+if (Get-Command docker -ErrorAction SilentlyContinue) {
+    Write-Host "Demarrage du conteneur SQL Server (docker compose)..." -ForegroundColor DarkCyan
+    docker compose up -d sqlserver 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Docker compose a echoue - demarrez Docker Desktop puis relancez ce script." -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "Docker non trouve dans le PATH - lancez SQL Server vous-meme (port .env DB_PORT)." -ForegroundColor Yellow
+}
+
 # Lancer les 2 serveurs en parallele
 Write-Host ""
 Write-Host "Demarrage des serveurs..." -ForegroundColor Green
 Write-Host "   Backend FastAPI  -> http://localhost:8000" -ForegroundColor Gray
 Write-Host "   Frontend React   -> http://localhost:5173" -ForegroundColor Gray
+Write-Host ""
+Write-Host "Si vous utilisez SQL Server via Docker : demarrez-le avant (meme dossier) :" -ForegroundColor DarkGray
+Write-Host "   docker compose up -d sqlserver" -ForegroundColor DarkGray
+Write-Host "Dans .env : DB_HOST=127.0.0.1 et DB_PORT=14330 (voir .env.example)." -ForegroundColor DarkGray
 Write-Host ""
 
 $projectDir = $PSScriptRoot

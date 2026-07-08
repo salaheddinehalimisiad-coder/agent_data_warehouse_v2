@@ -34,6 +34,10 @@ export default function HumanReviewPanel() {
   // Reste visible entre "Modifier" cliqué et la prochaine pause HITL
   const [pendingMod, setPendingMod] = useState(null); // { comment, ts, iteration }
   const prevStatusRef = useRef(pipelineStatus);
+  const isReviewActive =
+    pipelineStatus === 'awaiting_review' ||
+    currentAgent === 'human_review' ||
+    agentStatuses?.human_review === 'running';
 
   // Quand le pipeline revient en awaiting_review → nouvelle révision arrivée
   useEffect(() => {
@@ -49,7 +53,7 @@ export default function HumanReviewPanel() {
   }, [pipelineStatus, pendingMod]);
 
   // Rien à afficher si pas en attente de review ET pas en modification
-  if (pipelineStatus !== 'awaiting_review' && !pendingMod) return null;
+  if (!isReviewActive && !pendingMod) return null;
 
   const handleValidate = async () => {
     setIsValidating(true);

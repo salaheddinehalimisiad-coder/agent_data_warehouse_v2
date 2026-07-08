@@ -116,7 +116,10 @@ def healer_node(state: AgentState) -> dict:
     # Normalisation MySQL → T-SQL (critical for SQL Server target)
     sql_part = sql_part.replace("AUTO_INCREMENT", "IDENTITY(1,1)")
     sql_part = sql_part.replace("TINYINT(1)", "BIT")
-    sql_part = sql_part.replace("DATETIME", "DATETIME2")  # SQL Server prefers DATETIME2
+    # Avoid corrupting already-valid DATETIME2 and SYSUTCDATETIME().
+    sql_part = re.sub(r"\bDATETIME\b(?!\s*\()", "DATETIME2", sql_part, flags=re.IGNORECASE)
+    sql_part = re.sub(r"\bDATETIME22\b", "DATETIME2", sql_part, flags=re.IGNORECASE)
+    sql_part = re.sub(r"\bSYSUTCDATETIME2\s*\(", "SYSUTCDATETIME(", sql_part, flags=re.IGNORECASE)
 
     if not sql_part or "CREATE " not in sql_part.upper():
         logger.warning("[Healer] SQL corrigé invalide — conservation de l'original")

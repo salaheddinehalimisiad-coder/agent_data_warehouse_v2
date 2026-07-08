@@ -11,10 +11,7 @@
 //   • Préchargement du ChatInterface en arrière-plan dès le 1er hover
 import React, { useEffect, useRef, useState, lazy, Suspense, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  X, Minimize2, Maximize2, Sparkles, Zap, Loader2,
-  ArrowDownRight, ArrowUpLeft, MessageSquarePlus
-} from 'lucide-react';
+import { Minus, Minimize2, Maximize2, Loader2 } from 'lucide-react';
 import { usePipelineStore } from '../store/pipelineStore';
 
 const ChatInterface = lazy(() => import('./ChatInterface'));
@@ -23,9 +20,9 @@ const STORAGE_SIZE = 'atlas:widget-size:v1';
 const STORAGE_OPEN = 'atlas:widget-open:v1';
 
 const SIZE_PRESETS = {
-  compact:    { w: 380, h: 580 },
-  normal:     { w: 460, h: 720 },
-  large:      { w: 560, h: 820 },
+  compact:    { w: 280, h: 440 },
+  normal:     { w: 320, h: 520 },
+  large:      { w: 380, h: 600 },
 };
 
 export default function FloatingChatWidget() {
@@ -41,6 +38,7 @@ export default function FloatingChatWidget() {
   const [unread, setUnread]           = useState(0);
   const [hasPreloaded, setHasPreloaded] = useState(false);
   const lastSeenRef                   = useRef(messages.length);
+  const prevHasReviewRef              = useRef(false);
 
   const isWorking = pipelineStatus === 'running' || pipelineStatus === 'starting';
   const hasReview = pipelineStatus === 'awaiting_review' || pipelineStatus === 'awaiting_dq_review';
@@ -49,6 +47,15 @@ export default function FloatingChatWidget() {
   // Persistance
   useEffect(() => { try { localStorage.setItem(STORAGE_OPEN, JSON.stringify(open)); } catch {} }, [open]);
   useEffect(() => { try { localStorage.setItem(STORAGE_SIZE, size); } catch {} }, [size]);
+
+  useEffect(() => {
+    if (hasReview && !prevHasReviewRef.current) {
+      setOpen(false);
+      setMaximized(false);
+      setSize('normal');
+    }
+    prevHasReviewRef.current = hasReview;
+  }, [hasReview]);
 
   // Compte des messages non lus quand le widget est fermé
   useEffect(() => {
@@ -84,7 +91,10 @@ export default function FloatingChatWidget() {
   }, [hasPreloaded]);
 
   // Dimensions effectives
-  const dim = maximized
+  const panelTop = hasReview ? 260 : 140;
+  const dim = hasReview && !maximized
+    ? { w: 340, h: 'min(390px, calc(100vh - 300px))' }
+    : maximized
     ? { w: 'calc(100vw - 32px)', h: 'calc(100vh - 32px)' }
     : { w: SIZE_PRESETS[size].w, h: SIZE_PRESETS[size].h };
 
@@ -108,10 +118,10 @@ export default function FloatingChatWidget() {
             title="Ouvrir Atlas (Ctrl+J)"
             style={{
               position: 'fixed',
-              right: hasReview ? 'auto' : 20,
-              left: hasReview ? 20 : 'auto',
-              bottom: 20, zIndex: 9990,
-              width: 56, height: 56, borderRadius: '50%',
+              right: 16,
+              left: 'auto',
+              bottom: hasReview ? 20 : 8, zIndex: 9990,
+              width: 44, height: 44, borderRadius: '50%',
               border: 'none',
               background: 'transparent',
               boxShadow: 'none',
@@ -188,18 +198,22 @@ export default function FloatingChatWidget() {
             transition={{ type: 'spring', stiffness: 320, damping: 26 }}
             style={{
               position: 'fixed', zIndex: 9991,
-              right: hasReview ? 'auto' : (maximized ? 16 : 20),
-              left: hasReview ? (maximized ? 200 : 200) : (maximized ? 16 : 'auto'),
-              bottom: maximized ? 16 : 20,
-              top: maximized ? 16 : 'auto',
+              right: maximized ? 8 : (hasReview ? 16 : 8),
+              left: maximized ? 8 : 'auto',
+              bottom: maximized ? 8 : (hasReview ? 20 : 8),
+              top: maximized ? 62 : (hasReview ? 'auto' : panelTop),
               width: dim.w, height: dim.h,
-              maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100vh - 32px)',
+              maxWidth: 'calc(100vw - 32px)',
+              maxHeight: maximized ? 'calc(100vh - 32px)' : `calc(100vh - ${hasReview ? 300 : panelTop + 16}px)`,
               borderRadius: maximized ? 16 : 18,
-              background: 'linear-gradient(180deg, #0d0d18 0%, #08080f 100%)',
-              border: '1px solid rgba(139,92,246,0.18)',
-              boxShadow: '0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04) inset, 0 0 60px rgba(139,92,246,0.1)',
+              background: '#f8fafc',
+              border: '1px solid rgba(148,163,184,0.35)',
+              boxShadow: '0 32px 80px rgba(15,23,42,0.22), 0 0 0 1px rgba(255,255,255,0.85) inset',
               overflow: 'hidden',
               display: 'flex', flexDirection: 'column',
+              isolation: 'isolate',
+              opacity: 1,
+              backdropFilter: 'none',
             }}
           >
             {/* Header */}
@@ -208,8 +222,8 @@ export default function FloatingChatWidget() {
                 flexShrink: 0,
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '10px 14px',
-                borderBottom: '1px solid rgba(255,255,255,0.06)',
-                background: 'linear-gradient(180deg, rgba(99,102,241,0.07), transparent)',
+                borderBottom: '1px solid rgba(148,163,184,0.22)',
+                background: 'linear-gradient(180deg, rgba(255,255,255,0.92), rgba(241,245,249,0.92))',
               }}
             >
               {/* Avatar */}
@@ -225,7 +239,7 @@ export default function FloatingChatWidget() {
                   position: 'absolute', bottom: -2, right: -2,
                   width: 9, height: 9, borderRadius: '50%',
                   background: !isOnline ? '#f43f5e' : isWorking ? '#f59e0b' : hasReview ? '#f59e0b' : '#10b981',
-                  border: '2px solid #0d0d18',
+                  border: '2px solid #f8fafc',
                   animation: (isWorking || hasReview) ? 'atlas-pulse 1.4s infinite' : 'none',
                 }} />
               </div>
@@ -233,7 +247,7 @@ export default function FloatingChatWidget() {
               <h3
                 id="atlas-panel-title"
                 style={{
-                  margin: 0, fontSize: 13, fontWeight: 700, color: 'white',
+                  margin: 0, fontSize: 13, fontWeight: 800, color: '#0f172a',
                   letterSpacing: '-0.01em',
                   flex: 1, minWidth: 0,
                 }}
@@ -255,19 +269,26 @@ export default function FloatingChatWidget() {
                 </button>
                 <button
                   onClick={() => setOpen(false)}
-                  title="Fermer (Esc)"
-                  aria-label="Fermer"
+                  title="Réduire (Esc)"
+                  aria-label="Réduire Atlas"
                   style={iconBtnStyle}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(244,63,94,0.15)'; e.currentTarget.style.color = '#fda4af'; }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#cbd5e1'; }}
                 >
-                  <X size={13} />
+                  <Minus size={14} />
                 </button>
               </div>
             </header>
 
             {/* Body : ChatInterface */}
-            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+            <div style={{
+              flex: 1,
+              minHeight: 0,
+              overflow: 'hidden',
+              position: 'relative',
+              background: '#f8fafc',
+              opacity: 1,
+            }}>
               <Suspense fallback={
                 <div style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center',

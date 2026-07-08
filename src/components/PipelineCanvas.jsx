@@ -135,7 +135,7 @@ function StageCard({ stage, status, idx, isLast, executionLog }) {
           const agentClean = agent.replace(/_/g, ' ').toLowerCase();
           return log.toLowerCase().includes(agentClean) || log.toLowerCase().includes(agent.toLowerCase());
        })
-    ).slice(-4); // Garder les 4 derniers messages pertinents
+    );
   }, [executionLog, stage.agents]);
 
   return (
@@ -242,7 +242,7 @@ function StageCard({ stage, status, idx, isLast, executionLog }) {
 
               {/* Dynamic Log Stream */}
               {relevantLogs.length > 0 && (
-                <div className="rounded-xl p-3 font-mono text-[10px] space-y-1.5" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                <div className="rounded-xl p-3 font-mono text-[10px] space-y-1.5 max-h-56 overflow-y-auto custom-scrollbar" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
                   {relevantLogs.map((log, i) => (
                     <motion.div
                       key={i}

@@ -175,7 +175,13 @@ export default function ToastNotifications() {
   }, [etlStatus]);
 
   return (
-    <div className="fixed top-20 right-4 z-[500] flex flex-col gap-2 pointer-events-none">
+    <div
+      className="fixed top-20 z-[500] flex flex-col gap-2 pointer-events-none"
+      style={{
+        left: pipelineStatus?.includes('review') ? 56 : 'auto',
+        right: pipelineStatus?.includes('review') ? 'auto' : 16,
+      }}
+    >
       <AnimatePresence mode="sync">
         {toasts.map(t => (
           <div key={t.id} className="pointer-events-auto">

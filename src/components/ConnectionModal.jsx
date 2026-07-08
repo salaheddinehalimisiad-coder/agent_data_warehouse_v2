@@ -220,6 +220,9 @@ export default function ConnectionModal({ isOpen, onClose }) {
   const [dwConfig, setDwConfig] = useState({ 
     type:     'sqlserver',
     host:     import.meta.env.VITE_SQLSERVER_HOST     || '127.0.0.1',
+    port:     import.meta.env.VITE_SQLSERVER_PORT != null && import.meta.env.VITE_SQLSERVER_PORT !== ''
+      ? Number(import.meta.env.VITE_SQLSERVER_PORT)
+      : 14330,
     user:     import.meta.env.VITE_SQLSERVER_USER     || 'sa',
     password: import.meta.env.VITE_SQLSERVER_PASSWORD || 'Antigravity2026!',
     database: import.meta.env.VITE_SQLSERVER_DB       || 'agent_dw_meta'

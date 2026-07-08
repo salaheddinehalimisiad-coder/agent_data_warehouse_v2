@@ -132,7 +132,7 @@ function CodeBlock({ code, lang = 'sql' }) {
 }
 
 // ─── Markdown léger ───────────────────────────────────────────────────────
-function MarkdownContent({ content }) {
+function MarkdownContent({ content, light = false }) {
   const parts = useMemo(() => {
     const out = [];
     const re = /```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g;
@@ -147,12 +147,18 @@ function MarkdownContent({ content }) {
   }, [content]);
 
   const renderInline = (text) => {
+    const codeCls = light
+      ? 'px-1.5 py-0.5 rounded bg-slate-100 text-black font-mono text-[12.5px]'
+      : 'px-1.5 py-0.5 rounded bg-white/[0.06] text-violet-200 font-mono text-[12.5px]';
+    const strongCls = light ? 'font-semibold text-black' : 'font-semibold text-white';
+    const emCls = light ? 'text-black italic' : 'text-zinc-200 italic';
+    const linkCls = light ? 'text-black underline-offset-2 hover:underline' : 'text-violet-300 hover:text-violet-200 underline-offset-2 hover:underline';
     const html = text
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/`([^`]+?)`/g, '<code class="px-1.5 py-0.5 rounded bg-white/[0.06] text-violet-200 font-mono text-[12.5px]">$1</code>')
-      .replace(/\*\*([^*]+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
-      .replace(/(?:^|\s)\*([^*\n]+?)\*(?=\s|$)/g, ' <em class="text-zinc-200 italic">$1</em>')
-      .replace(/\[([^\]]+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a class="text-violet-300 hover:text-violet-200 underline-offset-2 hover:underline" href="$2" target="_blank" rel="noopener">$1</a>');
+      .replace(/`([^`]+?)`/g, `<code class="${codeCls}">$1</code>`)
+      .replace(/\*\*([^*]+?)\*\*/g, `<strong class="${strongCls}">$1</strong>`)
+      .replace(/(?:^|\s)\*([^*\n]+?)\*(?=\s|$)/g, ` <em class="${emCls}">$1</em>`)
+      .replace(/\[([^\]]+?)\]\((https?:\/\/[^\s)]+)\)/g, `<a class="${linkCls}" href="$2" target="_blank" rel="noopener">$1</a>`);
     return <span dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
@@ -165,8 +171,8 @@ function MarkdownContent({ content }) {
       if (!listBuffer) return;
       const Tag = listBuffer.type;
       blocks.push(
-        <Tag key={`list-${blocks.length}`} className={`my-2 ${listBuffer.type === 'ul' ? 'list-disc' : 'list-decimal'} pl-5 space-y-1.5 marker:text-zinc-400`}>
-          {listBuffer.items.map((it, i) => <li key={i} className="text-zinc-100 leading-[1.7]">{renderInline(it)}</li>)}
+        <Tag key={`list-${blocks.length}`} className={`my-2 ${listBuffer.type === 'ul' ? 'list-disc' : 'list-decimal'} pl-5 space-y-1.5 ${light ? 'marker:text-black' : 'marker:text-zinc-400'}`}>
+          {listBuffer.items.map((it, i) => <li key={i} className={`${light ? 'text-black' : 'text-zinc-100'} leading-[1.7]`}>{renderInline(it)}</li>)}
         </Tag>
       );
       listBuffer = null;
@@ -175,26 +181,26 @@ function MarkdownContent({ content }) {
     lines.forEach((raw, i) => {
       const line = raw.replace(/\s+$/, '');
       if (!line.trim()) { flushList(); return; }
-      if (/^### /.test(line))      { flushList(); blocks.push(<h3 key={i} className="mt-4 mb-1.5 text-[15px] font-semibold text-white">{renderInline(line.slice(4))}</h3>); return; }
-      if (/^## /.test(line))       { flushList(); blocks.push(<h2 key={i} className="mt-4 mb-2 text-[16.5px] font-semibold text-white">{renderInline(line.slice(3))}</h2>); return; }
-      if (/^# /.test(line))        { flushList(); blocks.push(<h1 key={i} className="mt-4 mb-2 text-[18px] font-semibold text-white">{renderInline(line.slice(2))}</h1>); return; }
+      if (/^### /.test(line))      { flushList(); blocks.push(<h3 key={i} className={`mt-4 mb-1.5 text-[15px] font-semibold ${light ? 'text-black' : 'text-white'}`}>{renderInline(line.slice(4))}</h3>); return; }
+      if (/^## /.test(line))       { flushList(); blocks.push(<h2 key={i} className={`mt-4 mb-2 text-[16.5px] font-semibold ${light ? 'text-black' : 'text-white'}`}>{renderInline(line.slice(3))}</h2>); return; }
+      if (/^# /.test(line))        { flushList(); blocks.push(<h1 key={i} className={`mt-4 mb-2 text-[18px] font-semibold ${light ? 'text-black' : 'text-white'}`}>{renderInline(line.slice(2))}</h1>); return; }
       const ulMatch = line.match(/^\s*[-*•]\s+(.*)$/);
       const olMatch = line.match(/^\s*\d+\.\s+(.*)$/);
       if (ulMatch) { if (!listBuffer || listBuffer.type !== 'ul') { flushList(); listBuffer = { type: 'ul', items: [] }; } listBuffer.items.push(ulMatch[1]); return; }
       if (olMatch) { if (!listBuffer || listBuffer.type !== 'ol') { flushList(); listBuffer = { type: 'ol', items: [] }; } listBuffer.items.push(olMatch[1]); return; }
       flushList();
       if (/^>\s/.test(line)) {
-        blocks.push(<blockquote key={i} className="my-2 pl-3 border-l-2 border-violet-500/35 text-zinc-300 italic">{renderInline(line.slice(2))}</blockquote>);
+        blocks.push(<blockquote key={i} className={`my-2 pl-3 border-l-2 border-violet-500/35 ${light ? 'text-black' : 'text-zinc-300'} italic`}>{renderInline(line.slice(2))}</blockquote>);
         return;
       }
-      blocks.push(<p key={i} className="text-zinc-100 leading-[1.75]">{renderInline(line)}</p>);
+      blocks.push(<p key={i} className={`${light ? 'text-black' : 'text-zinc-100'} leading-[1.75]`}>{renderInline(line)}</p>);
     });
     flushList();
     return <div className="space-y-2">{blocks}</div>;
   };
 
   return (
-    <div className="text-[14.5px] text-zinc-100">
+    <div className={`text-[14.5px] ${light ? 'text-black' : 'text-zinc-100'}`}>
       {parts.map((p, i) => p.type === 'code'
         ? <CodeBlock key={i} code={p.code} lang={p.lang} />
         : <div key={i}>{renderProse(p.text)}</div>
@@ -248,7 +254,7 @@ function UserMessage({ msg, onEdit }) {
 }
 
 // ─── Bulle assistant (style Claude/ChatGPT — pas de bubble) ───────────────
-function AssistantMessage({ msg, isLast, isStreaming, onRegenerate, onFeedback }) {
+function AssistantMessage({ msg, isLast, isStreaming, onRegenerate, onFeedback, embedded = false }) {
   const [copied, setCopied]     = useState(false);
   const [feedback, setFeedback] = useState(null);
 
@@ -262,7 +268,7 @@ function AssistantMessage({ msg, isLast, isStreaming, onRegenerate, onFeedback }
       <AtlasMark size={28} />
       <div className="min-w-0 flex-1 pt-0.5">
         <div className="break-words">
-          <MarkdownContent content={msg.content || ''} />
+          <MarkdownContent content={msg.content || ''} light={embedded} />
           {isStreaming && isLast && (
             <span className="inline-block w-[6px] h-[14px] ml-0.5 align-middle bg-violet-400 animate-pulse rounded-sm" aria-hidden="true" />
           )}
@@ -298,33 +304,33 @@ function AssistantMessage({ msg, isLast, isStreaming, onRegenerate, onFeedback }
 }
 
 // ─── Empty state hero ─────────────────────────────────────────────────────
-function EmptyHero({ canChat, onPick }) {
+function EmptyHero({ canChat, onPick, embedded = false }) {
   return (
-    <div className="h-full flex flex-col items-center justify-center px-6">
+    <div className={`h-full min-h-0 flex flex-col items-center justify-center text-center ${embedded ? 'px-5 py-4' : 'px-6'}`}>
       {/* Logo avec halo */}
-      <div className="relative mb-6">
-        <div className="absolute inset-0 blur-[40px] rounded-full bg-violet-500/40" />
+      <div className={`relative ${embedded ? 'mb-4' : 'mb-6'}`}>
+        <div className={`absolute inset-0 rounded-full ${embedded ? 'bg-violet-400/20 blur-[24px]' : 'bg-violet-500/40 blur-[40px]'}`} />
         <div className="relative">
-          <AtlasMark size={56} />
+          <AtlasMark size={embedded ? 42 : 56} />
         </div>
       </div>
 
-      <h1 className="text-[26px] sm:text-[28px] font-semibold text-zinc-50 tracking-tight mb-1.5">
+      <h1 className={`${embedded ? 'text-[22px] leading-[1.18] max-w-[280px] text-slate-950' : 'text-[26px] sm:text-[28px] text-zinc-50'} font-semibold tracking-tight mb-1.5`}>
         Comment puis-je vous aider ?
       </h1>
-      <p className="text-[13.5px] text-zinc-500 mb-9 text-center max-w-md">
+      <p className={`${embedded ? 'text-[12.5px] mb-5 max-w-[260px] text-slate-600' : 'text-[13.5px] mb-9 max-w-md text-zinc-500'} text-center`}>
         {canChat
           ? 'Architecte ETL et Data Warehouse à votre disposition.'
           : 'Connectez une source pour démarrer.'}
       </p>
 
       {canChat && (
-        <div className="flex flex-wrap justify-center gap-2 max-w-2xl">
+        <div className={`flex flex-wrap justify-center gap-2 ${embedded ? 'max-w-[300px]' : 'max-w-2xl'}`}>
           {STARTERS.map((s, i) => (
             <button
               key={i}
               onClick={() => onPick(s)}
-              className="px-3.5 py-2 rounded-full text-[12.5px] text-zinc-300 hover:text-white border border-white/[0.06] hover:border-white/[0.14] bg-white/[0.02] hover:bg-white/[0.04] transition-all"
+              className={`${embedded ? 'px-3 py-1.5 text-[12px] text-slate-700 hover:text-slate-950 border-slate-200 bg-white hover:bg-slate-50' : 'px-3.5 py-2 text-[12.5px] text-zinc-300 hover:text-white border-white/[0.06] hover:border-white/[0.14] bg-white/[0.02] hover:bg-white/[0.04]'} rounded-full border transition-all`}
             >
               {s}
             </button>
@@ -673,8 +679,11 @@ export default function ChatInterface({ embedded = false }) {
 
   return (
     <div
-      className="flex h-full w-full text-zinc-200 overflow-hidden"
-      style={{ background: embedded ? 'transparent' : '#070709' }}
+      className="flex h-full w-full overflow-hidden"
+      style={{
+        background: embedded ? '#f8fafc' : '#070709',
+        color: embedded ? '#0f172a' : undefined,
+      }}
       role="region"
       aria-label="Atlas — assistant conversationnel"
     >
@@ -754,6 +763,7 @@ export default function ChatInterface({ embedded = false }) {
             <EmptyHero
               canChat={canChat}
               onPick={(s) => { setInput(s); textareaRef.current?.focus(); }}
+              embedded={embedded}
             />
           ) : (
             <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-7">
@@ -771,6 +781,7 @@ export default function ChatInterface({ embedded = false }) {
                     isStreaming={streaming}
                     onRegenerate={idx > 0 ? handleRegenerate : null}
                     onFeedback={handleFeedback}
+                    embedded={embedded}
                   />
                 );
               })}
@@ -815,7 +826,7 @@ export default function ChatInterface({ embedded = false }) {
         </div>
 
         {/* Composer flottant */}
-        <div className="px-4 sm:px-6 pb-4 pt-2 shrink-0">
+        <div className={`${embedded ? 'px-4 pb-3 pt-2' : 'px-4 sm:px-6 pb-4 pt-2'} shrink-0`}>
           {/* Bandeau édition */}
           {editingId && (
             <div className="max-w-3xl mx-auto mb-2 flex items-center justify-between text-[11.5px] text-amber-200/90 bg-amber-500/[0.08] border border-amber-500/20 rounded-md px-3 py-1.5">
@@ -826,7 +837,7 @@ export default function ChatInterface({ embedded = false }) {
             </div>
           )}
 
-          <div className={`max-w-3xl mx-auto ${isEmpty ? 'pb-8' : ''}`}>
+          <div className={`max-w-3xl mx-auto ${isEmpty && !embedded ? 'pb-8' : ''}`}>
             <div
               className={`relative rounded-3xl transition-all bg-white ${
                 inputOver
@@ -851,8 +862,8 @@ export default function ChatInterface({ embedded = false }) {
                 placeholder={canChat ? 'Demandez à Atlas…' : 'Connectez une source pour démarrer'}
                 rows={1}
                 aria-label="Saisir votre message"
-                className="w-full bg-transparent text-[14.5px] leading-[1.55] text-slate-800 placeholder:text-slate-400 px-5 pt-4 pb-12 resize-none focus:outline-none disabled:cursor-not-allowed"
-                style={{ maxHeight: 220 }}
+                className={`${embedded ? 'text-[13.5px] px-4 pt-3 pb-10' : 'text-[14.5px] px-5 pt-4 pb-12'} w-full bg-transparent leading-[1.55] text-slate-800 placeholder:text-slate-400 resize-none focus:outline-none disabled:cursor-not-allowed`}
+                style={{ maxHeight: embedded ? 120 : 220 }}
               />
 
               {/* Barre du composer */}

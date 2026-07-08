@@ -1444,6 +1444,22 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
             parts.append("PRIMARY KEY")
         return " ".join(parts)
 
+    def _unknown_literals_for_nk(dim: dict, nk_col: str | None) -> tuple[str, str]:
+        if not nk_col:
+            return "'Unknown'", "'N/A'"
+        nk_meta = next(
+            (c for c in dim.get("columns", []) if str(c.get("name", "")).lower() == str(nk_col).lower()),
+            {},
+        )
+        nk_type = str(nk_meta.get("type", "")).upper()
+        if any(t in nk_type for t in ("INT", "BIGINT", "SMALLINT", "TINYINT", "DECIMAL", "NUMERIC", "FLOAT", "REAL", "MONEY")):
+            return "-1", "-2"
+        if any(t in nk_type for t in ("DATE", "TIME")):
+            return "'1900-01-01'", "'1900-01-02'"
+        if "BIT" in nk_type:
+            return "0", "0"
+        return "'Unknown'", "'N/A'"
+
     # ── Dimensions d'abord (conformées pour constellation) ───────────────────
     for dim in model.get("dimension_tables", []):
         tname  = f"{prefix}_{dim['name']}"
@@ -1502,18 +1518,19 @@ def _generate_ddl(model: dict, prefix: str = "dw") -> str:
             # Dummy records : Unknown (-1) et Not Applicable (-2)
             has_identity = any("IDENTITY" in c.get("type", "") for c in dim.get("columns", []))
             sk_col = next((c["name"] for c in dim.get("columns", []) if c.get("role") == "pk"), "sk")
+            unknown_nk, na_nk = _unknown_literals_for_nk(dim, nk_col)
             lines.append(f"-- Membres inconnus : {dim['name']}")
             if has_identity:
                 lines.append(f"SET IDENTITY_INSERT [{tname}] ON;")
             lines.append(
                 f"IF NOT EXISTS (SELECT 1 FROM [{tname}] WHERE [{sk_col}] = -1)"
                 f" INSERT INTO [{tname}] ([{sk_col}],[{nk_col or 'natural_key'}],[valid_from],[valid_to],[is_current])"
-                f" VALUES (-1,'Unknown','1900-01-01','9999-12-31',1);"
+                f" VALUES (-1,{unknown_nk},'1900-01-01','9999-12-31',1);"
             )
             lines.append(
                 f"IF NOT EXISTS (SELECT 1 FROM [{tname}] WHERE [{sk_col}] = -2)"
                 f" INSERT INTO [{tname}] ([{sk_col}],[{nk_col or 'natural_key'}],[valid_from],[valid_to],[is_current])"
-                f" VALUES (-2,'N/A','1900-01-01','9999-12-31',1);"
+                f" VALUES (-2,{na_nk},'1900-01-01','9999-12-31',1);"
             )
             if has_identity:
                 lines.append(f"SET IDENTITY_INSERT [{tname}] OFF;")

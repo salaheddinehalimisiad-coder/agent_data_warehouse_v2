@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["backup"])
 
 # Dossier où le backend écrit les sources (= volume partagé avec SQL Server en Docker)
-BAK_DIR = Path(os.getenv("BAK_UPLOAD_DIR", "/app/uploads/bak"))
+BAK_DIR = Path(os.getenv("BAK_UPLOAD_DIR", "uploads/bak"))
 
 
 # ─── Table de correspondance version SQL Server ──────────────────────────────
@@ -135,28 +135,147 @@ def _get_sqlserver_backup_dir() -> Path:
     return None
 
 
-def _resolve_bak_path_for_sql_server(bak_path: str) -> str:
+def _get_sqlserver_host_platform(cursor) -> str:
+    """Retourne windows/linux selon le serveur SQL (pas l'OS du process Python)."""
+
+    def _norm_cell(v) -> str:
+        if v is None:
+            return ""
+        if isinstance(v, (bytes, bytearray)):
+            try:
+                v = bytes(v).decode("utf-8", errors="replace")
+            except Exception:
+                return ""
+        return str(v).strip().lower()
+
+    for sql in (
+        "SELECT CAST(SERVERPROPERTY('HostPlatform') AS NVARCHAR(32))",
+        "SELECT CAST(host_platform AS NVARCHAR(32)) FROM sys.dm_os_host_info",
+    ):
+        try:
+            cursor.execute(sql)
+            row = cursor.fetchone()
+            if row and row[0]:
+                s = _norm_cell(row[0])
+                if s:
+                    return s
+        except Exception as e:
+            logger.debug(f"[BAK] Plateforme SQL indisponible via ({sql[:48]}…): {e}")
+            continue
+
+    # Dernier recours : @@VERSION (fiable pour SQL Linux Docker même si ODBC tronque HostPlatform)
+    try:
+        cursor.execute("SELECT CAST(@@VERSION AS NVARCHAR(512))")
+        row = cursor.fetchone()
+        if row and row[0]:
+            v = _norm_cell(row[0])
+            if " on linux " in f" {v} " or "ubuntu" in v:
+                logger.info("[BAK] Plateforme SQL déduite depuis @@VERSION : linux")
+                return "linux"
+            if " on windows " in f" {v} " or ("microsoft sql server" in v and "windows" in v):
+                logger.info("[BAK] Plateforme SQL déduite depuis @@VERSION : windows")
+                return "windows"
+    except Exception as e:
+        logger.debug(f"[BAK] @@VERSION pour plateforme : {e}")
+
+    logger.warning("[BAK] Impossible de lire HostPlatform / dm_os_host_info / @@VERSION — chemin .bak peut être incorrect.")
+    return ""
+
+
+def _resolve_bak_path_for_sql_server(
+    bak_path: str, sql_host_platform: str = "", db_host: str = ""
+) -> str:
     """
     Résout le chemin du .bak TEL QUE VU par SQL Server.
     Sur Windows : copie le fichier dans le répertoire Backup de SQL Server
     pour contourner les restrictions d'accès aux dossiers utilisateur.
     Sur Linux/Docker : chemin remappé via SQLSERVER_BACKUP_MOUNT_DIR.
     """
-    if platform.system() == "Windows":
+    sql_host_platform = (sql_host_platform or "").lower()
+    db_host_l = (db_host or "").strip().lower()
+
+    if "linux" in sql_host_platform:
+        mount = os.getenv("SQLSERVER_BACKUP_MOUNT_DIR", "/var/opt/mssql/backup")
+        sql_path = str(Path(mount) / Path(bak_path).name).replace("\\", "/")
+        logger.info(f"[BAK] SQL Server Linux/Docker detecte, chemin SQL remappe : {sql_path}")
+        return sql_path
+
+    # Réseau Docker Compose : le moteur SQL est Linux même si le client Python est sur Windows (hors compose).
+    if db_host_l in ("sqlserver", "agent_dw_sqlserver"):
+        mount = os.getenv("SQLSERVER_BACKUP_MOUNT_DIR", "/var/opt/mssql/backup")
+        sql_path = str(Path(mount) / Path(bak_path).name).replace("\\", "/")
+        logger.info(f"[BAK] DB_HOST service Docker ({db_host!r}), chemin SQL remappe : {sql_path}")
+        return sql_path
+
+    # Backend sur l'hôte : SQL Server Docker publie le port hôte (défaut 14330, voir docker-compose / .env.example).
+    if db_host_l in ("127.0.0.1", "localhost", "::1"):
+        try:
+            exposed = int(os.getenv("SQLSERVER_HOST_PORT", "14330").strip())
+            dbport = int(os.getenv("DB_PORT", "1433").strip())
+            if dbport == exposed:
+                mount = os.getenv("SQLSERVER_BACKUP_MOUNT_DIR", "/var/opt/mssql/backup")
+                sql_path = str(Path(mount) / Path(bak_path).name).replace("\\", "/")
+                logger.info(
+                    f"[BAK] DB_HOST={db_host!r} + DB_PORT={dbport} (= SQLSERVER_HOST_PORT Docker), "
+                    f"chemin SQL conteneur : {sql_path}"
+                )
+                return sql_path
+        except ValueError:
+            pass
+
+    if "windows" in sql_host_platform:
         src = Path(bak_path).resolve()
         sql_backup_dir = _get_sqlserver_backup_dir()
         if sql_backup_dir and sql_backup_dir != src.parent:
             try:
                 dest = sql_backup_dir / src.name
-                import shutil
                 shutil.copy2(str(src), str(dest))
                 logger.info(f"[BAK] Fichier copié vers répertoire SQL Server : {dest}")
                 return str(dest)
             except Exception as e:
                 logger.warning(f"[BAK] Impossible de copier vers {sql_backup_dir}: {e} — utilisation du chemin direct")
         return str(src)
+
+    # Client Windows + SQL local non identifié comme Linux : chemins Windows (copie vers Backup SQL si besoin).
+    if platform.system() == "Windows":
+        src = Path(bak_path).resolve()
+        sql_backup_dir = _get_sqlserver_backup_dir()
+        if sql_backup_dir and sql_backup_dir != src.parent:
+            try:
+                dest = sql_backup_dir / src.name
+                shutil.copy2(str(src), str(dest))
+                logger.info(f"[BAK] Fichier copié vers répertoire SQL Server : {dest}")
+                return str(dest)
+            except Exception as e:
+                logger.warning(f"[BAK] Impossible de copier vers {sql_backup_dir}: {e} — utilisation du chemin direct")
+        return str(src)
+
     mount = os.getenv("SQLSERVER_BACKUP_MOUNT_DIR", "/var/opt/mssql/backup")
     return str(Path(mount) / Path(bak_path).name)
+
+
+def _sql_server_engine_is_linux(sql_host_platform: str, db_host: str) -> bool:
+    """
+    True si le moteur SQL Server cible tourne sous Linux (p.ex. image Docker).
+    Ne pas confondre avec l'OS du process Python (Windows + SQL Docker => True ici).
+    """
+    sp = (sql_host_platform or "").strip().lower()
+    if "windows" in sp:
+        return False
+    if "linux" in sp:
+        return True
+    dh = (db_host or "").strip().lower()
+    if dh in ("sqlserver", "agent_dw_sqlserver"):
+        return True
+    if dh in ("127.0.0.1", "localhost", "::1"):
+        try:
+            exposed = int(os.getenv("SQLSERVER_HOST_PORT", "14330").strip())
+            dbport = int(os.getenv("DB_PORT", "1433").strip())
+            if dbport == exposed:
+                return True
+        except ValueError:
+            pass
+    return False
 
 
 # ─── Endpoint unifié : détection automatique du format ──────────────────────
@@ -278,7 +397,6 @@ def restore_sqlserver_backup(bak_path: str, target_db: str) -> dict:
     if not env["password"]:
         return {"success": False, "error": "DB_PASSWORD manquant dans la configuration.", "tables": []}
 
-    bak_sql_path = _resolve_bak_path_for_sql_server(bak_path)
     safe_db      = _safe_db_name(target_db)
 
     try:
@@ -293,6 +411,10 @@ def restore_sqlserver_backup(bak_path: str, target_db: str) -> dict:
 
     try:
         # ── Preflight : lire le header du backup ──────────────────────────────
+        sql_host_platform = _get_sqlserver_host_platform(cursor)
+        bak_sql_path = _resolve_bak_path_for_sql_server(
+            bak_path, sql_host_platform, _db_env()["host"]
+        )
         header = _read_backup_header(cursor, bak_sql_path)
         server_major, server_full = _get_server_version(env)
 
@@ -362,12 +484,23 @@ def restore_sqlserver_backup(bak_path: str, target_db: str) -> dict:
             }
 
         # ── Chemins de destination des fichiers MDF/NDF/LDF ─────────────────
-        if platform.system() == "Windows":
-            cursor.execute("SELECT SERVERPROPERTY('InstanceDefaultDataPath')")
-            r = cursor.fetchone()
-            data_dir = r[0].rstrip("\\") if r and r[0] else "C:\\temp"
+        # Sur Windows, pathlib produit des '\' ; SQL Server Linux exige des chemins POSIX.
+        is_linux_sql = _sql_server_engine_is_linux(sql_host_platform, _db_env()["host"])
+        if is_linux_sql:
+            data_dir = (
+                os.getenv("SQLSERVER_DATA_DIR", "/var/opt/mssql/data")
+                .strip()
+                .replace("\\", "/")
+                .rstrip("/")
+            )
         else:
-            data_dir = os.getenv("SQLSERVER_DATA_DIR", "/var/opt/mssql/data")
+            cursor.execute("SELECT CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS NVARCHAR(512))")
+            r = cursor.fetchone()
+            raw = r[0] if r and r[0] is not None else None
+            if raw is None or str(raw).strip() == "":
+                data_dir = "C:\\temp"
+            else:
+                data_dir = str(raw).strip().rstrip("\\/")
 
         esc = lambda s: s.replace("'", "''")
 
@@ -375,11 +508,17 @@ def restore_sqlserver_backup(bak_path: str, target_db: str) -> dict:
         move_parts = []
         for i, f in enumerate(data_files):
             ext = ".mdf" if i == 0 else f"_data{i + 1}.ndf"
-            dest = str(Path(data_dir) / f"{safe_db}{ext}")
+            if is_linux_sql:
+                dest = f"{data_dir}/{safe_db}{ext}"
+            else:
+                dest = str(Path(data_dir) / f"{safe_db}{ext}")
             move_parts.append(f"MOVE N'{esc(f['LogicalName'])}' TO N'{esc(dest)}'")
         for i, f in enumerate(log_files):
             suffix = "_log.ldf" if i == 0 else f"_log{i + 1}.ldf"
-            dest = str(Path(data_dir) / f"{safe_db}{suffix}")
+            if is_linux_sql:
+                dest = f"{data_dir}/{safe_db}{suffix}"
+            else:
+                dest = str(Path(data_dir) / f"{safe_db}{suffix}")
             move_parts.append(f"MOVE N'{esc(f['LogicalName'])}' TO N'{esc(dest)}'")
         logger.info(f"[BAK] {len(data_files)} data file(s), {len(log_files)} log file(s) → {len(move_parts)} MOVE clause(s)")
 
